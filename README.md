@@ -86,14 +86,14 @@ dsh-promptkit/
 │   ├── ui/          # 组件（foundation.js 基础设施 + studio.js + quick-enhancer.js）
 │   └── index.js     # 公共入口（npm 库形态）
 ├── methods/         # 12 个 Markdown 方法库（从 Memory Center 迁移，带 frontmatter + 完整 prompt 正文）
-│   ├── builtin.json # 构建时解析产物（供 StaticMethodProvider 加载）
+│   ├── builtin.json # 构建产物（scripts/build-methods.mjs 从 Markdown 解析生成，勿手改）
 │   ├── 决策/        # 双向钢人论证、用最小实验替代空想
 │   ├── 学习/        # 事实核查、双层解释法、反向拆解、横纵分析法
 │   ├── 解决问题/    # 专家会诊、第一性原理、跨领域借解
 │   ├── 认识你自己/  # 人生设计术、挖掘隐藏天赋
 │   └── 问清问题/    # 苏格拉底式提问
 ├── dsh/             # 独立 DSH 插件 glue（standalone-glue.js：插槽注册 + 默认 adapter 装配）
-├── scripts/         # build-client.mjs：零依赖浏览器端构建器（standalone / --mc 两模式）
+├── scripts/         # build-methods.mjs（md → builtin.json）+ build-client.mjs（零依赖浏览器端构建器，standalone / --mc 两模式）
 ├── ui/client.js     # 生成的独立 DSH 浏览器视图（勿手改，npm run build:ui 产出）
 ├── examples/basic/  # 零构建可运行 demo（importmap + esm.sh）
 ├── LICENSE          # MIT
@@ -152,7 +152,7 @@ const messages = conversationMessages(useSession(value => value))
 
 12 个方法从 Memory Center 的 `prompts/` 目录迁移而来（Markdown 格式，带 frontmatter 元数据：场景、用途、标签、触发词）。每个方法包含完整的 prompt 正文，用户填入问题/事实/约束后可直接替换占位符生成最终 Prompt。
 
-新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:ui` 重新生成——构建脚本会自动解析并内联到 `ui/client.js`。
+新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:methods` 重新生成 `methods/builtin.json`（`scripts/build-methods.mjs` 解析 frontmatter + 正文；`mode`/`outcome` 在脚本内 `OVERRIDES` 表维护），再 `npm run build:ui` 把新方法内联到 `ui/client.js`。直接 `npm run build` 一条命令完成全部三步。
 
 ## License
 
