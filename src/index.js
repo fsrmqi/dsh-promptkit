@@ -1,7 +1,6 @@
 // PromptKit 公共入口。
-// 注意：ui/studio.js 与 ui/quick-enhancer.js 当前仍是“从 Memory Center 原样搬迁”的版本，
-// 内部仍引用 useResource/fetchView/useSession/inputActions 等私有运行时（见文件内 TODO）。
-// 下一阶段接口化后，两个组件将改为接收注入的 deps（methodProvider / composer / enhancer / messages）。
+// 两个 UI 组件零宿主依赖：外部能力（方法源 / 写入目标 / 模型调用 / 对话上下文 / 记忆检索）
+// 全部经 props 注入，见组件文件头注释。
 
 export { PromptStudio } from './ui/studio.js'
 export { QuickEnhancer } from './ui/quick-enhancer.js'

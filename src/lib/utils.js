@@ -1,4 +1,7 @@
-// 纯函数工具（从 Memory Center 抽取，通用、不含宿主私有逻辑）
+// 纯函数工具（从 Memory Center 抽取，通用、不含宿主私有逻辑）。
+// 组件只消费宿主无关的数据结构：messages = [{ id, role: 'user'|'assistant', text }]。
+// 把宿主自有会话结构（如 DSH snapshot nodes）转成 messages 是宿主 adapter 的职责，不在本包内。
+
     const safeText = value => typeof value === 'string' ? value.slice(0, 240) : ''
 
     const list = value => Array.isArray(value) ? value : []
@@ -24,52 +27,18 @@
       .trim()
       .slice(0, 1200)
 
+    // 通用文本清洗：宿主 adapter 把自有会话文本转成 messages 时可复用。
     const cleanConversationText = value => String(value || '')
       .replace(/```[\s\S]*?```/g, '')
       .replace(/(?:sk-[A-Za-z0-9_-]{12,}|Bearer\s+[A-Za-z0-9._-]{12,})/g, '[已省略敏感片段]')
       .replace(/\s+/g, ' ')
       .trim()
 
-    function conversationDraft(snapshot) {
-      const nodes = list(snapshot?.nodes)
-      const users = nodes.filter(node => node?.kind === 'user')
-      const assistants = nodes.filter(node => node?.kind === 'assistant')
-      const userText = users.map(node => list(node.content).filter(block => block?.type === 'text').map(block => block.text).join(' ')).filter(Boolean)
-      const assistantText = assistants.map(node => list(node.blocks).filter(block => block?.kind === 'text').map(block => block.text).join(' ')).filter(Boolean)
-      const latestUser = cleanConversationText(userText.at(-1)).slice(0, 700)
-      const latestAssistant = cleanConversationText(assistantText.at(-1))
-      const sentences = latestAssistant.split(/(?<=[。！？.!?])\s+/).filter(Boolean)
-      const pick = matcher => sentences.filter(text => matcher.test(text)).slice(0, 4).join('\n').slice(0, 700)
-      return {
-        question: latestUser,
-        facts: pick(/已确认|事实|发现|修改完成|验证通过|测试通过|当前|存在/),
-        constraints: pick(/必须|不能|约束|限制|兼容|风险|时间|成本/),
-        options: pick(/方案|选项|路径|建议|A[、. ]|B[、. ]/),
-        unresolved: pick(/待确认|需要确认|未知|未决|还需|下一步/),
-        source_count: userText.length + assistantText.length,
-      }
-    }
-
-    function conversationMessages(snapshot, limit = 12) {
-      const nodes = list(snapshot?.nodes)
-      const messages = []
-      // The launcher only ever renders a small recent window. Scan backwards
-      // and stop once it is full so a long-lived DSH session stays responsive.
-      for (let index = nodes.length - 1; index >= 0 && messages.length < limit; index -= 1) {
-        const node = nodes[index]
-        const role = node?.kind === 'user' ? 'user' : node?.kind === 'assistant' ? 'assistant' : ''
-        if (!role) continue
-        const blocks = role === 'user' ? list(node.content) : list(node.blocks)
-        const text = cleanConversationText(blocks.filter(block => block?.type === 'text' || block?.kind === 'text').map(block => block.text).join(' '))
-        if (!text) continue
-        messages.push({ id: `${role}:${node.turn ?? ''}:${node.step ?? ''}:${index}`, role, text: text.slice(0, 900), truncated: text.length > 900 })
-      }
-      return messages
-    }
-
+    // 从已选消息数组生成表单草稿（问题/事实/约束/方案/未决）。
     function selectedConversationDraft(messages) {
-      const users = messages.filter(item => item.role === 'user').map(item => item.text)
-      const assistants = messages.filter(item => item.role === 'assistant').map(item => item.text)
+      const items = list(messages)
+      const users = items.filter(item => item.role === 'user').map(item => item.text).filter(Boolean)
+      const assistants = items.filter(item => item.role === 'assistant').map(item => item.text).filter(Boolean)
       const answer = assistants.join('\n').slice(0, 1500)
       const sentences = answer.split(/(?<=[。！？.!?])\s+/).filter(Boolean)
       const pick = matcher => sentences.filter(text => matcher.test(text)).slice(0, 5).join('\n').slice(0, 700)
@@ -78,6 +47,8 @@
         facts: pick(/已确认|事实|发现|修改完成|验证通过|测试通过|当前|存在/) || answer.slice(0, 700),
         constraints: pick(/必须|不能|约束|限制|兼容|风险|时间|成本/),
         options: pick(/方案|选项|路径|建议|A[、. ]|B[、. ]/),
+        unresolved: pick(/待确认|需要确认|未知|未决|还需|下一步|TBD/),
+        source_count: users.length + assistants.length,
       }
     }
 
@@ -93,6 +64,63 @@
       if (ratio > 0.7) return 'en'
       if (ratio > 0.3) return 'mixed'
       return 'zh'
+    }
+
+    // 方法触发词表：轻量增强、方法推荐与冲突检测共用同一份信号，避免“推荐 ≠ 采用”。
+    // MethodProvider 返回的方法 keywords（触发词）会覆盖同名条目。
+    const METHOD_SIGNATURES = {
+      '第一性原理': ['全链路', '链路', '整体分析', '本质', '根因', '拆解', '架构', '审查'],
+      '苏格拉底式提问': ['报错', '异常', '失败', '为什么', '原因', '排查'],
+      '用最小实验替代空想': ['实现', '开发', '修改', '重构', '新增', '优化'],
+      '双向钢人论证': ['方案', '选型', '取舍', '哪个好', '是否', '比较', '对比', '决策', '选择', '风险'],
+    }
+    // 轻量增强模板的语义展示名：内置模板是单轮整形，与多轮方法名实不符，
+    // 展示用语义名（链路审查/排障收敛/开发收敛/决策权衡），内部仍按方法名联动推荐。
+    const TEMPLATE_LABELS = {
+      '第一性原理': '链路审查',
+      '苏格拉底式提问': '排障收敛',
+      '用最小实验替代空想': '开发收敛',
+      '双向钢人论证': '决策权衡',
+    }
+    // 计分制：强信号命中 1 个即判该方法，弱信号需 ≥2 个组合命中才判，
+    // 避免 ‘是否’/‘选择’/‘风险’ 等常见词单独出现时误分类。
+    const STRONG_SIGNALS = new Set(['选型', '取舍', '哪个好', '对比', '决策', '全链路', '链路', '本质', '根因', '报错', '异常', '排查'])
+
+    function buildSignatures(methods) {
+      const signatures = { ...METHOD_SIGNATURES }
+      for (const method of list(methods)) {
+        if (method?.title && method.keywords?.length) signatures[method.title] = method.keywords
+      }
+      return signatures
+    }
+
+    function lightTemplate(method, source, suffix) {
+      const label = TEMPLATE_LABELS[method] || method
+      if (method === '第一性原理') return { label, reason: '需要拆开链路、依赖、假设与验证点，避免只罗列现象。', prompt: `请基于草稿中提供的信息，对“${source}”做一次系统性审查。\n\n请按链路环节逐一拆解：目标、输入输出、依赖、关键假设和验证点；再输出已确认部分、按高/中/低分级的问题与风险，以及每项的最小验证动作和下一步。\n\n仅基于草稿已有信息判断；信息不足时标记“待确认”，不要补造事实。${suffix}` }
+      if (method === '苏格拉底式提问') return { label, reason: '排障信息通常不完整，应先收敛关键假设，再做最小验证。', prompt: `请排查这个问题：${source}\n\n先给出最可能的原因排序；对每个原因说明已有证据、最小验证步骤和修复建议。若关键信息不足，只询问最能缩小范围的一个问题；不要假设未提供的环境、配置或日志。${suffix}` }
+      if (method === '用最小实验替代空想') return { label, reason: '开发任务优先收敛范围与验收，避免在未验证前扩大改动。', prompt: `请完成这个开发任务：${source}\n\n先明确最小改动范围、兼容边界和验收标准；优先用最小验证确认关键假设，再实施。完成后说明改动、验证结果、已知风险和下一步。不要进行超出任务范围的重构。${suffix}` }
+      if (method === '双向钢人论证') return { label, reason: '存在方案取舍时，需要完整呈现支持与反对理由再做判断。', prompt: `请分析这项决策：${source}\n\n分别完整说明主要方案的支持理由、反对理由、适用条件和风险；再给出推荐方案、成立前提与最小验证动作。不要把不确定信息当作事实。${suffix}` }
+      return { label, reason: '任务意图已较清楚，不强行套用方法，只做最小化表达整理。', prompt: `请直接处理这项任务：${source}\n\n先给出结论或可执行方案；再说明关键依据、资源/时间/数据可得性等现实限制与下一步。若信息不足，只提出最关键的澄清问题，不要编造事实。${suffix}` }
+    }
+
+    function classify(source, guidance, signatures) {
+      const suffix = guidance ? `\n\n额外要求：${guidance}` : ''
+      const hits = []
+      for (const [title, triggers] of Object.entries(signatures)) {
+        // 内置 4 方法走计分制防误判；方法库扩展方法的关键词是作者手写触发词，任一命中即判。
+        if (Object.prototype.hasOwnProperty.call(METHOD_SIGNATURES, title)) {
+          const strong = triggers.filter(token => STRONG_SIGNALS.has(token) && source.includes(token))
+          const weak = triggers.filter(token => !STRONG_SIGNALS.has(token) && source.includes(token))
+          if (strong.length >= 1 || weak.length >= 2) hits.push({ title, signals: [...strong, ...weak] })
+        } else {
+          const matched = triggers.filter(token => source.includes(token))
+          if (matched.length) hits.push({ title, signals: matched })
+        }
+      }
+      const first = hits[0]
+      if (!first) return { method: '', label: '', signals: [], conflicts: [], ...lightTemplate('', source, suffix) }
+      const conflicts = hits.slice(1).map(item => ({ title: item.title, label: TEMPLATE_LABELS[item.title] || item.title, signals: item.signals }))
+      return { method: first.title, label: TEMPLATE_LABELS[first.title] || first.title, signals: hits.flatMap(item => item.signals), conflicts, ...lightTemplate(first.title, source, suffix) }
     }
 
     function planPromptEnhancement(draft, extra = '', methods = []) {
@@ -117,4 +145,4 @@
       return [methodChoice(methods, '苏格拉底式提问'), methodChoice(methods, '第一性原理')].filter(Boolean)
     }
 
-export { safeText, list, obj, cleanSummary, cleanContext, cleanConversationText, conversationDraft, conversationMessages, selectedConversationDraft, methodChoice, detectLanguage, planPromptEnhancement, recommendMethods }
+export { safeText, list, obj, cleanSummary, cleanContext, cleanConversationText, selectedConversationDraft, methodChoice, detectLanguage, METHOD_SIGNATURES, TEMPLATE_LABELS, STRONG_SIGNALS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }

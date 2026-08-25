@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PromptKit 基础示例</title>
+<style>
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f4f7f8; }
+  .hint { width: min(720px, calc(100% - 32px)); margin: 20px auto 8px; color: #5c6b74; font-size: 13px; line-height: 1.6; }
+  #target { display: block; width: min(720px, calc(100% - 32px)); margin: 0 auto 32px; min-height: 140px; padding: 12px 14px; border: 1px solid #ccd7dc; border-radius: 10px; font-size: 14px; line-height: 1.6; font-family: inherit; box-sizing: border-box; resize: vertical; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "dsh-promptkit": "../../src/index.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app"></div>
+<p class="hint">下方输入框即 Composer 写入目标：方法工坊「写入输入框 / 复制 Prompt」与右下角快捷助手（⌘K）的生成结果都会填到这里。</p>
+<textarea id="target" placeholder="在这里写下你的原始提示词，或用方法工坊生成……"></textarea>
+<script type="module">
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { PromptStudio, QuickEnhancer, StaticMethodProvider, TextareaComposer, OpenAIEnhancer } from 'dsh-promptkit'
+
+const target = document.getElementById('target')
+const methodProvider = new StaticMethodProvider()
+const composer = new TextareaComposer(target)
+
+// 可选：接入任意 OpenAI 兼容端点后，快捷助手会多出「语义 · 模型」增强档位
+// const enhancer = new OpenAIEnhancer({ endpoint: 'https://api.openai.com/v1/chat/completions', apiKey: 'sk-…', model: 'gpt-4o-mini' })
+
+// 可选：把宿主当前对话传给组件（[{ id, role: 'user'|'assistant', text }]），
+// 快捷助手即可提供「加对话」参考与「从当前对话提取」。
+const messages = [
+  { id: 'u1', role: 'user', text: '帮我把提示词工具开源，要注意什么？' },
+  { id: 'a1', role: 'assistant', text: '建议先界定开源范围与许可证，MIT 允许闭源衍生。已确认核心组件零宿主依赖。下一步：抽取通用方法库。' },
+]
+
+function App() {
+  return React.createElement(React.Fragment, null,
+    React.createElement(PromptStudio, { methodProvider, composer, messages }),
+    React.createElement(QuickEnhancer, { methodProvider, composer, messages }),
+  )
+}
+
+createRoot(document.getElementById('app')).render(React.createElement(App))
+</script>
+</body>
+</html>

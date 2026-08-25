@@ -1,7 +1,18 @@
 // 精选通用思考方法子集（随包开源，不涉密、有普适价值）。
 // 字段与 Memory Center 内部方法结构对齐，便于 DSH 适配器直接桥接。
+// 注意：苏格拉底式提问 / 第一性原理 / 双向钢人论证 被组件作为“常用方法”硬编码
+//（fan 按钮、⌘1-3 快捷键、置顶区），必须包含在默认方法库中，独立运行时体验才完整。
 
 export const BUILTIN_METHODS = [
+  {
+    id: 'socratic',
+    title: '苏格拉底式提问',
+    category: '澄清',
+    mode: 'guided',
+    purpose: '通过逐步追问澄清问题，直到问题足够清楚再推进。',
+    outcome: '关键澄清问题与一个清晰、可执行的问题陈述。',
+    tags: '提问 澄清',
+  },
   {
     id: 'first-principles',
     title: '第一性原理',
@@ -10,6 +21,24 @@ export const BUILTIN_METHODS = [
     purpose: '把问题拆到不可再分的基本事实，再向上重构方案。',
     outcome: '一份从基本事实出发的结构化推导。',
     tags: '拆解 推导',
+  },
+  {
+    id: 'steelman',
+    title: '双向钢人论证',
+    category: '决策',
+    mode: 'structured',
+    purpose: '重述问题后，分别给出正反双方的最强论证，再定位核心分歧。',
+    outcome: '双方最强论证与唯一核心分歧点。',
+    tags: '决策 论证',
+  },
+  {
+    id: 'minimal-experiment',
+    title: '用最小实验替代空想',
+    category: '执行',
+    mode: 'structured',
+    purpose: '先收敛最小改动范围与验收标准，用最小验证代替假设推演。',
+    outcome: '最小改动范围、验收标准与验证结果。',
+    tags: '执行 验证',
   },
   {
     id: 'five-whys',

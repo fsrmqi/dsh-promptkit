@@ -1,9 +1,11 @@
 # PromptKit
 
+> npm 包名：**`dsh-promptkit`**（仓库名 `promptkit`）
+
 开源的 Prompt 构建与增强工具包，包含两个独立可用的能力：
 
 - **`PromptStudio`（方法工坊）**：选择思考方法，用问题 / 事实 / 约束生成可编辑 Prompt。
-- **`QuickEnhancer`（对话快捷增强器）**：悬浮在对话旁的按钮，把当前输入框提示词做轻量 / 语义增强，或从方法库填充、改造。
+- **`QuickEnhancer`（对话快捷增强器）**：悬浮在对话旁的按钮（⌘K），把当前输入框提示词做轻量 / 语义增强，或从方法库填充、改造。
 
 ## 设计原则：单一代码源，双消费
 
@@ -11,11 +13,66 @@ PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，�
 
 | 接口 | 职责 | 开源默认实现 | Memory Center 闭源实现 |
 | --- | --- | --- | --- |
-| `MethodProvider` | 方法源 / 组合 / 模板 | `StaticMethodProvider`（内置 7 个通用方法） | 接 MC 私有 catalog |
-| `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea） | 接 DSH 消息框 `inputActions` |
-| `Enhancer` | 语义 / 轻量增强的模型调用 | `OpenAIEnhancer`（任意 LLM） | 接当前会话模型 |
+| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 历史 | `StaticMethodProvider`（内置 10 个通用方法，localStorage 持久化） | 接 MC 私有 catalog |
+| `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） | 接 DSH 消息框 `inputActions` |
+| `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） | 接当前会话模型 |
 
 这样 **开源出去的和你自用的，是同一份核心代码**——差别只在注入什么 adapter，绝不分叉成两份维护。
+
+## 组件 Props
+
+两个组件的可选能力一律「未注入即隐藏对应 UI」：
+
+### `<PromptStudio />`
+
+| Prop | 必填 | 说明 |
+| --- | --- | --- |
+| `methodProvider` | ✅ | `MethodProvider` 实例 |
+| `messages` | | 当前对话 `[{ id, role: 'user'\|'assistant', text }]`，供「从当前对话提取」 |
+| `onSend` | | `(text) => Promise`，预览区出现「发送到当前会话」按钮 |
+| `composer` | | `Composer` 实例，预览区出现「写入输入框」按钮（另有始终可用的「复制 Prompt」） |
+| `getRecentSessions` | | `() => Promise<Array<{ intent?, summary? }>>`，显示「追加最近会话摘要」区块 |
+| `searchMemory` | | `(query) => Promise<string>`，显示「按自然语言搜索项目记忆」区块 |
+
+### `<QuickEnhancer />`
+
+| Prop | 必填 | 说明 |
+| --- | --- | --- |
+| `methodProvider` | ✅ | `MethodProvider` 实例 |
+| `composer` | ✅ | `Composer` 实例；生成 / 增强 / 撤销全部经它读写草稿 |
+| `enhancer` | | `Enhancer` 实例；未注入时仅保留「轻量 · 零 Token」档位 |
+| `messages` | | 当前对话数组，供「加对话」参考与消息选择 |
+| `searchMemory` | | `(query) => Promise<string>`，提供「加项目记忆」上下文档位 |
+
+## 用法
+
+```js
+import {
+  PromptStudio, QuickEnhancer,
+  StaticMethodProvider, TextareaComposer, OpenAIEnhancer,
+} from 'dsh-promptkit'
+
+const methodProvider = new StaticMethodProvider()
+const composer = new TextareaComposer(document.querySelector('textarea'))
+
+<PromptStudio methodProvider={methodProvider} composer={composer} />
+<QuickEnhancer
+  methodProvider={methodProvider}
+  composer={composer}
+  enhancer={new OpenAIEnhancer({ endpoint, apiKey, model })}
+  messages={messages}
+/>
+```
+
+### 运行示例
+
+```bash
+cd promptkit
+python3 -m http.server 8080
+# 浏览器打开 http://localhost:8080/examples/basic/
+```
+
+示例页面用 importmap 直连 `src/`（React 走 esm.sh CDN），无需构建步骤。
 
 ## 目录结构
 
@@ -23,38 +80,44 @@ PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，�
 promptkit/
 ├── src/
 │   ├── core/        # 三接口定义（MethodProvider / Composer / Enhancer）
-│   ├── lib/         # 通用纯函数（utils.js：cleanSummary / planPromptEnhancement / ...）
-│   ├── methods/     # 精选开源方法库子集（builtin.js）
-│   ├── adapters/    # 示例实现（StaticMethodProvider / TextareaComposer / OpenAIEnhancer）
+│   ├── lib/         # 通用纯函数（utils.js：分类链 / planPromptEnhancement / selectedConversationDraft / ...）
+│   ├── methods/     # 开源方法库（builtin.js，10 个通用思考方法）
+│   ├── adapters/    # 默认实现（StaticMethodProvider / TextareaComposer / OpenAIEnhancer）
 │   ├── ui/          # 组件（foundation.js 基础设施 + studio.js + quick-enhancer.js）
 │   └── index.js     # 公共入口
-├── examples/        # 最小可运行 demo（规划中）
+├── examples/basic/  # 零构建可运行 demo（importmap + esm.sh）
+├── LICENSE          # MIT
 └── package.json
 ```
 
-## 当前状态（迁移中）
+## 宿主对接（闭源侧怎么做）
 
-- ✅ 基础设施、工具函数、方法库、示例 adapter、三接口 已全部就位
-- ✅ 两个组件已从 Memory Center 原样搬迁（`src/ui/studio.js` / `src/ui/quick-enhancer.js`）
-- ✅ 私有 localStorage 命名空间已从 `memory-center.*` 改为 `promptkit.*`
-- 🚧 两个组件内部仍引用 `useResource` / `fetchView` / `useSession` / `inputActions` / `input` 等宿主私有运行时（见文件内 `TODO(开源解耦)`）。下一阶段将改为接收注入的 `deps`，使其可脱离 Memory Center 独立运行。
-
-## 用法（接口化完成后）
+以 Memory Center / DSH 插件为例，写三个 adapter 即可接入同一份核心：
 
 ```js
-import {
-  PromptStudio, QuickEnhancer,
-  StaticMethodProvider, TextareaComposer, OpenAIEnhancer,
-} from 'promptkit'
+// 1) 方法源：桥接 MC 私有 catalog
+class MemoryCenterMethodProvider extends MethodProvider {
+  async list() { return (await fetchView(sessionId, 'prompt-catalog')).methods }
+  async compose(input) { return fetchView(sessionId, 'prompt-compose', input) }
+  async getTemplate(methodId) { return fetchView(sessionId, 'prompt-template', { method_id: methodId }) }
+  // 收藏 / 历史可沿用 localStorage（key 与开源版一致），或落到 MC 存储
+}
 
-// 自选 adapter 注入即可，核心零改动
-<PromptStudio methodProvider={new StaticMethodProvider()} composer={/* your Composer */} onSend={/* your sender */} />
-<QuickEnhancer
-  methodProvider={/* your MethodProvider */}
-  composer={new TextareaComposer(textareaEl)}
-  enhancer={new OpenAIEnhancer({ endpoint, apiKey, model })}
-  messages={messages}
-/>
+// 2) 写入目标：桥接 DSH 消息框
+class DshComposer extends Composer {
+  getDraft() { return input.draft }
+  write(text) { inputActions.setDraft(text) }
+  onChange(cb) { return subscribeDraft(cb) }   // 订阅草稿变化
+}
+
+// 3) 模型调用：桥接当前会话模型
+class MemoryCenterEnhancer extends Enhancer {
+  async enhance({ draft, extra, lang, kind, method }) { /* 调 /memory-center/semantic-enhance */ }
+  cancel() { /* 透传 AbortController */ }
+}
+
+// 4) 对话上下文：DSH snapshot → messages（本包不感知 snapshot 结构）
+const messages = conversationMessages(useSession(value => value))
 ```
 
 ## License
