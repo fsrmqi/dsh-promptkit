@@ -1,6 +1,6 @@
 # PromptKit
 
-> npm 包名：**`dsh-promptkit`**（仓库名 `promptkit`）
+> npm 包名 / 仓库名：**`dsh-promptkit`**
 
 开源的 Prompt 构建与增强工具包，包含两个独立可用的能力：
 
@@ -77,18 +77,39 @@ python3 -m http.server 8080
 ## 目录结构
 
 ```
-promptkit/
+dsh-promptkit/
 ├── src/
 │   ├── core/        # 三接口定义（MethodProvider / Composer / Enhancer）
-│   ├── lib/         # 通用纯函数（utils.js：分类链 / planPromptEnhancement / selectedConversationDraft / ...）
+│   ├── lib/         # 通用纯函数（utils.js：分类链 / planPromptEnhancement / conversationMessages / ...）
 │   ├── methods/     # 开源方法库（builtin.js，10 个通用思考方法）
 │   ├── adapters/    # 默认实现（StaticMethodProvider / TextareaComposer / OpenAIEnhancer）
 │   ├── ui/          # 组件（foundation.js 基础设施 + studio.js + quick-enhancer.js）
-│   └── index.js     # 公共入口
+│   └── index.js     # 公共入口（npm 库形态）
+├── dsh/             # 独立 DSH 插件 glue（standalone-glue.js：插槽注册 + 默认 adapter 装配）
+├── scripts/         # build-client.mjs：零依赖浏览器端构建器（standalone / --mc 两模式）
+├── ui/client.js     # 生成的独立 DSH 浏览器视图（勿手改，npm run build:ui 产出）
 ├── examples/basic/  # 零构建可运行 demo（importmap + esm.sh）
 ├── LICENSE          # MIT
-└── package.json
+└── package.json     # 含 dsh.client manifest（DSH Loader 发现用）
 ```
+
+## 作为 DSH 插件直接安装
+
+本仓库自带 DSH 浏览器插件形态，无需写任何代码即可在 DSH 中使用：
+
+```bash
+# 1. 构建独立浏览器视图（生成 ui/client.js，零依赖拼接，无打包器）
+npm run build:ui
+
+# 2. 把本包放入 DSH 插件目录（结构对齐 memory-center-dsh-plugin-ui 模式：
+#    package.json 的 dsh.client manifest + ui/client.js，DSH Loader 自动发现）
+```
+
+- 插件形态使用**内置 10 个通用思考方法**（`StaticMethodProvider`，全本地、零后端）；
+- 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right`），「发送到当前会话」走 DSH 会话 API；
+- 可选开启语义增强（模型改写草稿）：配置 `window.DSH_PROMPTKIT_CONFIG = { baseUrl, apiKey, model }` 或 localStorage `dsh-promptkit.config.v1`（任意 OpenAI 兼容端点）；未配置时自动降级为轻量增强（零 Token）。
+
+构建产物 `ui/client.js` 为单文件 lazy-CJS 工厂（`window.__ModuleLoader__.load`），由 `scripts/build-client.mjs` 从 `src/` 剥离 ESM 语法拼接生成——**组件代码只有一份源码**，npm 库形态与 DSH 插件形态共用。
 
 ## 宿主对接（闭源侧怎么做）
 

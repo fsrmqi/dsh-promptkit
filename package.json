@@ -1,24 +1,46 @@
 {
   "name": "dsh-promptkit",
   "version": "0.1.0",
-  "description": "Open-source Prompt 构建与增强工具包：方法工坊（Studio）+ 对话快捷增强器（QuickEnhancer）。零依赖宿主，通过 adapter 注入方法源 / 写入目标 / 模型调用。",
+  "description": "Open-source Prompt 构建与增强工具包：方法工坊（Studio）+ 对话快捷增强器（QuickEnhancer）。可作为 npm 库嵌入，也可直接安装为 DSH 浏览器插件。",
   "type": "module",
   "main": "src/index.js",
   "module": "src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./ui/client": "./ui/client.js"
   },
   "files": [
     "src",
+    "ui",
+    "dsh",
+    "scripts",
+    "examples",
     "README.md",
     "LICENSE"
   ],
   "license": "MIT",
-  "keywords": ["prompt", "prompt-engineering", "llm", "ui", "react"],
+  "keywords": [
+    "prompt",
+    "prompt-engineering",
+    "llm",
+    "ui",
+    "react"
+  ],
   "peerDependencies": {
     "react": ">=17"
   },
   "scripts": {
-    "check": "node --check src/index.js && node --check src/ui/foundation.js && node --check src/ui/studio.js && node --check src/ui/quick-enhancer.js && node --check src/lib/utils.js && node --check src/core/method-provider.js && node --check src/core/composer.js && node --check src/core/enhancer.js && node --check src/methods/builtin.js && node --check src/adapters/static-method-provider.js && node --check src/adapters/textarea-composer.js && node --check src/adapters/openai-enhancer.js"
+    "check": "node --check src/index.js && node --check src/ui/foundation.js && node --check src/ui/studio.js && node --check src/ui/quick-enhancer.js && node --check src/lib/utils.js && node --check src/core/method-provider.js && node --check src/core/composer.js && node --check src/core/enhancer.js && node --check src/methods/builtin.js && node --check src/adapters/static-method-provider.js && node --check src/adapters/textarea-composer.js && node --check src/adapters/openai-enhancer.js",
+    "build:ui": "node scripts/build-client.mjs",
+    "build": "npm run check && npm run build:ui"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
   }
 }

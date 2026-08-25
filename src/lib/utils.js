@@ -145,4 +145,40 @@
       return [methodChoice(methods, '苏格拉底式提问'), methodChoice(methods, '第一性原理')].filter(Boolean)
     }
 
-export { safeText, list, obj, cleanSummary, cleanContext, cleanConversationText, selectedConversationDraft, methodChoice, detectLanguage, METHOD_SIGNATURES, TEMPLATE_LABELS, STRONG_SIGNALS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }
+function conversationDraft(snapshot) {
+  const nodes = list(snapshot?.nodes)
+  const users = nodes.filter(node => node?.kind === 'user')
+  const assistants = nodes.filter(node => node?.kind === 'assistant')
+  const userText = users.map(node => list(node.content).filter(block => block?.type === 'text').map(block => block.text).join(' ')).filter(Boolean)
+  const assistantText = assistants.map(node => list(node.blocks).filter(block => block?.kind === 'text').map(block => block.text).join(' ')).filter(Boolean)
+  const latestUser = cleanConversationText(userText.at(-1)).slice(0, 700)
+  const latestAssistant = cleanConversationText(assistantText.at(-1))
+  const sentences = latestAssistant.split(/(?<=[。！？.!?])\s+/).filter(Boolean)
+  const pick = matcher => sentences.filter(text => matcher.test(text)).slice(0, 4).join('\n').slice(0, 700)
+  return {
+    question: latestUser,
+    facts: pick(/已确认|事实|发现|修改完成|验证通过|测试通过|当前|存在/),
+    constraints: pick(/必须|不能|约束|限制|兼容|风险|时间|成本/),
+    options: pick(/方案|选项|路径|建议|A[、. ]|B[、. ]/),
+    unresolved: pick(/待确认|需要确认|未知|未决|还需|下一步/),
+    source_count: userText.length + assistantText.length,
+  }
+}
+function conversationMessages(snapshot, limit = 12) {
+  const nodes = list(snapshot?.nodes)
+  const messages = []
+  // The launcher only ever renders a small recent window. Scan backwards
+  // and stop once it is full so a long-lived DSH session stays responsive.
+  for (let index = nodes.length - 1; index >= 0 && messages.length < limit; index -= 1) {
+    const node = nodes[index]
+    const role = node?.kind === 'user' ? 'user' : node?.kind === 'assistant' ? 'assistant' : ''
+    if (!role) continue
+    const blocks = role === 'user' ? list(node.content) : list(node.blocks)
+    const text = cleanConversationText(blocks.filter(block => block?.type === 'text' || block?.kind === 'text').map(block => block.text).join(' '))
+    if (!text) continue
+    messages.push({ id: `${role}:${node.turn ?? ''}:${node.step ?? ''}:${index}`, role, text: text.slice(0, 900), truncated: text.length > 900 })
+  }
+  return messages
+}
+
+export { safeText, conversationDraft, conversationMessages, list, obj, cleanSummary, cleanContext, cleanConversationText, selectedConversationDraft, methodChoice, detectLanguage, METHOD_SIGNATURES, TEMPLATE_LABELS, STRONG_SIGNALS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }

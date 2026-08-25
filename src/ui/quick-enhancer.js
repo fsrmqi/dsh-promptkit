@@ -10,7 +10,8 @@ import { withPrefix } from '../core/composer.js'
 //   enhancer       (可选) Enhancer：语义增强模型；未注入时仅保留「轻量 · 零 Token」档位
 //   messages       (可选) [{ id, role:'user'|'assistant', text }]：当前对话，供「加对话」参考
 //   searchMemory   (可选) (query) => Promise<string>：项目记忆检索，供「加项目记忆」档位
-function ConversationQuickAction({ methodProvider, composer, enhancer, messages, searchMemory }) {
+function ConversationQuickAction({ methodProvider, composer, enhancer, messages, searchMemory, storagePrefix = 'promptkit.' }) {
+  const storageKey = name => `${storagePrefix}quick-action.${name}`
   const msgs = list(messages)
   const [draft, setDraft] = React.useState(() => composer?.getDraft?.() || '')
   React.useEffect(() => {
@@ -35,11 +36,11 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
   const [librarySearch, setLibrarySearch] = React.useState('')
   const [libraryFavorites, setLibraryFavorites] = React.useState([])
   const [libraryHistory, setLibraryHistory] = React.useState([])
-  const [recentMethodIds, setRecentMethodIds] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem('promptkit.quick-action.recent-methods.v1') || '[]') } catch { return [] } })
-  const [methodUsage, setMethodUsage] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem('promptkit.quick-action.method-usage.v1') || '{}') } catch { return {} } })
+  const [recentMethodIds, setRecentMethodIds] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('recent-methods.v1')) || '[]') } catch { return [] } })
+  const [methodUsage, setMethodUsage] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('method-usage.v1')) || '{}') } catch { return {} } })
   const [position, setPosition] = React.useState(() => {
     try {
-      const value = JSON.parse(window.localStorage.getItem('promptkit.quick-action.position.v1') || 'null')
+      const value = JSON.parse(window.localStorage.getItem(storageKey('position.v1')) || 'null')
       if (Number.isFinite(value?.x) && Number.isFinite(value?.y)) return value
     } catch {}
     return { x: Math.max(24, window.innerWidth - 86), y: Math.max(96, window.innerHeight - 158) }
@@ -102,7 +103,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
     const up = () => {
       if (!drag.current) return
       suppressClick.current = drag.current.moved
-      try { window.localStorage.setItem('promptkit.quick-action.position.v1', JSON.stringify(position)) } catch {}
+      try { window.localStorage.setItem(storageKey('position.v1'), JSON.stringify(position)) } catch {}
       drag.current = null
     }
     window.addEventListener('pointermove', move)
@@ -134,8 +135,8 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
       const next = withPrefix(draft, composed.prompt)
       setUndoDraft({ before: draft, after: next })
       composer.write(next)
-      setMethodUsage(value => { const nextUsage = { ...value, [choice.id]: Number(value[choice.id] || 0) + 1 }; try { window.localStorage.setItem('promptkit.quick-action.method-usage.v1', JSON.stringify(nextUsage)) } catch {}; return nextUsage })
-      setRecentMethodIds(value => { const nextRecent = [choice.id, ...value.filter(id => id !== choice.id)].slice(0, 3); try { window.localStorage.setItem('promptkit.quick-action.recent-methods.v1', JSON.stringify(nextRecent)) } catch {}; return nextRecent })
+      setMethodUsage(value => { const nextUsage = { ...value, [choice.id]: Number(value[choice.id] || 0) + 1 }; try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}; return nextUsage })
+      setRecentMethodIds(value => { const nextRecent = [choice.id, ...value.filter(id => id !== choice.id)].slice(0, 3); try { window.localStorage.setItem(storageKey('recent-methods.v1'), JSON.stringify(nextRecent)) } catch {}; return nextRecent })
       setNotice(`已按“${choice.title}”${source.length ? `整理 ${source.length} 条消息并` : ''}填入输入框，可编辑后发送。`)
       setOpen(false)
     } catch (error) { setNotice(String(error?.message || error)) }
