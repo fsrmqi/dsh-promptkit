@@ -4,7 +4,7 @@
 
 开源的 Prompt 构建与增强工具包，包含两个独立可用的能力：
 
-- **`PromptStudio`（方法工坊）**：选择思考方法，用问题 / 事实 / 约束生成可编辑 Prompt。
+- **`PromptStudio`（方法工坊）**：选择思考方法，用问题 / 事实 / 约束生成可编辑 Prompt。内置 12 个完整 Markdown 方法（带 frontmatter 元数据 + 完整 prompt 正文）。
 - **`QuickEnhancer`（对话快捷增强器）**：悬浮在对话旁的按钮（⌘K），把当前输入框提示词做轻量 / 语义增强，或从方法库填充、改造。
 
 ## 设计原则：单一代码源，双消费
@@ -13,7 +13,7 @@ PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，�
 
 | 接口 | 职责 | 开源默认实现 | Memory Center 闭源实现 |
 | --- | --- | --- | --- |
-| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 历史 | `StaticMethodProvider`（内置 10 个通用方法，localStorage 持久化） | 接 MC 私有 catalog |
+| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 历史 | `StaticMethodProvider`（内置 12 个 Markdown 方法，localStorage 持久化） | 接 MC 私有 catalog |
 | `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） | 接 DSH 消息框 `inputActions` |
 | `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） | 接当前会话模型 |
 
@@ -81,10 +81,17 @@ dsh-promptkit/
 ├── src/
 │   ├── core/        # 三接口定义（MethodProvider / Composer / Enhancer）
 │   ├── lib/         # 通用纯函数（utils.js：分类链 / planPromptEnhancement / conversationMessages / ...）
-│   ├── methods/     # 开源方法库（builtin.js，10 个通用思考方法）
+│   ├── methods/     # 开源方法库（builtin.js → 动态加载 builtin.json，12 个 Markdown 方法）
 │   ├── adapters/    # 默认实现（StaticMethodProvider / TextareaComposer / OpenAIEnhancer）
 │   ├── ui/          # 组件（foundation.js 基础设施 + studio.js + quick-enhancer.js）
 │   └── index.js     # 公共入口（npm 库形态）
+├── methods/         # 12 个 Markdown 方法库（从 Memory Center 迁移，带 frontmatter + 完整 prompt 正文）
+│   ├── builtin.json # 构建时解析产物（供 StaticMethodProvider 加载）
+│   ├── 决策/        # 双向钢人论证、用最小实验替代空想
+│   ├── 学习/        # 事实核查、双层解释法、反向拆解、横纵分析法
+│   ├── 解决问题/    # 专家会诊、第一性原理、跨领域借解
+│   ├── 认识你自己/  # 人生设计术、挖掘隐藏天赋
+│   └── 问清问题/    # 苏格拉底式提问
 ├── dsh/             # 独立 DSH 插件 glue（standalone-glue.js：插槽注册 + 默认 adapter 装配）
 ├── scripts/         # build-client.mjs：零依赖浏览器端构建器（standalone / --mc 两模式）
 ├── ui/client.js     # 生成的独立 DSH 浏览器视图（勿手改，npm run build:ui 产出）
@@ -105,7 +112,7 @@ npm run build:ui
 #    package.json 的 dsh.client manifest + ui/client.js，DSH Loader 自动发现）
 ```
 
-- 插件形态使用**内置 10 个通用思考方法**（`StaticMethodProvider`，全本地、零后端）；
+- 插件形态使用**内置 12 个 Markdown 方法**（`StaticMethodProvider`，全本地、零后端，prompt 正文随包内联）；
 - 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right`），「发送到当前会话」走 DSH 会话 API；
 - 可选开启语义增强（模型改写草稿）：配置 `window.DSH_PROMPTKIT_CONFIG = { baseUrl, apiKey, model }` 或 localStorage `dsh-promptkit.config.v1`（任意 OpenAI 兼容端点）；未配置时自动降级为轻量增强（零 Token）。
 
@@ -140,6 +147,12 @@ class MemoryCenterEnhancer extends Enhancer {
 // 4) 对话上下文：DSH snapshot → messages（本包不感知 snapshot 结构）
 const messages = conversationMessages(useSession(value => value))
 ```
+
+### 方法库来源
+
+12 个方法从 Memory Center 的 `prompts/` 目录迁移而来（Markdown 格式，带 frontmatter 元数据：场景、用途、标签、触发词）。每个方法包含完整的 prompt 正文，用户填入问题/事实/约束后可直接替换占位符生成最终 Prompt。
+
+新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:ui` 重新生成——构建脚本会自动解析并内联到 `ui/client.js`。
 
 ## License
 

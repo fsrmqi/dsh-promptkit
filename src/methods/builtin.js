@@ -1,97 +1,23 @@
-// 精选通用思考方法子集（随包开源，不涉密、有普适价值）。
-// 字段与 Memory Center 内部方法结构对齐，便于 DSH 适配器直接桥接。
-// 注意：苏格拉底式提问 / 第一性原理 / 双向钢人论证 被组件作为“常用方法”硬编码
-//（fan 按钮、⌘1-3 快捷键、置顶区），必须包含在默认方法库中，独立运行时体验才完整。
+// 完整方法库：从 prompts/ 目录解析的 12 个 Markdown 方法（带 frontmatter 元数据 + 完整 prompt 正文）。
+// 在 DSH 插件形态中，build-client.mjs 会把 builtin.json 内联为常量注入。
 
-export const BUILTIN_METHODS = [
-  {
-    id: 'socratic',
-    title: '苏格拉底式提问',
-    category: '澄清',
-    mode: 'guided',
-    purpose: '通过逐步追问澄清问题，直到问题足够清楚再推进。',
-    outcome: '关键澄清问题与一个清晰、可执行的问题陈述。',
-    tags: '提问 澄清',
-  },
-  {
-    id: 'first-principles',
-    title: '第一性原理',
-    category: '拆解',
-    mode: 'structured',
-    purpose: '把问题拆到不可再分的基本事实，再向上重构方案。',
-    outcome: '一份从基本事实出发的结构化推导。',
-    tags: '拆解 推导',
-  },
-  {
-    id: 'steelman',
-    title: '双向钢人论证',
-    category: '决策',
-    mode: 'structured',
-    purpose: '重述问题后，分别给出正反双方的最强论证，再定位核心分歧。',
-    outcome: '双方最强论证与唯一核心分歧点。',
-    tags: '决策 论证',
-  },
-  {
-    id: 'minimal-experiment',
-    title: '用最小实验替代空想',
-    category: '执行',
-    mode: 'structured',
-    purpose: '先收敛最小改动范围与验收标准，用最小验证代替假设推演。',
-    outcome: '最小改动范围、验收标准与验证结果。',
-    tags: '执行 验证',
-  },
-  {
-    id: 'five-whys',
-    title: '5-Why 根因分析',
-    category: '归因',
-    mode: 'structured',
-    purpose: '连续追问为什么，定位问题的真正根因。',
-    outcome: '根因链与对应对策。',
-    tags: '根因 归因',
-  },
-  {
-    id: 'pros-cons',
-    title: '利弊权衡',
-    category: '决策',
-    mode: 'structured',
-    purpose: '并列列出收益与代价，辅助取舍。',
-    outcome: '利弊清单与建议。',
-    tags: '决策 对比',
-  },
-  {
-    id: 'scqa',
-    title: 'SCQA 结构化表达',
-    category: '表达',
-    mode: 'structured',
-    purpose: '用情境-冲突-问题-答案组织表达。',
-    outcome: '结构化的一段表述。',
-    tags: '表达 写作',
-  },
-  {
-    id: 'mece',
-    title: 'MECE 拆解',
-    category: '拆解',
-    mode: 'structured',
-    purpose: '相互独立、完全穷尽地拆解议题。',
-    outcome: '无重叠无遗漏的拆解树。',
-    tags: '拆解 分类',
-  },
-  {
-    id: 'six-hats',
-    title: '六顶思考帽',
-    category: '视角',
-    mode: 'structured',
-    purpose: '从事实、情感、谨慎、乐观、创意、控制六视角审视。',
-    outcome: '多维视角的综合判断。',
-    tags: '视角 评审',
-  },
-  {
-    id: 'hypothesis',
-    title: '假设驱动',
-    category: '决策',
-    mode: 'structured',
-    purpose: '先提出可证伪假设，再找证据验证。',
-    outcome: '假设与验证结论。',
-    tags: '假设 验证',
-  },
-]
+// 使用 top-level await 加载 JSON（Node 22 + 现代浏览器支持 import assertions）。
+// 若环境不支持断言，fallback 到 fetch。
+let _builtin
+
+export async function loadBuiltinMethods() {
+  if (_builtin) return _builtin
+  try {
+    // Node 22 / ESM 环境：import assert
+    const mod = await import('../methods/builtin.json', { assert: { type: 'json' } })
+    _builtin = mod.default || mod
+    return _builtin
+  } catch {
+    // 浏览器 fallback：fetch 同目录 JSON
+    const res = await fetch(new URL('../methods/builtin.json', import.meta.url))
+    _builtin = await res.json()
+    return _builtin
+  }
+}
+
+export const BUILTIN_METHODS = await loadBuiltinMethods()

@@ -39,12 +39,24 @@ function strip(code) {
     .replace(/\n{3,}/g, '\n\n')
 }
 
+function stripBuiltinJs(code, jsonData) {
+  // 先走标准 strip（去掉 import，export → const/function），再把 JSON 加载逻辑替换为内联常量
+  const stripped = strip(code)
+  const jsonStr = JSON.stringify(jsonData)
+  return stripped.replace(
+    /let _builtin[\s\S]*?const BUILTIN_METHODS = await loadBuiltinMethods\(\)/,
+    `const _builtin = ${jsonStr};\nasync function loadBuiltinMethods() { return _builtin }\nconst BUILTIN_METHODS = _builtin`
+  )
+}
+
 const SEP = comment => `\n      /* ================= ${comment} ================= */\n`
 
-function concat(files, { indent = '      ', banner = '' } = {}) {
+function concat(files, { indent = '      ', banner = '', customStrip = {} } = {}) {
   let out = banner
   for (const [file, comment] of files) {
-    const code = strip(readFileSync(resolve(ROOT, file), 'utf8')).trim()
+    const raw = readFileSync(resolve(ROOT, file), 'utf8')
+    const stripFn = customStrip[file] || strip
+    const code = stripFn(raw).trim()
     const body = code.split('\n').map(l => (l ? indent + l : l)).join('\n')
     out += SEP(comment) + body + '\n'
   }
@@ -53,20 +65,25 @@ function concat(files, { indent = '      ', banner = '' } = {}) {
 
 // ---------- 模式一：独立 DSH 浏览器视图 ui/client.js ----------
 function buildStandalone() {
+  const builtinJson = JSON.parse(readFileSync(resolve(ROOT, 'methods/builtin.json'), 'utf8'))
   const body = concat([
     ['src/ui/foundation.js', 'dsh-promptkit foundation（C / GlobalStyle / Icon / S / workbenchStyle）'],
     ['src/lib/utils.js', 'dsh-promptkit utils（纯函数 + 分类链 + DSH 快照转换）'],
     ['src/core/method-provider.js', 'dsh-promptkit core: MethodProvider'],
     ['src/core/composer.js', 'dsh-promptkit core: Composer / withPrefix'],
     ['src/core/enhancer.js', 'dsh-promptkit core: Enhancer'],
-    ['src/methods/builtin.js', 'dsh-promptkit 内置方法库（10 个通用思考方法）'],
+    ['src/methods/builtin.js', 'dsh-promptkit 内置方法库（12 个完整 Markdown 方法）'],
     ['src/adapters/static-method-provider.js', 'adapter: StaticMethodProvider'],
     ['src/adapters/textarea-composer.js', 'adapter: TextareaComposer'],
     ['src/adapters/openai-enhancer.js', 'adapter: OpenAIEnhancer'],
     ['src/ui/studio.js', '组件: PromptStudio（方法工坊）'],
     ['src/ui/quick-enhancer.js', '组件: QuickEnhancer（快捷助手）'],
     ['dsh/standalone-glue.js', '独立插件 glue：DSH 插槽注册 + 默认 adapter 装配'],
-  ])
+  ], {
+    customStrip: {
+      'src/methods/builtin.js': (code) => stripBuiltinJs(code, builtinJson),
+    }
+  })
   const out = `/* eslint-disable */
 /* dsh-promptkit 独立 DSH 浏览器视图 — 本文件由 scripts/build-client.mjs 生成，勿手改。 */
 /* 源码：https://github.com/<you>/dsh-promptkit（MIT License） */
