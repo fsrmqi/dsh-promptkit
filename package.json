@@ -1,0 +1,16 @@
+{
+  "name": "promptkit",
+  "version": "0.1.0",
+  "description": "Open-source Prompt 构建与增强工具包：方法工坊（Studio）+ 对话快捷增强器（QuickEnhancer）。零依赖宿主，通过 adapter 注入方法源 / 写入目标 / 模型调用。",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "license": "MIT",
+  "keywords": ["prompt", "prompt-engineering", "llm", "ui", "react"],
+  "peerDependencies": {
+    "react": ">=17"
+  },
+  "scripts": {
+    "check": "node --check src/index.js && node --check src/ui/foundation.js && node --check src/ui/studio.js && node --check src/ui/quick-enhancer.js && node --check src/lib/utils.js"
+  }
+}

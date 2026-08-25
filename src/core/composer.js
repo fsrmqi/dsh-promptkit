@@ -1,0 +1,19 @@
+// Composer：写入目标输入框的抽象。
+// 开源版可接任意 <textarea>，闭源版（DSH 插件）接消息框 inputActions。
+
+export class Composer {
+  /** @returns {string} 当前草稿 */
+  getDraft() { return '' }
+
+  /** @param {string} text 写入目标 */
+  write(text) { throw new Error('Composer.write() 未实现') }
+
+  /** @param {(text:string)=>void} cb 订阅草稿变化（可选） */
+  onChange(cb) {}
+}
+
+/** 构造 "前缀 + 新内容"：若当前草稿非空，插入空行分隔。 */
+export function withPrefix(current, next) {
+  const cur = (current || '').trim()
+  return cur ? `${cur}\n\n${next}` : next
+}

@@ -1,0 +1,68 @@
+// 精选通用思考方法子集（随包开源，不涉密、有普适价值）。
+// 字段与 Memory Center 内部方法结构对齐，便于 DSH 适配器直接桥接。
+
+export const BUILTIN_METHODS = [
+  {
+    id: 'first-principles',
+    title: '第一性原理',
+    category: '拆解',
+    mode: 'structured',
+    purpose: '把问题拆到不可再分的基本事实，再向上重构方案。',
+    outcome: '一份从基本事实出发的结构化推导。',
+    tags: '拆解 推导',
+  },
+  {
+    id: 'five-whys',
+    title: '5-Why 根因分析',
+    category: '归因',
+    mode: 'structured',
+    purpose: '连续追问为什么，定位问题的真正根因。',
+    outcome: '根因链与对应对策。',
+    tags: '根因 归因',
+  },
+  {
+    id: 'pros-cons',
+    title: '利弊权衡',
+    category: '决策',
+    mode: 'structured',
+    purpose: '并列列出收益与代价，辅助取舍。',
+    outcome: '利弊清单与建议。',
+    tags: '决策 对比',
+  },
+  {
+    id: 'scqa',
+    title: 'SCQA 结构化表达',
+    category: '表达',
+    mode: 'structured',
+    purpose: '用情境-冲突-问题-答案组织表达。',
+    outcome: '结构化的一段表述。',
+    tags: '表达 写作',
+  },
+  {
+    id: 'mece',
+    title: 'MECE 拆解',
+    category: '拆解',
+    mode: 'structured',
+    purpose: '相互独立、完全穷尽地拆解议题。',
+    outcome: '无重叠无遗漏的拆解树。',
+    tags: '拆解 分类',
+  },
+  {
+    id: 'six-hats',
+    title: '六顶思考帽',
+    category: '视角',
+    mode: 'structured',
+    purpose: '从事实、情感、谨慎、乐观、创意、控制六视角审视。',
+    outcome: '多维视角的综合判断。',
+    tags: '视角 评审',
+  },
+  {
+    id: 'hypothesis',
+    title: '假设驱动',
+    category: '决策',
+    mode: 'structured',
+    purpose: '先提出可证伪假设，再找证据验证。',
+    outcome: '假设与验证结论。',
+    tags: '假设 验证',
+  },
+]
