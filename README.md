@@ -9,7 +9,7 @@
 开源的 Prompt 构建与增强工具包，包含两个独立可用的能力：
 
 - **`PromptStudio`（方法工坊）**：选择思考方法，用问题 / 事实 / 约束生成可编辑 Prompt。内置 12 个完整 Markdown 方法（带 frontmatter 元数据 + 完整 prompt 正文）。
-- **`QuickEnhancer`（对话快捷增强器）**：悬浮在对话旁的按钮（⌘K），把当前输入框提示词做轻量 / 语义增强，或从方法库填充、改造。
+- **`QuickEnhancer`（对话快捷增强器）**：轻量 React 组件，可悬浮或内嵌，把当前输入框提示词做轻量 / 语义增强，或从方法库填充、改造。
 
 ## 安装
 
@@ -49,19 +49,17 @@ dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
 npm install dsh-promptkit
 ```
 
-安装后重启 harness 即可在 DSH Web UI 中看到「方法工坊」和「快捷助手」。
-
 ## 设计原则：单一代码源，双消费
 
-PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，具体实现由宿主注入：
+PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，开源版本提供默认实现，宿主可按契约自行替换：
 
-| 接口 | 职责 | 开源默认实现 | 宿主侧实现示例 |
-| --- | --- | --- | --- |
-| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 历史 | `StaticMethodProvider`（内置 12 个 Markdown 方法，localStorage 持久化，`storagePrefix` 可配） | 桥接宿主私有方法源，或直接用 `StaticMethodProvider` |
-| `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） | 接 DSH 消息框 `inputActions` |
-| `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） | 接宿主后端或当前会话模型 |
+| 接口 | 职责 | 开源默认实现 |
+| --- | --- | --- |
+| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 历史 | `StaticMethodProvider`（内置 12 个 Markdown 方法，localStorage 持久化，`storagePrefix` 可配） |
+| `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） |
+| `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） |
 
-这样 **开源出去的和宿主嵌入的，是同一份核心代码**——差别只在注入什么 adapter，绝不分叉成两份维护。dsh-promptkit 对宿主零感知（Embed Protocol，见下文）。
+这样 **npm 库形态和宿主嵌入形态，共用同一份核心代码**——差别只在注入什么 adapter，绝不分叉成两份维护。PromptKit 对宿主零感知（Embed Protocol，见下文）。
 
 ## 组件 Props
 
@@ -129,7 +127,7 @@ dsh-promptkit/
 │   ├── adapters/    # 默认实现（StaticMethodProvider / TextareaComposer / OpenAIEnhancer）
 │   ├── ui/          # 组件（foundation.js 基础设施 + studio.js + quick-enhancer.js）
 │   └── index.js     # 公共入口（npm 库形态）
-├── methods/         # 12 个 Markdown 方法库（从 Memory Center 迁移，带 frontmatter + 完整 prompt 正文）
+├── methods/         # 12 个 Markdown 方法库（带 frontmatter + 完整 prompt 正文）
 │   ├── builtin.json # 构建产物（scripts/build-methods.mjs 从 Markdown 解析生成，勿手改）
 │   ├── 决策/        # 双向钢人论证、用最小实验替代空想
 │   ├── 学习/        # 事实核查、双层解释法、反向拆解、横纵分析法
@@ -160,32 +158,32 @@ dsh-promptkit/
 
 ## 嵌入其他插件（Embed Protocol v1）
 
-任何 DSH 插件（宿主）都可以组合 dsh-promptkit 的方法工坊与对话增强器，**dsh-promptkit 对宿主零感知**：
+任何 Web 应用或插件宿主都可以组合 dsh-promptkit 的方法工坊与对话增强器，**dsh-promptkit 对宿主零感知**：
 
 - 标准产物 `ui/embed.js`：IIFE 私有化全部内部符号，仅暴露 `PromptKit` 命名空间（组件 / 方法源 / 基类 / utils），唯一前提是宿主闭包提供 `React`；
-- 视觉命名空间 `pk-*` 独立于宿主主题，两插件可同装一个 DSH 实例互不覆盖；
+- 视觉命名空间 `pk-*` 独立于宿主主题，多个宿主实例同装互不覆盖；
 - 宿主自持集成脚本与 adapter（方法源 / 草稿读写 / 模型调用），按 props 契约装配组件；
 - 契约有测试锁定（`test/embed.test.js`，7 项），协议面只增不改。
 
-完整契约与接入步骤见 **[docs/EMBED.md](docs/EMBED.md)**。首个参考实现是 memory-center-dsh-plugin（其 `scripts/integrate-promptkit.mjs` + `ui/promptkit-adapters.js` 即标准宿主样例）。
+完整契约与接入步骤见 **[docs/EMBED.md](docs/EMBED.md)**。
 
 ## 宿主对接（写哪些 adapter）
 
-以任意宿主插件为例，经 `PromptKit` 命名空间接入同一份核心：
+以任意宿主为例，经 `PromptKit` 命名空间接入同一份核心：
 
 ```js
 // 拼接 ui/embed.js 后，宿主闭包内可用 PromptKit（详见 docs/EMBED.md）
 
-// 1) 方法源：直接用内置 12 方法（storagePrefix 隔离本宿主的收藏/历史）
+// 1) 方法源：直接用内置 12 方法（storagePrefix 隔离不同宿主的数据）
 const methodProvider = new PromptKit.StaticMethodProvider({ storagePrefix: 'my-host.' })
 //    或继承基类桥接宿主自己的方法源：
 //    class HostMethodProvider extends PromptKit.MethodProvider { async list() { ... } }
 
-// 2) 写入目标：桥接 DSH 消息框（conversation.input.right 注入的 input / inputActions）
-class DshComposer extends PromptKit.Composer {
-  getDraft() { return this.input?.draft ?? '' }
-  write(text) { this.inputActions?.setDraft(text) }
-  onChange(cb) { return subscribeDraft(cb) }   // 订阅草稿变化
+// 2) 写入目标：桥接宿主的消息输入框
+class HostComposer extends PromptKit.Composer {
+  getDraft() { return /* 读取宿主输入框当前草稿 */ }
+  write(text) { /* 写入宿主输入框 */ }
+  onChange(cb) { return /* 订阅草稿变化，返回取消订阅函数 */ }
 }
 
 // 3) 模型调用（可选）：桥接宿主后端或直连 OpenAI 兼容端点
@@ -194,13 +192,13 @@ class HostEnhancer extends PromptKit.Enhancer {
   cancel() { /* 透传 AbortController */ }
 }
 
-// 4) 对话上下文：DSH snapshot → messages（宿主 glue 职责，可复用工具函数）
-const messages = PromptKit.utils.conversationMessages(useSession(value => value))
+// 4) 对话上下文：宿主会话快照 → messages 数组
+const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
 ```
 
 ### 方法库来源
 
-12 个方法从 Memory Center 的 `prompts/` 目录迁移而来（Markdown 格式，带 frontmatter 元数据：场景、用途、标签、触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（对齐 MC 原版行为，剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留，作为方法对模型的填写指令，不做正则替换。
+12 个 Markdown 方法（带 frontmatter 元数据：场景、用途、标签、触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留，作为方法对模型的填写指令，不做正则替换。
 
 新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:methods` 重新生成 `methods/builtin.json`（`scripts/build-methods.mjs` 解析 frontmatter + 正文；`mode`/`outcome` 在脚本内 `OVERRIDES` 表维护），再 `npm run build:ui` 把新方法内联到 `ui/client.js`。直接 `npm run build` 一条命令完成全部三步。
 
@@ -208,9 +206,9 @@ const messages = PromptKit.utils.conversationMessages(useSession(value => value)
 
 | 访问项 | 用途 | 可关闭 |
 | --- | --- | --- |
-| `window.localStorage` | 收藏 / 历史持久化、可选的语义增强配置（`dsh-promptkit.*` 前缀，与其他插件隔离） | 清除 localStorage 即清空，无服务端持久化 |
-| DSH 会话输入框（`inputActions.setDraft`） | 「写入输入框」按钮把生成的 Prompt 填入当前对话草稿 | 不点按钮不触发 |
-| DSH 会话 API（`session.prompt`） | 「发送到当前会话」按钮把 Prompt 作为消息发出 | 不点按钮不触发 |
+| `window.localStorage` | 收藏 / 历史持久化、可选的语义增强配置（前缀可配置，与其他插件隔离） | 清除 localStorage 即清空，无服务端持久化 |
+| 目标输入框（Composer） | 「写入输入框」按钮把生成的 Prompt 填入当前草稿 | 不点按钮不触发 |
+| 当前会话（onSend） | 「发送到当前会话」按钮把 Prompt 作为消息发出 | 不点按钮不触发 |
 | `fetch`（可选） | 仅在用户主动配置语义增强端点时发起请求，调用用户指定的 OpenAI 兼容 API | 不配置则不发起任何网络请求 |
 
 **零遥测**：本插件不收集任何使用数据，不向任何第三方服务发送信息。所有数据存储在用户本地 localStorage，可随时清除。
@@ -222,7 +220,7 @@ const messages = PromptKit.utils.conversationMessages(useSession(value => value)
 | DeepSeek Harness | Developer Preview（建议 `@deepseek-ai/dsh` 0.1.0-rc.x 及以上） |
 | Node.js | ≥ 18（构建脚本使用 `node --test`） |
 | 浏览器 | Chrome 90+ / Firefox 88+ / Safari 14+（需支持 ES Modules + `AbortController`） |
-| React | ≥ 17（peer dependency，DSH Web App 内置） |
+| React | ≥ 17（peer dependency，宿主环境需提供） |
 
 > **兼容性声明**（2026-08-26）：DeepSeek Harness 处于 Developer Preview 阶段，接口可能不兼容变更。本插件基于 `dsh.client` manifest（`platform: "web"`）和 `conversation.view` / `conversation.input.right` 插槽开发，DSH 版本更新后请以 `dsh --dump-config` 实际输出为准。
 
