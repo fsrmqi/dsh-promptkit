@@ -41,7 +41,7 @@ function PromptkitStudioHost({ sessionId, onSend }) {
   return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend })
 }
 
-const promptkitApply = ctx => ctx.slots.inject('conversation.view', () => {
+const promptkitApply = ctx => {
   const studio = [
     {
       name: 'conversation.view',
@@ -57,9 +57,11 @@ const promptkitApply = ctx => ctx.slots.inject('conversation.view', () => {
     PromptkitStudioHost,
   ]
   const disposers = [
-    ctx.slots.register(studio[0], studio[1]),
+    // 两个 slot 的挂载时机互不依赖。不能把 input.right 注册嵌在
+    // conversation.view 的 inject 回调里：部分 DSH 页面会先挂输入框而暂未创建 view。
+    ctx.slots.inject('conversation.view', () => ctx.slots.register(studio[0], studio[1])),
     ctx.slots.inject('conversation.input.right', () =>
       ctx.slots.register({ name: 'conversation.input.right', id: 'dsh-promptkit-quick-action', order: 85, label: () => '快捷助手' }, PromptkitQuickActionHost)),
   ]
   return () => disposers.forEach(dispose => dispose?.())
-})
+}
