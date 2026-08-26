@@ -12,7 +12,18 @@ async function promptkitSearchMemory(sessionId, query) {
   const response = await fetch(url)
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(body.next_action || '项目记忆服务不可用；请安装并启用 Memory Center DSH 插件。')
-  return String(body.suggested_context || '')
+  const wikiUrl = new URL('/memory-center/wiki-brief', window.location.origin)
+  wikiUrl.searchParams.set('session_id', sessionId)
+  wikiUrl.searchParams.set('task', query)
+  const wiki = await fetch(wikiUrl).then(async value => value.ok ? value.json() : null).catch(() => null)
+  const wikiItems = Object.entries(wiki?.groups || {}).flatMap(([group, rows]) => Array.isArray(rows) ? rows.slice(0, 3).map(item => ({ group, title: String(item?.title || '') })) : []).filter(item => item.title)
+  return {
+    text: String(body.suggested_context || ''),
+    sources: [
+      ...(body.suggested_context ? [{ kind: 'memory-center', label: 'Memory Center 项目记忆' }] : []),
+      ...wikiItems.map(item => ({ kind: 'personal-wiki', label: `Personal Wiki · ${item.group} · ${item.title}` })),
+    ],
+  }
 }
 
 class DshSessionEnhancer {
