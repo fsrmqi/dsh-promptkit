@@ -58,4 +58,5 @@ test('独立 DSH 插件：方法工坊与快捷助手并列注入各自插槽', 
     input: { draft: '' },
   }) })
   assert.equal(typeof element.props.enhancer.enhance, 'function')
+  assert.equal(typeof element.props.searchMemory, 'function')
 })
