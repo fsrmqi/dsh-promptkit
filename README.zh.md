@@ -11,7 +11,7 @@
 面向 DeepSeek Harness 与其他 React 宿主的开源 Prompt 增强工具。
 
 - **`QuickEnhancer`（对话快捷增强器）**：可悬浮或内嵌，用于轻量/语义草稿增强、方法建议与方法库操作。
-- **`PromptStudio`（方法工坊）**：高级手动工作台，用问题 / 事实 / 约束生成可编辑 Prompt；内置 17 个完整 Markdown 方法。
+- **`PromptStudio`（方法工坊）**：高级手动工作台，用问题 / 事实 / 约束生成可编辑 Prompt；内置 21 个完整 Markdown 方法。
 
 轻量增强完全本地、零 Token；独立 DSH 插件的语义增强复用当前会话模型且只回填草稿。两档都不会自动发送消息。
 
@@ -59,7 +59,7 @@ PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，�
 
 | 接口 | 职责 | 开源默认实现 |
 | --- | --- | --- |
-| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 同步历史 | `StaticMethodProvider`（内置 17 法 + 本地私有方法，localStorage 持久化，`storagePrefix` 可配） |
+| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 同步历史 | `StaticMethodProvider`（内置 21 法 + 本地私有方法，localStorage 持久化，`storagePrefix` 可配） |
 | `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） |
 | `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） |
 
@@ -127,11 +127,11 @@ dsh-promptkit/
 ├── src/
 │   ├── core/        # 三接口定义（MethodProvider / Composer / Enhancer）
 │   ├── lib/         # 通用纯函数（utils.js：分类链 / planPromptEnhancement / conversationMessages / ...）
-│   ├── methods/     # 开源方法库（builtin.js → 动态加载 builtin.json，17 个 Markdown 方法）
+│   ├── methods/     # 开源方法库（builtin.js → 动态加载 builtin.json，21 个 Markdown 方法）
 │   ├── adapters/    # 默认实现（StaticMethodProvider / TextareaComposer / OpenAIEnhancer）
 │   ├── ui/          # 组件（foundation.js 基础设施 + studio.js + quick-enhancer.js）
 │   └── index.js     # 公共入口（npm 库形态）
-├── methods/         # 17 个 Markdown 方法库（带 frontmatter + 完整 prompt 正文）
+├── methods/         # 21 个 Markdown 方法库（带 frontmatter + 完整 prompt 正文）
 │   ├── builtin.json # 构建产物（scripts/build-methods.mjs 从 Markdown 解析生成，勿手改）
 │   ├── 决策/        # 双向钢人论证、用最小实验替代空想
 │   ├── 学习/        # 事实核查、双层解释法、反向拆解、横纵分析法、论文深度拆解
@@ -155,7 +155,7 @@ dsh-promptkit/
 
 `ui/` 子包声明浏览器端 `dsh.client` manifest，DSH Web App 的 ModuleLoader 自动发现并加载 `ui/client.js`：
 
-- **内置 17 个 Markdown 方法**（`StaticMethodProvider`，全本地、零后端，prompt 正文随包内联）；
+- **内置 21 个 Markdown 方法**（`StaticMethodProvider`，全本地、零后端，prompt 正文随包内联）；
 - **快捷助手**挂在 `conversation.input.right`；**方法工坊**挂在 `conversation.view`，标签为「高级方法工坊」；
 - 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right` 注入的 `inputActions`），「发送到当前会话」走 DSH 会话 API；
 - **语义增强**（模型改写草稿）：复用当前 DSH 会话已经选定的模型路由，由插件 Node 半区调用 Harness 的 LLM 服务；无需填写 API Key 或 endpoint，结果仅回填输入框、不自动发送。当前会话尚未建立模型路由时，先正常发送一次消息即可。
@@ -181,7 +181,7 @@ dsh-promptkit/
 ```js
 // 拼接 ui/embed.js 后，宿主闭包内可用 PromptKit（详见 docs/EMBED.md）
 
-// 1) 方法源：直接用内置 17 方法（storagePrefix 隔离不同宿主的数据）
+// 1) 方法源：直接用内置 21 方法（storagePrefix 隔离不同宿主的数据）
 const methodProvider = new PromptKit.StaticMethodProvider({ storagePrefix: 'my-host.' })
 //    或继承基类桥接宿主自己的方法源：
 //    class HostMethodProvider extends PromptKit.MethodProvider { async list() { ... } }
@@ -205,13 +205,13 @@ const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
 
 ### 方法库来源
 
-17 个 Markdown 方法（带 frontmatter 元数据：场景、用途、标签、触发词、可选强触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留作为方法对模型的填写指令，不做正则替换；组合时会在末尾追加一句提示语，向模型声明【…】是填写指示符而非字面占位，实际内容以「本次任务输入」为准。
+21 个 Markdown 方法（带 frontmatter 元数据：场景、用途、标签、触发词、可选强触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留作为方法对模型的填写指令，不做正则替换；组合时会在末尾追加一句提示语，向模型声明【…】是填写指示符而非字面占位，实际内容以「本次任务输入」为准。
 
 新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:methods` 重新生成 `methods/builtin.json`（`scripts/build-methods.mjs` 解析 frontmatter + 正文；`mode`/`outcome` 在脚本内 `OVERRIDES` 表维护），再 `npm run build:ui` 把新方法内联到 `ui/client.js`。直接 `npm run build` 一条命令完成全部三步。
 
 ### 我的私有方法
 
-在快捷增强器的「高级设置」中，可直接粘贴一张 Obsidian 风格 Markdown Prompt 卡片。它会从 frontmatter / 标题 / `## Prompt` 代码块提取方法并仅保存在当前浏览器的 localStorage；不会读取、扫描或上传 Obsidian 笔记库。私有方法可导出为 JSON，并以追加方式恢复备份；它们会和 17 个开源方法一起参与搜索与自动匹配，但不会写入仓库或发布包。
+在快捷增强器的「高级设置」中，可直接粘贴一张 Obsidian 风格 Markdown Prompt 卡片。它会从 frontmatter / 标题 / `## Prompt` 代码块提取方法并仅保存在当前浏览器的 localStorage；不会读取、扫描或上传 Obsidian 笔记库。私有方法可导出为 JSON，并以追加方式恢复备份；它们会和 21 个开源方法一起参与搜索与自动匹配，但不会写入仓库或发布包。
 
 ## 权限与隐私
 

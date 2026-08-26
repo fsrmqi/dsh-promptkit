@@ -36,11 +36,11 @@ const PromptKit = (React => {
 | `version` | `'1'` | 协议版本 |
 | `PromptStudio` | Component | 方法工坊（挂 `conversation.view`） |
 | `QuickEnhancer` | Component | 对话增强器（挂 `conversation.input.right`，即 `ConversationQuickAction`） |
-| `StaticMethodProvider` | class | 内置 17 方法源，`{ storagePrefix }` 可配 |
+| `StaticMethodProvider` | class | 内置 21 方法源，`{ storagePrefix }` 可配 |
 | `MethodProvider` / `Composer` / `Enhancer` | class | 三大基类（宿主 adapter 继承实现） |
 | `TextareaComposer` / `OpenAIEnhancer` | class | 通用 adapter（任意 `<textarea>` / OpenAI 兼容端点） |
 | `utils` | object | 纯函数集（`conversationMessages`、`fileMentions`、`planPromptEnhancement`、`recommendMethods` 等），宿主 glue 可复用 |
-| `builtinMethods` | Method[] | 17 个方法原始数据（宿主自建 provider 时直接消费） |
+| `builtinMethods` | Method[] | 21 个方法原始数据（宿主自建 provider 时直接消费） |
 
 ### 3.2 组件 props
 

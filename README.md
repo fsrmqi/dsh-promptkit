@@ -11,7 +11,7 @@
 An open-source prompt enhancement toolkit for DeepSeek Harness and other React hosts.
 
 - **`QuickEnhancer`** — A floatable or inline component for lightweight or semantic draft enhancement, method suggestions, and method-library actions.
-- **`PromptStudio`** — The advanced manual workspace for browsing methods and composing a structured prompt. It ships with 17 complete Markdown methods (frontmatter metadata + full prompt body).
+- **`PromptStudio`** — The advanced manual workspace for browsing methods and composing a structured prompt. It ships with 21 complete Markdown methods (frontmatter metadata + full prompt body).
 
 Lightweight enhancement is local and zero-token. In the standalone DSH plugin, semantic enhancement reuses the current session model and writes back to the draft; neither mode sends a message automatically.
 
@@ -59,7 +59,7 @@ PromptKit's core **depends on zero hosts**. It defines three decoupled interface
 
 | Interface | Responsibility | Open-source Default |
 | --- | --- | --- |
-| `MethodProvider` | Method source / composition / template / favorites / synchronized history | `StaticMethodProvider` (17 built-in methods + local private methods, localStorage persistence, configurable `storagePrefix`) |
+| `MethodProvider` | Method source / composition / template / favorites / synchronized history | `StaticMethodProvider` (21 built-in methods + local private methods, localStorage persistence, configurable `storagePrefix`) |
 | `Composer` | Write to a target input box | `TextareaComposer` (any textarea, with input subscription) |
 | `Enhancer` | Semantic model call for enhancement | `OpenAIEnhancer` (any OpenAI-compatible endpoint) |
 
@@ -127,11 +127,11 @@ dsh-promptkit/
 ├── src/
 │   ├── core/        # Three interface definitions (MethodProvider / Composer / Enhancer)
 │   ├── lib/         # Pure utility functions (utils.js: category chain / planPromptEnhancement / conversationMessages / ...)
-│   ├── methods/     # Open method library (builtin.js → dynamically loads builtin.json, 17 Markdown methods)
+│   ├── methods/     # Open method library (builtin.js → dynamically loads builtin.json, 21 Markdown methods)
 │   ├── adapters/    # Default implementations (StaticMethodProvider / TextareaComposer / OpenAIEnhancer)
 │   ├── ui/          # Components (foundation.js infrastructure + studio.js + quick-enhancer.js)
 │   └── index.js     # Public entry point (npm library form)
-├── methods/         # 17 Markdown method library (with frontmatter + full prompt body)
+├── methods/         # 21 Markdown method library (with frontmatter + full prompt body)
 │   ├── builtin.json # Build artifact (scripts/build-methods.mjs parses Markdown → json, do not edit by hand)
 │   ├── 决策/        # Steel-man / Devil's advocate, Replace speculation with minimal experiments
 │   ├── 学习/        # Fact check, Double-layer explanation, Reverse decomposition, Horizontal-vertical analysis, Paper deep-dive
@@ -155,7 +155,7 @@ dsh-promptkit/
 
 The `ui/` subpackage declares the browser-side `dsh.client` manifest. DSH Web App's ModuleLoader discovers and loads `ui/client.js`:
 
-- **17 built-in Markdown methods** (`StaticMethodProvider`, fully local, zero backend, prompt bodies inlined with the package);
+- **21 built-in Markdown methods** (`StaticMethodProvider`, fully local, zero backend, prompt bodies inlined with the package);
 - **QuickEnhancer** mounts on `conversation.input.right`; **PromptStudio** mounts on `conversation.view` as “Advanced Method Studio”;
 - "Write to message box" bridges DSH conversation input (`inputActions` injected by `conversation.input.right`), "Send to current session" goes through DSH session API;
 - **Semantic enhancement** (model rewrites draft): reuses the current DSH session's selected model route through the plugin's Node half and Harness LLM service. It requires no API key or endpoint, only fills the input box, and asks the user to send one normal message first if the session has not established a model route yet.
@@ -181,7 +181,7 @@ Take any host as an example, access the same core via the `PromptKit` namespace:
 ```js
 // After concatenating ui/embed.js, PromptKit is available in the host closure (see docs/EMBED.md)
 
-// 1) Method source: use built-in 17 methods directly (storagePrefix isolates data for different hosts)
+// 1) Method source: use built-in 21 methods directly (storagePrefix isolates data for different hosts)
 const methodProvider = new PromptKit.StaticMethodProvider({ storagePrefix: 'my-host.' })
 //    Or extend the base class to bridge host's own method source:
 //    class HostMethodProvider extends PromptKit.MethodProvider { async list() { ... } }
@@ -205,7 +205,7 @@ const messages = PromptKit.utils.conversationMessages(/* host session data */)
 
 ### Method Library Source
 
-17 Markdown methods (with frontmatter metadata: scenario, purpose, tags, trigger words, and optional strong trigger words). The `prompt` field extracts the `## Prompt` code block from the body as a clean template (strips article narration; falls back to full body when no code block). After user fills in problem/facts/constraints, a "Current task input" structured block is appended after the template to form the final prompt — placeholders like 【…】 in the template are preserved as instructions for the model to fill in, no regex substitution.
+21 Markdown methods (with frontmatter metadata: scenario, purpose, tags, trigger words, and optional strong trigger words). The `prompt` field extracts the `## Prompt` code block from the body as a clean template (strips article narration; falls back to full body when no code block). After user fills in problem/facts/constraints, a "Current task input" structured block is appended after the template to form the final prompt — placeholders like 【…】 in the template are preserved as instructions for the model to fill in, no regex substitution.
 
 To add a new method: create a new Markdown file under `methods/` (same frontmatter format as existing ones), then `npm run build:methods` to regenerate `methods/builtin.json` (`scripts/build-methods.mjs` parses frontmatter + body; `mode`/`outcome` maintained in the `OVERRIDES` table inside the script), then `npm run build:ui` to inline the new method into `ui/client.js`. `npm run build` does all three steps in one command.
 

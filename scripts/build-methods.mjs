@@ -40,6 +40,10 @@ const OVERRIDES = {
   接口文档生成: { mode: 'structured', outcome: '含请求/响应/示例/边界的标准接口文档' },
   论文深度拆解: { mode: 'structured', outcome: '论文拆解档案（贡献/方法/证据强度/局限/可复现性）' },
   数据分析: { mode: 'structured', outcome: '四段式分析报告（体检/探索/结论/行动）' },
+  需求理解: { mode: 'guided', outcome: '《需求理解档案》：真实诉求/已确认前提/待验证假设/冲突点/最可能改变方向的未知项' },
+  需求分析: { mode: 'structured', outcome: '可评审的需求规格摘要（功能点/边界/业务规则/优先级/待确认项）' },
+  需求拆解: { mode: 'structured', outcome: '用户故事集 + 验收标准（Given/When/Then）+ 最小可交付切片' },
+  需求评审: { mode: 'structured', outcome: '需求评审报告（问题分档/可测试性/是否可开工）' },
 }
 const DEFAULT_META = { mode: 'structured', outcome: '结构化输出' }
 
