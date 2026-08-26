@@ -41,6 +41,21 @@ window.__ModuleLoader__.load({
         button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline-color: rgba(61,189,180,.45) }
         .pk-card:hover { box-shadow: 0 10px 26px rgba(0,0,0,.22) }
       }
+      /* DSH 暗色主题：DSH 通过 body[data-ds-dark-theme] 属性 + root color-scheme 切换明暗，
+         不改变系统 prefers-color-scheme，故此处显式跟随该属性，与上方系统暗色共用同一组暗色值。 */
+      body[data-ds-dark-theme] {
+        --pk-ink: #e8eaed; --pk-muted: #9aa0a6; --pk-line: #3c4043; --pk-canvas: #181a20; --pk-surface: #242830;
+        --pk-teal: #3dbdb4; --pk-teal-strong: #2a9d94;
+        --pk-teal-line: #1a3d38; --pk-teal-line-strong: #2a6a60; --pk-teal-line-active: #3a9a8a;
+        --pk-teal-tint: #1a2e2c; --pk-teal-tint-deep: #162a28;
+        --pk-blue: #5c9dff; --pk-amber: #f0a040; --pk-amber-line: #5a3a10; --pk-amber-tint: #2a1f10;
+        --pk-red: #ff6b6b; --pk-red-tint: #3a1a1a; --pk-slate: #8a9199;
+        --pk-divide: #2d3139; --pk-surface-alt: #1e2127; --pk-track: #2d3139;
+      }
+      body[data-ds-dark-theme] .pk-spinner { border-color: rgba(61,189,180,.22) }
+      body[data-ds-dark-theme] .pk-scroll::-webkit-scrollbar-thumb { background: #4a4f59 }
+      body[data-ds-dark-theme] button:focus-visible, body[data-ds-dark-theme] input:focus-visible, body[data-ds-dark-theme] textarea:focus-visible, body[data-ds-dark-theme] select:focus-visible { outline-color: rgba(61,189,180,.45) }
+      body[data-ds-dark-theme] .pk-card:hover { box-shadow: 0 10px 26px rgba(0,0,0,.22) }
       @keyframes pk-pop { from { opacity: 0; transform: translateY(6px) scale(.985) } to { opacity: 1; transform: none } }
       @keyframes pk-fade { from { opacity: 0 } to { opacity: 1 } }
       @keyframes pk-spin { to { transform: rotate(360deg) } }
