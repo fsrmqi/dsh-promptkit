@@ -4,89 +4,91 @@
 [![DSH Plugin](https://img.shields.io/badge/DSH-Plugin-blue.svg)](https://github.com/topics/dsh-plugin)
 [![Node: >=18](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
 
-> npm 包名 / 仓库名：**`dsh-promptkit`**
+[English](README.md) · [简体中文](README.zh.md)
 
-开源的 Prompt 构建与增强工具包，包含两个独立可用的能力：
+> npm package / repo name: **`dsh-promptkit`**
 
-- **`PromptStudio`（方法工坊）**：选择思考方法，用问题 / 事实 / 约束生成可编辑 Prompt。内置 12 个完整 Markdown 方法（带 frontmatter 元数据 + 完整 prompt 正文）。
-- **`QuickEnhancer`（对话快捷增强器）**：轻量 React 组件，可悬浮或内嵌，把当前输入框提示词做轻量 / 语义增强，或从方法库填充、改造。
+An open-source prompt building and enhancement toolkit with two independently usable capabilities:
 
-## 安装
+- **`PromptStudio`** — Select a thinking method, fill in your problem / facts / constraints, and generate an editable prompt. Ships with 12 complete Markdown methods (with frontmatter metadata + full prompt body).
+- **`QuickEnhancer`** — A lightweight React component (floatable or inline) that lightly or semantically enhances the current input draft, or fills/transforms it from the method library.
 
-### 方式一：npm（推荐，免编译权限）
+## Installation
+
+### Option 1: npm (recommended, no build permission needed)
 
 ```bash
 dsh plugin --profile web add dsh-promptkit
 ```
 
-### 方式二：GitHub（可钉 commit 实现可复现安装）
+### Option 2: GitHub (pin a commit for reproducible installs)
 
 ```bash
-# 最新版
+# latest
 dsh plugin --profile web add github:fsrmqi/dsh-promptkit
 
-# 钉 commit（推荐生产环境）
+# pinned commit (recommended for production)
 dsh plugin --profile web add github:fsrmqi/dsh-promptkit#<commit-sha>
 ```
 
-> **注意**：pnpm ≥ 10 安装 GitHub 依赖时会拒绝运行 `prepare` 脚本，需在 profile 的 `pnpm-workspace.yaml` 中 allowlist：
+> **Note**: pnpm ≥ 10 refuses to run `prepare` scripts for GitHub dependencies by default. You need to allowlist it in the profile's `pnpm-workspace.yaml`:
 > ```yaml
 > allowBuilds:
 >   dsh-promptkit: true
 > ```
-> 本仓库已将构建产物（`ui/client.js`、`ui/embed.js`）提交到 Git，Git 安装可直接使用无需构建；allowlist 仅在新增 `prepare` 脚本时需要。
+> Build artifacts (`ui/client.js`, `ui/embed.js`) are already committed to Git, so Git installs work out of the box without building. The allowlist is only needed if a `prepare` script is added later.
 
-### 方式三：tarball（离线 / 审计场景）
+### Option 3: tarball (offline / audit scenarios)
 
 ```bash
-npm pack                    # 产出 dsh-promptkit-0.1.0.tgz
+npm pack                    # produces dsh-promptkit-0.1.0.tgz
 dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
 ```
 
-### 作为 npm 库使用
+### As an npm library
 
 ```bash
 npm install dsh-promptkit
 ```
 
-## 设计原则：单一代码源，双消费
+## Design Principle: Single Source, Dual Consumption
 
-PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，开源版本提供默认实现，宿主可按契约自行替换：
+PromptKit's core **depends on zero hosts**. It defines three decoupled interfaces; the open-source version provides default implementations, and hosts can swap them via the contract:
 
-| 接口 | 职责 | 开源默认实现 |
+| Interface | Responsibility | Open-source Default |
 | --- | --- | --- |
-| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 历史 | `StaticMethodProvider`（内置 12 个 Markdown 方法，localStorage 持久化，`storagePrefix` 可配） |
-| `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） |
-| `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） |
+| `MethodProvider` | Method source / composition / template / favorites / history | `StaticMethodProvider` (12 built-in Markdown methods, localStorage persistence, configurable `storagePrefix`) |
+| `Composer` | Write to a target input box | `TextareaComposer` (any textarea, with input subscription) |
+| `Enhancer` | Semantic model call for enhancement | `OpenAIEnhancer` (any OpenAI-compatible endpoint) |
 
-这样 **npm 库形态和宿主嵌入形态，共用同一份核心代码**——差别只在注入什么 adapter，绝不分叉成两份维护。PromptKit 对宿主零感知（Embed Protocol，见下文）。
+This way, **the npm library form and the host-embedded form share the exact same core code** — the only difference is which adapter you inject. No forked maintenance. PromptKit is host-agnostic (Embed Protocol, see below).
 
-## 组件 Props
+## Component Props
 
-两个组件的可选能力一律「未注入即隐藏对应 UI」：
+Both components hide UI for capabilities that are not injected:
 
 ### `<PromptStudio />`
 
-| Prop | 必填 | 说明 |
+| Prop | Required | Description |
 | --- | --- | --- |
-| `methodProvider` | ✅ | `MethodProvider` 实例 |
-| `messages` | | 当前对话 `[{ id, role: 'user'\|'assistant', text }]`，供「从当前对话提取」 |
-| `onSend` | | `(text) => Promise`，预览区出现「发送到当前会话」按钮 |
-| `composer` | | `Composer` 实例，预览区出现「写入输入框」按钮（另有始终可用的「复制 Prompt」） |
-| `getRecentSessions` | | `() => Promise<Array<{ intent?, summary? }>>`，显示「追加最近会话摘要」区块 |
-| `searchMemory` | | `(query) => Promise<string>`，显示「按自然语言搜索项目记忆」区块 |
+| `methodProvider` | ✅ | `MethodProvider` instance |
+| `messages` | | Current conversation `[{ id, role: 'user'\|'assistant', text }]`, for "extract from current conversation" |
+| `onSend` | | `(text) => Promise`, shows a "Send to current session" button in the preview |
+| `composer` | | `Composer` instance, shows a "Write to input box" button in the preview ("Copy Prompt" is always available) |
+| `getRecentSessions` | | `() => Promise<Array<{ intent?, summary? }>>`, shows an "Append recent session summary" block |
+| `searchMemory` | | `(query) => Promise<string>`, shows a "Search project memory by natural language" block |
 
 ### `<QuickEnhancer />`
 
-| Prop | 必填 | 说明 |
+| Prop | Required | Description |
 | --- | --- | --- |
-| `methodProvider` | ✅ | `MethodProvider` 实例 |
-| `composer` | ✅ | `Composer` 实例；生成 / 增强 / 撤销全部经它读写草稿 |
-| `enhancer` | | `Enhancer` 实例；未注入时仅保留「轻量 · 零 Token」档位 |
-| `messages` | | 当前对话数组，供「加对话」参考与消息选择 |
-| `searchMemory` | | `(query) => Promise<string>`，提供「加项目记忆」上下文档位 |
+| `methodProvider` | ✅ | `MethodProvider` instance |
+| `composer` | ✅ | `Composer` instance; all generate / enhance / undo operations read/write drafts through it |
+| `enhancer` | | `Enhancer` instance; when not injected, only the "Lightweight · Zero Token" tier remains |
+| `messages` | | Current conversation array, for "add conversation" reference and message selection |
+| `searchMemory` | | `(query) => Promise<string>`, provides "add project memory" context slot |
 
-## 用法
+## Usage
 
 ```js
 import {
@@ -106,129 +108,129 @@ const composer = new TextareaComposer(document.querySelector('textarea'))
 />
 ```
 
-### 运行示例
+### Running the example
 
 ```bash
 cd promptkit
 python3 -m http.server 8080
-# 浏览器打开 http://localhost:8080/examples/basic/
+# Open http://localhost:8080/examples/basic/ in browser
 ```
 
-示例页面用 importmap 直连 `src/`（React 走 esm.sh CDN），无需构建步骤。
+The example page uses importmap to load `src/` directly (React via esm.sh CDN), no build step required.
 
-## 目录结构
+## Directory Structure
 
 ```
 dsh-promptkit/
 ├── src/
-│   ├── core/        # 三接口定义（MethodProvider / Composer / Enhancer）
-│   ├── lib/         # 通用纯函数（utils.js：分类链 / planPromptEnhancement / conversationMessages / ...）
-│   ├── methods/     # 开源方法库（builtin.js → 动态加载 builtin.json，12 个 Markdown 方法）
-│   ├── adapters/    # 默认实现（StaticMethodProvider / TextareaComposer / OpenAIEnhancer）
-│   ├── ui/          # 组件（foundation.js 基础设施 + studio.js + quick-enhancer.js）
-│   └── index.js     # 公共入口（npm 库形态）
-├── methods/         # 12 个 Markdown 方法库（带 frontmatter + 完整 prompt 正文）
-│   ├── builtin.json # 构建产物（scripts/build-methods.mjs 从 Markdown 解析生成，勿手改）
-│   ├── 决策/        # 双向钢人论证、用最小实验替代空想
-│   ├── 学习/        # 事实核查、双层解释法、反向拆解、横纵分析法
-│   ├── 解决问题/    # 专家会诊、第一性原理、跨领域借解
-│   ├── 认识你自己/  # 人生设计术、挖掘隐藏天赋
-│   └── 问清问题/    # 苏格拉底式提问
-├── dsh/             # 独立 DSH 插件 glue（standalone-glue.js：插槽注册 + 默认 adapter 装配）
-├── scripts/         # build-methods.mjs（md → builtin.json）+ build-client.mjs（零依赖浏览器端构建器：standalone + embed 两产物）
-├── ui/client.js     # 生成的独立 DSH 浏览器视图（勿手改，npm run build:ui 产出）
-├── ui/embed.js      # 生成的标准嵌入产物（Embed Protocol v1，勿手改，供其他插件消费）
-├── docs/EMBED.md    # 嵌入协议标准（宿主接入指南）
-├── test/            # embed 契约测试（最小宿主环境执行 ui/embed.js，锁定协议面）
-├── examples/basic/  # 零构建可运行 demo（importmap + esm.sh）
+│   ├── core/        # Three interface definitions (MethodProvider / Composer / Enhancer)
+│   ├── lib/         # Pure utility functions (utils.js: category chain / planPromptEnhancement / conversationMessages / ...)
+│   ├── methods/     # Open method library (builtin.js → dynamically loads builtin.json, 12 Markdown methods)
+│   ├── adapters/    # Default implementations (StaticMethodProvider / TextareaComposer / OpenAIEnhancer)
+│   ├── ui/          # Components (foundation.js infrastructure + studio.js + quick-enhancer.js)
+│   └── index.js     # Public entry point (npm library form)
+├── methods/         # 12 Markdown method library (with frontmatter + full prompt body)
+│   ├── builtin.json # Build artifact (scripts/build-methods.mjs parses Markdown → json, do not edit by hand)
+│   ├── 决策/        # Steel-man / Devil's advocate, Replace speculation with minimal experiments
+│   ├── 学习/        # Fact check, Double-layer explanation, Reverse decomposition, Horizontal-vertical analysis
+│   ├── 解决问题/    # Expert panel, First principles, Cross-domain borrowing
+│   ├── 认识你自己/  # Life design, Uncover hidden talents
+│   └── 问清问题/    # Socratic questioning
+├── dsh/             # Standalone DSH plugin glue (standalone-glue.js: slot registration + default adapter wiring)
+├── scripts/         # build-methods.mjs (md → builtin.json) + build-client.mjs (zero-dependency browser builder: standalone + embed)
+├── ui/client.js     # Generated standalone DSH browser view (do not edit, produced by npm run build:ui)
+├── ui/embed.js      # Generated standard embed artifact (Embed Protocol v1, do not edit, consumed by other plugins)
+├── docs/EMBED.md    # Embed protocol standard (host integration guide)
+├── test/            # Embed contract tests (run ui/embed.js in minimal host vm, lock protocol surface)
+├── examples/basic/  # Zero-build runnable demo (importmap + esm.sh)
 ├── LICENSE          # MIT
-└── package.json     # 含 dsh.client manifest（DSH Loader 发现用）
+└── package.json     # Includes dsh.client manifest (for DSH Loader discovery)
 ```
 
-## DSH 插件架构
+## DSH Plugin Architecture
 
-本仓库 `package.json` 声明 `dsh.client`（浏览器端插件 manifest），DSH Web App 的 ModuleLoader 自动发现并加载 `ui/client.js`：
+This repo declares `dsh.client` (browser-side plugin manifest) in `package.json`. DSH Web App's ModuleLoader auto-discovers and loads `ui/client.js`:
 
-- **内置 12 个 Markdown 方法**（`StaticMethodProvider`，全本地、零后端，prompt 正文随包内联）；
-- **方法工坊**挂 `conversation.view` 插槽（DSH 顶部标签页），**快捷助手**挂 `conversation.input.right` 插槽（输入框右侧悬浮按钮）；
-- 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right` 注入的 `inputActions`），「发送到当前会话」走 DSH 会话 API；
-- **可选语义增强**（模型改写草稿）：配置 `window.DSH_PROMPTKIT_CONFIG = { baseUrl, apiKey, model }` 或 localStorage `dsh-promptkit.config.v1`（任意 OpenAI 兼容端点）；未配置时自动降级为轻量增强（零 Token）。
+- **12 built-in Markdown methods** (`StaticMethodProvider`, fully local, zero backend, prompt bodies inlined with the package);
+- **PromptStudio** hooks `conversation.view` slot (DSH top tab), **QuickEnhancer** hooks `conversation.input.right` slot (floating button to the right of the input box);
+- "Write to message box" bridges DSH conversation input (`inputActions` injected by `conversation.input.right`), "Send to current session" goes through DSH session API;
+- **Optional semantic enhancement** (model rewrites draft): configure `window.DSH_PROMPTKIT_CONFIG = { baseUrl, apiKey, model }` or localStorage `dsh-promptkit.config.v1` (any OpenAI-compatible endpoint); auto-falls back to lightweight enhancement (zero token) when not configured.
 
-构建产物 `ui/client.js` 为单文件 lazy-CJS 工厂（`window.__ModuleLoader__.load`），由 `scripts/build-client.mjs` 从 `src/` 剥离 ESM 语法拼接生成——**组件代码只有一份源码**，npm 库形态与 DSH 插件形态共用。
+The build artifact `ui/client.js` is a single-file lazy-CJS factory (`window.__ModuleLoader__.load`), generated by `scripts/build-client.mjs` from `src/` by stripping ESM syntax — **component code has only one source**, shared between npm library form and DSH plugin form.
 
-## 嵌入其他插件（Embed Protocol v1）
+## Embedding in Other Hosts (Embed Protocol v1)
 
-任何 Web 应用或插件宿主都可以组合 dsh-promptkit 的方法工坊与对话增强器，**dsh-promptkit 对宿主零感知**：
+Any web app or plugin host can compose dsh-promptkit's PromptStudio and QuickEnhancer — **dsh-promptkit is host-agnostic**:
 
-- 标准产物 `ui/embed.js`：IIFE 私有化全部内部符号，仅暴露 `PromptKit` 命名空间（组件 / 方法源 / 基类 / utils），唯一前提是宿主闭包提供 `React`；
-- 视觉命名空间 `pk-*` 独立于宿主主题，多个宿主实例同装互不覆盖；
-- 宿主自持集成脚本与 adapter（方法源 / 草稿读写 / 模型调用），按 props 契约装配组件；
-- 契约有测试锁定（`test/embed.test.js`，7 项），协议面只增不改。
+- Standard artifact `ui/embed.js`: IIFE privatizes all internal symbols, only exposes the `PromptKit` namespace (components / method sources / base classes / utils). The only prerequisite is `React` in the host closure;
+- Visual namespace `pk-*` is independent from host themes, multiple host instances installed together won't override each other;
+- Hosts own their integration scripts and adapters (method source / draft read-write / model calls), assembling components via props contract;
+- Contract is locked by tests (`test/embed.test.js`, 7 cases), protocol surface only grows, never breaks.
 
-完整契约与接入步骤见 **[docs/EMBED.md](docs/EMBED.md)**。
+Full contract and integration steps see **[docs/EMBED.md](docs/EMBED.md)**.
 
-## 宿主对接（写哪些 adapter）
+## Host Integration (Which Adapters to Write)
 
-以任意宿主为例，经 `PromptKit` 命名空间接入同一份核心：
+Take any host as an example, access the same core via the `PromptKit` namespace:
 
 ```js
-// 拼接 ui/embed.js 后，宿主闭包内可用 PromptKit（详见 docs/EMBED.md）
+// After concatenating ui/embed.js, PromptKit is available in the host closure (see docs/EMBED.md)
 
-// 1) 方法源：直接用内置 12 方法（storagePrefix 隔离不同宿主的数据）
+// 1) Method source: use built-in 12 methods directly (storagePrefix isolates data for different hosts)
 const methodProvider = new PromptKit.StaticMethodProvider({ storagePrefix: 'my-host.' })
-//    或继承基类桥接宿主自己的方法源：
+//    Or extend the base class to bridge host's own method source:
 //    class HostMethodProvider extends PromptKit.MethodProvider { async list() { ... } }
 
-// 2) 写入目标：桥接宿主的消息输入框
+// 2) Write target: bridge host's message input box
 class HostComposer extends PromptKit.Composer {
-  getDraft() { return /* 读取宿主输入框当前草稿 */ }
-  write(text) { /* 写入宿主输入框 */ }
-  onChange(cb) { return /* 订阅草稿变化，返回取消订阅函数 */ }
+  getDraft() { return /* read current draft from host input box */ }
+  write(text) { /* write to host input box */ }
+  onChange(cb) { return /* subscribe to draft changes, return unsubscribe function */ }
 }
 
-// 3) 模型调用（可选）：桥接宿主后端或直连 OpenAI 兼容端点
+// 3) Model call (optional): bridge host backend or connect directly to OpenAI-compatible endpoint
 class HostEnhancer extends PromptKit.Enhancer {
-  async enhance({ draft, extra, lang, kind, method }) { /* 宿主模型调用 */ }
-  cancel() { /* 透传 AbortController */ }
+  async enhance({ draft, extra, lang, kind, method }) { /* host model call */ }
+  cancel() { /* pass through AbortController */ }
 }
 
-// 4) 对话上下文：宿主会话快照 → messages 数组
-const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
+// 4) Conversation context: host session snapshot → messages array
+const messages = PromptKit.utils.conversationMessages(/* host session data */)
 ```
 
-### 方法库来源
+### Method Library Source
 
-12 个 Markdown 方法（带 frontmatter 元数据：场景、用途、标签、触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留，作为方法对模型的填写指令，不做正则替换。
+12 Markdown methods (with frontmatter metadata: scenario, purpose, tags, trigger words). The `prompt` field extracts the `## Prompt` code block from the body as a clean template (strips article narration; falls back to full body when no code block). After user fills in problem/facts/constraints, a "Current task input" structured block is appended after the template to form the final prompt — placeholders like 【…】 in the template are preserved as instructions for the model to fill in, no regex substitution.
 
-新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:methods` 重新生成 `methods/builtin.json`（`scripts/build-methods.mjs` 解析 frontmatter + 正文；`mode`/`outcome` 在脚本内 `OVERRIDES` 表维护），再 `npm run build:ui` 把新方法内联到 `ui/client.js`。直接 `npm run build` 一条命令完成全部三步。
+To add a new method: create a new Markdown file under `methods/` (same frontmatter format as existing ones), then `npm run build:methods` to regenerate `methods/builtin.json` (`scripts/build-methods.mjs` parses frontmatter + body; `mode`/`outcome` maintained in the `OVERRIDES` table inside the script), then `npm run build:ui` to inline the new method into `ui/client.js`. `npm run build` does all three steps in one command.
 
-## 权限与隐私
+## Permissions & Privacy
 
-| 访问项 | 用途 | 可关闭 |
+| Access | Purpose | Can Disable |
 | --- | --- | --- |
-| `window.localStorage` | 收藏 / 历史持久化、可选的语义增强配置（前缀可配置，与其他插件隔离） | 清除 localStorage 即清空，无服务端持久化 |
-| 目标输入框（Composer） | 「写入输入框」按钮把生成的 Prompt 填入当前草稿 | 不点按钮不触发 |
-| 当前会话（onSend） | 「发送到当前会话」按钮把 Prompt 作为消息发出 | 不点按钮不触发 |
-| `fetch`（可选） | 仅在用户主动配置语义增强端点时发起请求，调用用户指定的 OpenAI 兼容 API | 不配置则不发起任何网络请求 |
+| `window.localStorage` | Favorites / history persistence, optional semantic enhancement config (configurable prefix, isolated from other plugins) | Clear localStorage to wipe, no server-side persistence |
+| Target input box (Composer) | "Write to input box" button fills generated prompt into current draft | Only triggers when clicked |
+| Current session (onSend) | "Send to current session" button sends prompt as a message | Only triggers when clicked |
+| `fetch` (optional) | Only makes requests when user actively configures a semantic enhancement endpoint, calling the user-specified OpenAI-compatible API | No network requests when not configured |
 
-**零遥测**：本插件不收集任何使用数据，不向任何第三方服务发送信息。所有数据存储在用户本地 localStorage，可随时清除。
+**Zero telemetry**: This package collects no usage data and sends no information to any third-party service. All data is stored in the user's local localStorage and can be cleared at any time.
 
-## 支持环境与兼容性
+## Supported Environments & Compatibility
 
-| 环境 | 要求 |
+| Environment | Requirement |
 | --- | --- |
-| DeepSeek Harness | Developer Preview（建议 `@deepseek-ai/dsh` 0.1.0-rc.x 及以上） |
-| Node.js | ≥ 18（构建脚本使用 `node --test`） |
-| 浏览器 | Chrome 90+ / Firefox 88+ / Safari 14+（需支持 ES Modules + `AbortController`） |
-| React | ≥ 17（peer dependency，宿主环境需提供） |
+| DeepSeek Harness | Developer Preview (recommended `@deepseek-ai/dsh` 0.1.0-rc.x or above) |
+| Node.js | ≥ 18 (build scripts use `node --test`) |
+| Browser | Chrome 90+ / Firefox 88+ / Safari 14+ (requires ES Modules + `AbortController`) |
+| React | ≥ 17 (peer dependency, provided by host environment) |
 
-> **兼容性声明**（2026-08-26）：DeepSeek Harness 处于 Developer Preview 阶段，接口可能不兼容变更。本插件基于 `dsh.client` manifest（`platform: "web"`）和 `conversation.view` / `conversation.input.right` 插槽开发，DSH 版本更新后请以 `dsh --dump-config` 实际输出为准。
+> **Compatibility Note** (2026-08-26): DeepSeek Harness is in Developer Preview, interfaces may change incompatibly. This plugin is built on `dsh.client` manifest (`platform: "web"`) and `conversation.view` / `conversation.input.right` slots. After DSH version updates, refer to actual `dsh --dump-config` output.
 
-## 贡献
+## Contributing
 
-欢迎提交 Issue 和 PR。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Issues and PRs are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
-新增思考方法只需在 `methods/` 下新建 Markdown 文件，然后 `npm run build` 重新生成——详见 [方法库来源](#方法库来源) 章节。
+To add a new thinking method, just create a new Markdown file under `methods/`, then `npm run build` to regenerate — see the [Method Library Source](#method-library-source) section for details.
 
 ## License
 
