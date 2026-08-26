@@ -939,22 +939,33 @@ window.__ModuleLoader__.load({
       // 独立 DSH 插件 glue —— 在工厂闭包内执行，可用闭包内的全部 dsh-promptkit 符号。
       // 职责：把 PromptStudio / QuickEnhancer 以 DSH 插槽形式注册，并用默认 adapter 装配。
       //
-      // 配置（可选，用于语义增强）：
-      //   window.DSH_PROMPTKIT_CONFIG = { baseUrl, apiKey, model }
-      //   或 localStorage['dsh-promptkit.config.v1'] = JSON 同结构
-      // 未配置时语义增强按钮隐藏（组件按 enhancer 可选处理），方法工坊/模板/组合全部本地可用。
-
-      const promptkitConfig = (() => {
-        try {
-          return { ...(window.DSH_PROMPTKIT_CONFIG || {}), ...JSON.parse(window.localStorage.getItem('dsh-promptkit.config.v1') || '{}') }
-        } catch { return {} }
-      })()
+      // 语义增强经 node 半区复用当前会话的模型路由；浏览器端不保存 API Key 或模型配置。
 
       const promptkitMethodProvider = new StaticMethodProvider()
 
-      const promptkitEnhancer = promptkitConfig.baseUrl && promptkitConfig.apiKey
-        ? new OpenAIEnhancer({ baseUrl: promptkitConfig.baseUrl, apiKey: promptkitConfig.apiKey, model: promptkitConfig.model || 'gpt-4o-mini' })
-        : null
+      class DshSessionEnhancer {
+        constructor(getSessionId) { this.getSessionId = getSessionId; this.controller = null }
+        get loading() { return !!this.controller }
+        async enhance({ draft, extra, lang, method }) {
+          this.controller?.abort()
+          this.controller = new AbortController()
+          try {
+            const response = await fetch(`/dsh-promptkit/semantic-enhance?session_id=${encodeURIComponent(this.getSessionId())}`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ draft, extra, lang, method }),
+              signal: this.controller.signal,
+            })
+            const body = await response.json().catch(() => ({}))
+            if (!response.ok) {
+              if (response.status === 504) throw Object.assign(new Error(body.next_action || '模型响应超时，请稍后重试。'), { timeout: true })
+              throw new Error(body.next_action || body.error || '基于草稿改造失败')
+            }
+            return body
+          } finally { this.controller = null }
+        }
+        cancel() { this.controller?.abort(); this.controller = null }
+      }
 
       // 桥接 DSH 会话输入框（conversation.input.right 注入的 props）为 Composer 接口
       class DshDraftComposer {
@@ -970,8 +981,9 @@ window.__ModuleLoader__.load({
         const snapshot = useSession(value => value)
         const messages = React.useMemo(() => conversationMessages(snapshot), [snapshot?.nodes])
         const composer = React.useMemo(() => new DshDraftComposer(input, inputActions), [input, inputActions])
+        const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
         React.useEffect(() => { composer.notify(input?.draft ?? '') }, [input?.draft, composer])
-        return h(QuickEnhancer, { methodProvider: promptkitMethodProvider, composer, enhancer: promptkitEnhancer, messages })
+        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages })
       }
 
       // 方法工坊宿主：conversation.view 视图，onSend 走当前会话

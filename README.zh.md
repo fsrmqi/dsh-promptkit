@@ -154,7 +154,7 @@ dsh-promptkit/
 - **内置 12 个 Markdown 方法**（`StaticMethodProvider`，全本地、零后端，prompt 正文随包内联）；
 - **方法工坊**挂 `conversation.view` 插槽（DSH 顶部标签页），**快捷助手**挂 `conversation.input.right` 插槽（输入框右侧悬浮按钮）；
 - 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right` 注入的 `inputActions`），「发送到当前会话」走 DSH 会话 API；
-- **可选语义增强**（模型改写草稿）：配置 `window.DSH_PROMPTKIT_CONFIG = { baseUrl, apiKey, model }` 或 localStorage `dsh-promptkit.config.v1`（任意 OpenAI 兼容端点）；未配置时自动降级为轻量增强（零 Token）。
+- **语义增强**（模型改写草稿）：复用当前 DSH 会话已经选定的模型路由，由插件 Node 半区调用 Harness 的 LLM 服务；无需填写 API Key 或 endpoint，结果仅回填输入框、不自动发送。当前会话尚未建立模型路由时，先正常发送一次消息即可。
 
 构建产物 `ui/client.js` 为单文件 lazy-CJS 工厂（`window.__ModuleLoader__.load`），由 `scripts/build-client.mjs` 从 `src/` 剥离 ESM 语法拼接生成——**组件代码只有一份源码**，npm 库形态与 DSH 插件形态共用。
 
@@ -208,10 +208,10 @@ const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
 
 | 访问项 | 用途 | 可关闭 |
 | --- | --- | --- |
-| `window.localStorage` | 收藏 / 历史持久化、可选的语义增强配置（前缀可配置，与其他插件隔离） | 清除 localStorage 即清空，无服务端持久化 |
+| `window.localStorage` | 收藏 / 历史持久化（前缀可配置，与其他插件隔离） | 清除 localStorage 即清空，无服务端持久化 |
 | 目标输入框（Composer） | 「写入输入框」按钮把生成的 Prompt 填入当前草稿 | 不点按钮不触发 |
 | 当前会话（onSend） | 「发送到当前会话」按钮把 Prompt 作为消息发出 | 不点按钮不触发 |
-| `fetch`（可选） | 仅在用户主动配置语义增强端点时发起请求，调用用户指定的 OpenAI 兼容 API | 不配置则不发起任何网络请求 |
+| `fetch` | 用户点击语义增强时调用本地插件桥接；Node 半区复用当前会话模型 | 不点击则不发起请求 |
 
 **零遥测**：本插件不收集任何使用数据，不向任何第三方服务发送信息。所有数据存储在用户本地 localStorage，可随时清除。
 
