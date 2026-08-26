@@ -128,7 +128,7 @@ ${body}
     MethodProvider, Composer, Enhancer, TextareaComposer, OpenAIEnhancer,
     // 宿主 glue 可复用的纯函数与推荐信号表
     utils: {
-      safeText, conversationDraft, conversationMessages, list, obj,
+      safeText, conversationDraft, conversationMessages, list, obj, fileMentions,
       cleanSummary, cleanContext, cleanConversationText, selectedConversationDraft,
       methodChoice, detectLanguage, METHOD_SIGNATURES, TEMPLATE_LABELS, STRONG_SIGNALS,
       buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods,

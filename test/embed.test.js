@@ -88,6 +88,14 @@ test('轻量增强：上下文参与方法匹配，但不混入输出草稿', as
   assert.ok(!plan.prompt.includes('当前在排查接口报错和异常日志'))
 })
 
+test('@ 文件引用：识别并去重，且忽略 dsh-at-file 的粘贴保护标记', () => {
+  const PromptKit = loadEmbed(minimalHost())
+  assert.deepEqual(
+    [...PromptKit.utils.fileMentions('请检查 @src/app.js 以及 @src/app.js @\u2060pasted.md')],
+    ['src/app.js'],
+  )
+})
+
 test('storagePrefix：宿主数据隔离', async () => {
   const host = minimalHost()
   const PromptKit = loadEmbed(host)
@@ -96,6 +104,16 @@ test('storagePrefix：宿主数据隔离', async () => {
   const favorites = [...(await provider.getFavorites())]
   assert.deepEqual(favorites, ['事实核查'])
   assert.ok([...host.store.keys()].every(key => key.startsWith('my-host.')), 'localStorage key 必须带宿主前缀')
+})
+
+test('历史订阅：任一写入会立即通知同一方法源的消费者', async () => {
+  const PromptKit = loadEmbed(minimalHost())
+  const provider = new PromptKit.StaticMethodProvider()
+  let observed = []
+  const off = provider.onHistoryChange(rows => { observed = [...rows] })
+  await provider.pushHistory({ id: '事实核查', title: '事实核查', question: '核验数据', at: 1 })
+  off()
+  assert.equal(observed[0]?.id, '事实核查')
 })
 
 test('私有方法：可从 Obsidian 风格 Markdown 导入且不污染开源方法库', async () => {

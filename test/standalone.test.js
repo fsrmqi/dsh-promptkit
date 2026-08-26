@@ -12,6 +12,7 @@ function loadStandalone() {
   const React = {
     createElement: (type, props) => ({ type, props }),
     useMemo: callback => callback(),
+    useCallback: callback => callback,
     useEffect: () => {},
   }
   const sandbox = {

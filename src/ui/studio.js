@@ -37,7 +37,8 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
     methodProvider.list().then(value => { if (alive) setMethods(list(value)) }).catch(error => { if (alive) setMessage(String(error?.message || error)) }).finally(() => { if (alive) setLoadingMethods(false) })
     methodProvider.getFavorites?.().then(value => { if (alive) setFavorites(list(value)) }).catch(() => {})
     methodProvider.getHistory?.().then(value => { if (alive) setHistory(list(value)) }).catch(() => {})
-    return () => { alive = false }
+    const offHistory = methodProvider.onHistoryChange?.(value => { if (alive) setHistory(list(value)) })
+    return () => { alive = false; offHistory?.() }
   }, [methodProvider])
   const categories = ['全部', ...Array.from(new Set(methods.map(item => item.category))).filter(Boolean)]
   const pinnedSet = new Set(['苏格拉底式提问', '第一性原理', '双向钢人论证'])

@@ -230,6 +230,21 @@ window.__ModuleLoader__.load({
             .replace(/\s+/g, ' ')
             .trim()
 
+          // 与 dsh-at-file 的草稿解析一致：只识别未被其粘贴保护标记包裹的 @ 引用。
+          function fileMentions(draft) {
+            const seen = new Set()
+            const mentions = []
+            for (const match of String(draft || '').matchAll(/@([^\s@]+)/g)) {
+              const raw = match[1]
+              if (raw.includes('\u2060')) continue
+              const path = raw.endsWith('/') ? raw.slice(0, -1) : raw
+              if (!path || seen.has(path)) continue
+              seen.add(path)
+              mentions.push(path)
+            }
+            return mentions
+          }
+
           // 从已选消息数组生成表单草稿（问题/事实/约束/方案/未决）。
           function selectedConversationDraft(messages) {
             const items = list(messages)
@@ -430,6 +445,8 @@ window.__ModuleLoader__.load({
         async getHistory() { return [] }
         /** @param {{id:string,title:string,question?:string}} item */
         async pushHistory(item) {}
+        /** @param {(items:Array<{id:string,title:string,question?:string,at?:number}>)=>void} callback @returns {()=>void} */
+        onHistoryChange(callback) { return () => {} }
       }
 
       /* ================= dsh-promptkit core: Composer / withPrefix ================= */
@@ -503,6 +520,8 @@ window.__ModuleLoader__.load({
           this.favoritesKey = `${storagePrefix}prompt-library.favorites.v1`
           this.historyKey = `${storagePrefix}prompt-library.history.v1`
           this.privateMethodsKey = `${storagePrefix}prompt-library.private-methods.v1`
+          this.historyEvent = `${storagePrefix}prompt-library.history.changed.v1`
+          this.historyListeners = new Set()
         }
 
         async list() { return [...await getMethods(), ...this._privateMethods()] }
@@ -557,7 +576,27 @@ window.__ModuleLoader__.load({
         async pushHistory(item) {
           const next = [item, ...this._readStore(this.historyKey, [])].slice(0, 20)
           this._writeStore(this.historyKey, next)
+          this._notifyHistory(next)
           return next
+        }
+
+        onHistoryChange(callback) {
+          this.historyListeners.add(callback)
+          const refresh = () => { try { callback(this._readStore(this.historyKey, [])) } catch {} }
+          const onCustom = event => { if (event?.detail?.key === this.historyKey) refresh() }
+          const onStorage = event => { if (event?.key === this.historyKey) refresh() }
+          window.addEventListener?.(this.historyEvent, onCustom)
+          window.addEventListener?.('storage', onStorage)
+          return () => {
+            this.historyListeners.delete(callback)
+            window.removeEventListener?.(this.historyEvent, onCustom)
+            window.removeEventListener?.('storage', onStorage)
+          }
+        }
+
+        _notifyHistory(items) {
+          this.historyListeners.forEach(callback => { try { callback(items) } catch {} })
+          try { window.dispatchEvent?.(new CustomEvent(this.historyEvent, { detail: { key: this.historyKey } })) } catch {}
         }
 
         /** 导入一张 Obsidian/Markdown 提示词卡片；仅保存到当前浏览器 localStorage。 */
@@ -718,7 +757,8 @@ window.__ModuleLoader__.load({
           methodProvider.list().then(value => { if (alive) setMethods(list(value)) }).catch(error => { if (alive) setMessage(String(error?.message || error)) }).finally(() => { if (alive) setLoadingMethods(false) })
           methodProvider.getFavorites?.().then(value => { if (alive) setFavorites(list(value)) }).catch(() => {})
           methodProvider.getHistory?.().then(value => { if (alive) setHistory(list(value)) }).catch(() => {})
-          return () => { alive = false }
+          const offHistory = methodProvider.onHistoryChange?.(value => { if (alive) setHistory(list(value)) })
+          return () => { alive = false; offHistory?.() }
         }, [methodProvider])
         const categories = ['全部', ...Array.from(new Set(methods.map(item => item.category))).filter(Boolean)]
         const pinnedSet = new Set(['苏格拉底式提问', '第一性原理', '双向钢人论证'])
@@ -1027,7 +1067,8 @@ window.__ModuleLoader__.load({
           let alive = true
           methodProvider.getFavorites?.().then(value => { if (alive) setLibraryFavorites(list(value)) }).catch(() => {})
           methodProvider.getHistory?.().then(value => { if (alive) setLibraryHistory(list(value)) }).catch(() => {})
-          return () => { alive = false }
+          const offHistory = methodProvider.onHistoryChange?.(value => { if (alive) setLibraryHistory(list(value)) })
+          return () => { alive = false; offHistory?.() }
         }, [methodProvider])
         React.useEffect(() => {
           if (!open || methods.length) return
@@ -1095,6 +1136,7 @@ window.__ModuleLoader__.load({
         const libraryMethod = libraryOpen ? selectedMethod : null
         const contextText = () => activeMessages.map(item => `${item.role === 'user' ? '用户' : '助手'}：${cleanContext(item.text)}`).join('\n').slice(0, 2400)
         const selectedContextText = contextLevel === 'question' ? '' : contextText()
+        const referencedFiles = fileMentions(draft)
         const autoMethods = recommendMethods(methods, [draft, requirement, selectedContextText].filter(Boolean).join('\n'))
         const matchedMethod = methods.find(method => method.id === enhancementMethodId) || autoMethods[0]
         const importCard = async raw => {
@@ -1137,6 +1179,10 @@ window.__ModuleLoader__.load({
           setMetrics({}); setFeedback([]); setConfirmClearMetrics(false)
           try { window.localStorage.removeItem(storageKey('metrics.v1')); window.localStorage.removeItem(storageKey('feedback.v1')) } catch {}
         }
+        const rememberMethod = (method, question = draft) => {
+          if (!method?.id) return
+          methodProvider.pushHistory?.({ id: method.id, title: method.title || '', question: cleanSummary(question), at: Date.now() }).catch(() => {})
+        }
         const composeIntoInput = async choice => {
           if (!choice || !composer) return
           const source = contextLevel === 'question' ? [] : activeMessages
@@ -1155,6 +1201,7 @@ window.__ModuleLoader__.load({
             const next = withPrefix(draft, composed.prompt)
             setUndoDraft({ before: draft, after: next })
             composer.write(next)
+            rememberMethod(choice, question)
             setMethodUsage(value => { const nextUsage = { ...value, [choice.id]: Number(value[choice.id] || 0) + 1 }; try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}; return nextUsage })
             setRecentMethodIds(value => { const nextRecent = [choice.id, ...value.filter(id => id !== choice.id)].slice(0, 3); try { window.localStorage.setItem(storageKey('recent-methods.v1'), JSON.stringify(nextRecent)) } catch {}; return nextRecent })
             setNotice(`已按“${choice.title}”${source.length ? `整理 ${source.length} 条消息并` : ''}填入输入框，可编辑后发送。`)
@@ -1169,6 +1216,7 @@ window.__ModuleLoader__.load({
             const template = await methodProvider.getTemplate(libraryMethod.id)
             setUndoDraft({ before: draft, after: template.prompt })
             composer?.write(template.prompt)
+            rememberMethod(libraryMethod, draft)
             setNotice(`已将「${libraryMethod.title}」模板填入消息框。`)
             setOpen(false)
           } catch (error) { setError(String(error?.message || error)) }
@@ -1185,6 +1233,7 @@ window.__ModuleLoader__.load({
             const body = await enhancer.enhance({ draft, extra: requirement, lang: detectLanguage(draft), kind: 'semantic', method: { title: libraryMethod.title, template: template.prompt } })
             setUndoDraft({ before: draft, after: body.prompt })
             composer?.write(body.prompt)
+            rememberMethod(libraryMethod, draft)
             setNotice(`已按「${libraryMethod.title}」用模型改造草稿，可在此撤销或对比原稿。`)
             setOpen(false)
           } catch (error) {
@@ -1209,7 +1258,7 @@ window.__ModuleLoader__.load({
             if (!enhancer) { setNotice('未注入语义增强模型（enhancer），仅支持轻量增强。'); return }
             setLoading(true)
             try {
-              let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : ''].filter(Boolean).join('\n\n')
+              let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', referencedFiles.length ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。` : ''].filter(Boolean).join('\n\n')
               if (contextLevel === 'memory' && searchMemory) {
                 const remembered = cleanContext(await searchMemory(original) || '')
                 if (remembered) extra = [extra, `项目记忆：${remembered}`].filter(Boolean).join('\n\n')
@@ -1218,6 +1267,7 @@ window.__ModuleLoader__.load({
               const body = await enhancer.enhance({ draft: original, extra, lang: detectLanguage(original), kind: 'semantic', method: matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined })
               setUndoDraft({ before: original, after: body.prompt })
               composer?.write(body.prompt)
+              rememberMethod(matchedMethod, original)
               recordUsage({ kind: 'semantic', method: matchedMethod?.title })
               setLastEnhancement({ kind: 'semantic', method: matchedMethod?.title })
               setNotice(`语义增强完成${body.model ? `（${body.model}）` : ''}；草稿已替换，可在此撤销或对比原稿。`)
@@ -1233,6 +1283,7 @@ window.__ModuleLoader__.load({
           if (plan.tooShort) { setNotice('输入过短，未做增强，可直接发送。'); return }
           setUndoDraft({ before: original, after: plan.prompt })
           composer?.write(plan.prompt)
+          rememberMethod(matchedMethod, original)
           recordUsage({ kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
           setLastEnhancement({ kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
           setNotice(plan.method ? `已采用「${plan.label || plan.method}」做保守增强，可检查后直接发送。` : '已做最小化提示词整理，可检查后直接发送。')
@@ -1257,7 +1308,7 @@ window.__ModuleLoader__.load({
         const enhancementLang = detectLanguage(draft || '')
         const strategyNode = draft.trim() ? enhancementKind === 'semantic'
               ? [h('div', { key: 'meta', style: { marginBottom: '3px' } }, `将把当前 ${draft.trim().length} 个字符交给模型改写。`), autoMethods.length ? h('div', { key: 'method', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', color: C.teal } }, [h('span', { key: 'label' }, '自动匹配：'), ...autoMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setEnhancementMethodId(method.id), style: { border: `1px solid ${matchedMethod?.id === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '999px', background: matchedMethod?.id === method.id ? C.tealTintDeep : C.surface, color: C.teal, cursor: 'pointer', padding: '3px 7px', fontSize: '10px', fontWeight: 800 } }, matchedMethod?.id === method.id ? [h(Icon, { key: 'ck', name: 'check', size: 11, style: { marginRight: '2px' } }), method.title] : `改用 ${method.title}`))]) : h('div', { key: 'method', style: { color: C.muted } }, '未强行套用方法，只做结构化改写。'), h('div', { key: 'lang', style: { color: C.muted } }, `检测语言：${enhancementLang === 'en' ? '英文（输出与输入一致）' : enhancementLang === 'mixed' ? '中英混合（输出与输入一致）' : '中文'}。`), draft.trim().length > 3000 ? h('div', { key: 'warn', style: { marginTop: '3px', color: C.amber } }, '草稿超过 3000 字符，建议精简后再增强。') : null]
-              : [h('strong', { key: 'method', style: { color: C.teal } }, enhancementPlan.tooShort ? '输入过短，直接使用原文' : enhancementPlan.label ? `拟采用：${enhancementPlan.label}` : '拟采用：轻量整理'), h('div', { key: 'reason', style: { marginTop: '3px' } }, enhancementPlan.reason), enhancementPlan.signals?.length ? h('div', { key: 'signals', style: { marginTop: '3px' } }, `识别信号：${enhancementPlan.signals.join('、')}`) : null, enhancementPlan.conflicts?.length ? h('div', { key: 'conflicts', style: { marginTop: '3px', color: C.amber } }, `方法冲突：${enhancementPlan.conflicts.map(item => `${item.label || item.title}（命中“${item.signals.join('、')}”）`).join('；')}，采用「${enhancementPlan.label || enhancementPlan.method}」。`) : null, h('div', { key: 'size', style: { marginTop: '3px', color: C.muted } }, `预计 ${enhancementPlan.prompt.length} 字符。`)]
+              : [h('strong', { key: 'method', style: { color: C.teal } }, enhancementPlan.tooShort ? '输入过短，直接使用原文' : enhancementPlan.label ? `拟采用：${enhancementPlan.label}` : '拟采用：轻量整理'), h('div', { key: 'reason', style: { marginTop: '3px' } }, enhancementPlan.reason), referencedFiles.length ? h('div', { key: 'files', style: { marginTop: '3px', color: C.teal } }, `保留 @ 文件引用：${referencedFiles.map(path => `@${path}`).join('、')}`) : null, enhancementPlan.signals?.length ? h('div', { key: 'signals', style: { marginTop: '3px' } }, `识别信号：${enhancementPlan.signals.join('、')}`) : null, enhancementPlan.conflicts?.length ? h('div', { key: 'conflicts', style: { marginTop: '3px', color: C.amber } }, `方法冲突：${enhancementPlan.conflicts.map(item => `${item.label || item.title}（命中“${item.signals.join('、')}”）`).join('；')}，采用「${enhancementPlan.label || enhancementPlan.method}」。`) : null, h('div', { key: 'size', style: { marginTop: '3px', color: C.muted } }, `预计 ${enhancementPlan.prompt.length} 字符。`)]
               : '当前输入框为空，请先写下原始请求。'
         const enhancementKinds = enhancer ? [['light', '轻量 · 零 Token'], ['semantic', '语义 · 模型']] : [['light', '轻量 · 零 Token']]
         const enhancerPanel = h('div', { key: 'enhancer', style: { marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '11px', background: C.tealTint } }, [h('strong', { key: 'title', style: { fontSize: '13px', color: C.ink } }, '增强当前输入框提示词'), h('div', { key: 'kind', style: { display: 'grid', gridTemplateColumns: `repeat(${enhancementKinds.length},minmax(0,1fr))`, gap: '6px', marginTop: '9px' } }, enhancementKinds.map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => setEnhancementKind(id), style: { padding: '7px', border: `1px solid ${enhancementKind === id ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: enhancementKind === id ? C.tealTintDeep : C.surface, color: enhancementKind === id ? C.teal : C.slate, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, label))), h('div', { key: 'description', style: { marginTop: '7px', color: C.slate, fontSize: '12px', lineHeight: 1.5 } }, enhancementKind === 'semantic' ? '把草稿交给模型独立改写；只发送当前草稿与补充要求，不读取对话参考。' : '本地保守增强，最多采用一种合适方法，不产生额外模型调用。'), h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode), h('button', { key: 'enhance', className: 'pk-btn', disabled: !draft.trim() || (loading && enhancementKind !== 'semantic'), onClick: loading && enhancementKind === 'semantic' ? cancelEnhance : enhanceIntoInput, style: { width: '100%', marginTop: '10px', padding: '11px 14px', border: 0, borderRadius: '9px', background: draft.trim() && !loading ? C.actionBg : loading && enhancementKind === 'semantic' ? C.amber : C.tealLine, color: draft.trim() && !loading ? C.actionFg : loading && enhancementKind === 'semantic' ? C.onInk : C.muted, cursor: (draft.trim() && !loading) || (loading && enhancementKind === 'semantic') ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' } }, loading && enhancementKind === 'semantic' ? h(Spinner, { key: 'spin', text: '取消增强' }) : loading ? h(Spinner, { key: 'spin', text: '正在增强…' }) : '应用增强到消息框')])
@@ -1305,6 +1356,16 @@ window.__ModuleLoader__.load({
 
       const promptkitMethodProvider = new StaticMethodProvider()
 
+      async function promptkitSearchMemory(sessionId, query) {
+        const url = new URL('/memory-center/context-search', window.location.origin)
+        url.searchParams.set('session_id', sessionId)
+        url.searchParams.set('query', query)
+        const response = await fetch(url)
+        const body = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(body.next_action || '项目记忆服务不可用；请安装并启用 Memory Center DSH 插件。')
+        return String(body.suggested_context || '')
+      }
+
       class DshSessionEnhancer {
         constructor(getSessionId) { this.getSessionId = getSessionId; this.controller = null }
         get loading() { return !!this.controller }
@@ -1344,13 +1405,14 @@ window.__ModuleLoader__.load({
         const messages = React.useMemo(() => conversationMessages(snapshot), [snapshot?.nodes])
         const composer = React.useMemo(() => new DshDraftComposer(input, inputActions), [input, inputActions])
         const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
+        const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
         React.useEffect(() => { composer.notify(input?.draft ?? '') }, [input?.draft, composer])
-        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages })
+        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages, searchMemory })
       }
 
       // 方法工坊宿主：conversation.view 视图，onSend 走当前会话
       function PromptkitStudioHost({ sessionId, onSend }) {
-        return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend })
+        return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend, searchMemory: query => promptkitSearchMemory(sessionId, query) })
       }
 
       const promptkitApply = ctx => {

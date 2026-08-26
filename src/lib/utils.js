@@ -34,6 +34,21 @@
       .replace(/\s+/g, ' ')
       .trim()
 
+    // 与 dsh-at-file 的草稿解析一致：只识别未被其粘贴保护标记包裹的 @ 引用。
+    function fileMentions(draft) {
+      const seen = new Set()
+      const mentions = []
+      for (const match of String(draft || '').matchAll(/@([^\s@]+)/g)) {
+        const raw = match[1]
+        if (raw.includes('\u2060')) continue
+        const path = raw.endsWith('/') ? raw.slice(0, -1) : raw
+        if (!path || seen.has(path)) continue
+        seen.add(path)
+        mentions.push(path)
+      }
+      return mentions
+    }
+
     // 从已选消息数组生成表单草稿（问题/事实/约束/方案/未决）。
     function selectedConversationDraft(messages) {
       const items = list(messages)
@@ -183,4 +198,4 @@ function conversationMessages(snapshot, limit = 12) {
   return messages
 }
 
-export { safeText, conversationDraft, conversationMessages, list, obj, cleanSummary, cleanContext, cleanConversationText, selectedConversationDraft, methodChoice, detectLanguage, METHOD_SIGNATURES, TEMPLATE_LABELS, STRONG_SIGNALS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }
+export { safeText, conversationDraft, conversationMessages, list, obj, cleanSummary, cleanContext, cleanConversationText, fileMentions, selectedConversationDraft, methodChoice, detectLanguage, METHOD_SIGNATURES, TEMPLATE_LABELS, STRONG_SIGNALS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }

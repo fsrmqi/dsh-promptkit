@@ -18,6 +18,8 @@ export class StaticMethodProvider extends MethodProvider {
     this.favoritesKey = `${storagePrefix}prompt-library.favorites.v1`
     this.historyKey = `${storagePrefix}prompt-library.history.v1`
     this.privateMethodsKey = `${storagePrefix}prompt-library.private-methods.v1`
+    this.historyEvent = `${storagePrefix}prompt-library.history.changed.v1`
+    this.historyListeners = new Set()
   }
 
   async list() { return [...await getMethods(), ...this._privateMethods()] }
@@ -72,7 +74,27 @@ export class StaticMethodProvider extends MethodProvider {
   async pushHistory(item) {
     const next = [item, ...this._readStore(this.historyKey, [])].slice(0, 20)
     this._writeStore(this.historyKey, next)
+    this._notifyHistory(next)
     return next
+  }
+
+  onHistoryChange(callback) {
+    this.historyListeners.add(callback)
+    const refresh = () => { try { callback(this._readStore(this.historyKey, [])) } catch {} }
+    const onCustom = event => { if (event?.detail?.key === this.historyKey) refresh() }
+    const onStorage = event => { if (event?.key === this.historyKey) refresh() }
+    window.addEventListener?.(this.historyEvent, onCustom)
+    window.addEventListener?.('storage', onStorage)
+    return () => {
+      this.historyListeners.delete(callback)
+      window.removeEventListener?.(this.historyEvent, onCustom)
+      window.removeEventListener?.('storage', onStorage)
+    }
+  }
+
+  _notifyHistory(items) {
+    this.historyListeners.forEach(callback => { try { callback(items) } catch {} })
+    try { window.dispatchEvent?.(new CustomEvent(this.historyEvent, { detail: { key: this.historyKey } })) } catch {}
   }
 
   /** 导入一张 Obsidian/Markdown 提示词卡片；仅保存到当前浏览器 localStorage。 */

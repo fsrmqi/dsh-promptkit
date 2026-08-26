@@ -48,4 +48,6 @@ export class MethodProvider {
   async getHistory() { return [] }
   /** @param {{id:string,title:string,question?:string}} item */
   async pushHistory(item) {}
+  /** @param {(items:Array<{id:string,title:string,question?:string,at?:number}>)=>void} callback @returns {()=>void} */
+  onHistoryChange(callback) { return () => {} }
 }

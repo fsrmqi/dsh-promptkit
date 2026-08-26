@@ -1,6 +1,6 @@
 import React from 'react'
 import { h, C, S, workbenchStyle, GlobalStyle, Spinner, Icon } from './foundation.js'
-import { planPromptEnhancement, detectLanguage, methodChoice, recommendMethods, selectedConversationDraft, cleanSummary, cleanContext, list, lightTemplate } from '../lib/utils.js'
+import { planPromptEnhancement, detectLanguage, methodChoice, recommendMethods, selectedConversationDraft, cleanSummary, cleanContext, list, lightTemplate, fileMentions } from '../lib/utils.js'
 import { withPrefix } from '../core/composer.js'
 
 // ConversationQuickAction（对话快捷增强器 / QuickEnhancer）：开源核心组件，零宿主依赖。
@@ -67,7 +67,8 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
     let alive = true
     methodProvider.getFavorites?.().then(value => { if (alive) setLibraryFavorites(list(value)) }).catch(() => {})
     methodProvider.getHistory?.().then(value => { if (alive) setLibraryHistory(list(value)) }).catch(() => {})
-    return () => { alive = false }
+    const offHistory = methodProvider.onHistoryChange?.(value => { if (alive) setLibraryHistory(list(value)) })
+    return () => { alive = false; offHistory?.() }
   }, [methodProvider])
   React.useEffect(() => {
     if (!open || methods.length) return
@@ -135,6 +136,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
   const libraryMethod = libraryOpen ? selectedMethod : null
   const contextText = () => activeMessages.map(item => `${item.role === 'user' ? '用户' : '助手'}：${cleanContext(item.text)}`).join('\n').slice(0, 2400)
   const selectedContextText = contextLevel === 'question' ? '' : contextText()
+  const referencedFiles = fileMentions(draft)
   const autoMethods = recommendMethods(methods, [draft, requirement, selectedContextText].filter(Boolean).join('\n'))
   const matchedMethod = methods.find(method => method.id === enhancementMethodId) || autoMethods[0]
   const importCard = async raw => {
@@ -177,6 +179,10 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
     setMetrics({}); setFeedback([]); setConfirmClearMetrics(false)
     try { window.localStorage.removeItem(storageKey('metrics.v1')); window.localStorage.removeItem(storageKey('feedback.v1')) } catch {}
   }
+  const rememberMethod = (method, question = draft) => {
+    if (!method?.id) return
+    methodProvider.pushHistory?.({ id: method.id, title: method.title || '', question: cleanSummary(question), at: Date.now() }).catch(() => {})
+  }
   const composeIntoInput = async choice => {
     if (!choice || !composer) return
     const source = contextLevel === 'question' ? [] : activeMessages
@@ -195,6 +201,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
       const next = withPrefix(draft, composed.prompt)
       setUndoDraft({ before: draft, after: next })
       composer.write(next)
+      rememberMethod(choice, question)
       setMethodUsage(value => { const nextUsage = { ...value, [choice.id]: Number(value[choice.id] || 0) + 1 }; try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}; return nextUsage })
       setRecentMethodIds(value => { const nextRecent = [choice.id, ...value.filter(id => id !== choice.id)].slice(0, 3); try { window.localStorage.setItem(storageKey('recent-methods.v1'), JSON.stringify(nextRecent)) } catch {}; return nextRecent })
       setNotice(`已按“${choice.title}”${source.length ? `整理 ${source.length} 条消息并` : ''}填入输入框，可编辑后发送。`)
@@ -209,6 +216,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
       const template = await methodProvider.getTemplate(libraryMethod.id)
       setUndoDraft({ before: draft, after: template.prompt })
       composer?.write(template.prompt)
+      rememberMethod(libraryMethod, draft)
       setNotice(`已将「${libraryMethod.title}」模板填入消息框。`)
       setOpen(false)
     } catch (error) { setError(String(error?.message || error)) }
@@ -225,6 +233,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
       const body = await enhancer.enhance({ draft, extra: requirement, lang: detectLanguage(draft), kind: 'semantic', method: { title: libraryMethod.title, template: template.prompt } })
       setUndoDraft({ before: draft, after: body.prompt })
       composer?.write(body.prompt)
+      rememberMethod(libraryMethod, draft)
       setNotice(`已按「${libraryMethod.title}」用模型改造草稿，可在此撤销或对比原稿。`)
       setOpen(false)
     } catch (error) {
@@ -249,7 +258,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
       if (!enhancer) { setNotice('未注入语义增强模型（enhancer），仅支持轻量增强。'); return }
       setLoading(true)
       try {
-        let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : ''].filter(Boolean).join('\n\n')
+        let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', referencedFiles.length ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。` : ''].filter(Boolean).join('\n\n')
         if (contextLevel === 'memory' && searchMemory) {
           const remembered = cleanContext(await searchMemory(original) || '')
           if (remembered) extra = [extra, `项目记忆：${remembered}`].filter(Boolean).join('\n\n')
@@ -258,6 +267,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
         const body = await enhancer.enhance({ draft: original, extra, lang: detectLanguage(original), kind: 'semantic', method: matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined })
         setUndoDraft({ before: original, after: body.prompt })
         composer?.write(body.prompt)
+        rememberMethod(matchedMethod, original)
         recordUsage({ kind: 'semantic', method: matchedMethod?.title })
         setLastEnhancement({ kind: 'semantic', method: matchedMethod?.title })
         setNotice(`语义增强完成${body.model ? `（${body.model}）` : ''}；草稿已替换，可在此撤销或对比原稿。`)
@@ -273,6 +283,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
     if (plan.tooShort) { setNotice('输入过短，未做增强，可直接发送。'); return }
     setUndoDraft({ before: original, after: plan.prompt })
     composer?.write(plan.prompt)
+    rememberMethod(matchedMethod, original)
     recordUsage({ kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
     setLastEnhancement({ kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
     setNotice(plan.method ? `已采用「${plan.label || plan.method}」做保守增强，可检查后直接发送。` : '已做最小化提示词整理，可检查后直接发送。')
@@ -297,7 +308,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
   const enhancementLang = detectLanguage(draft || '')
   const strategyNode = draft.trim() ? enhancementKind === 'semantic'
         ? [h('div', { key: 'meta', style: { marginBottom: '3px' } }, `将把当前 ${draft.trim().length} 个字符交给模型改写。`), autoMethods.length ? h('div', { key: 'method', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', color: C.teal } }, [h('span', { key: 'label' }, '自动匹配：'), ...autoMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setEnhancementMethodId(method.id), style: { border: `1px solid ${matchedMethod?.id === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '999px', background: matchedMethod?.id === method.id ? C.tealTintDeep : C.surface, color: C.teal, cursor: 'pointer', padding: '3px 7px', fontSize: '10px', fontWeight: 800 } }, matchedMethod?.id === method.id ? [h(Icon, { key: 'ck', name: 'check', size: 11, style: { marginRight: '2px' } }), method.title] : `改用 ${method.title}`))]) : h('div', { key: 'method', style: { color: C.muted } }, '未强行套用方法，只做结构化改写。'), h('div', { key: 'lang', style: { color: C.muted } }, `检测语言：${enhancementLang === 'en' ? '英文（输出与输入一致）' : enhancementLang === 'mixed' ? '中英混合（输出与输入一致）' : '中文'}。`), draft.trim().length > 3000 ? h('div', { key: 'warn', style: { marginTop: '3px', color: C.amber } }, '草稿超过 3000 字符，建议精简后再增强。') : null]
-        : [h('strong', { key: 'method', style: { color: C.teal } }, enhancementPlan.tooShort ? '输入过短，直接使用原文' : enhancementPlan.label ? `拟采用：${enhancementPlan.label}` : '拟采用：轻量整理'), h('div', { key: 'reason', style: { marginTop: '3px' } }, enhancementPlan.reason), enhancementPlan.signals?.length ? h('div', { key: 'signals', style: { marginTop: '3px' } }, `识别信号：${enhancementPlan.signals.join('、')}`) : null, enhancementPlan.conflicts?.length ? h('div', { key: 'conflicts', style: { marginTop: '3px', color: C.amber } }, `方法冲突：${enhancementPlan.conflicts.map(item => `${item.label || item.title}（命中“${item.signals.join('、')}”）`).join('；')}，采用「${enhancementPlan.label || enhancementPlan.method}」。`) : null, h('div', { key: 'size', style: { marginTop: '3px', color: C.muted } }, `预计 ${enhancementPlan.prompt.length} 字符。`)]
+        : [h('strong', { key: 'method', style: { color: C.teal } }, enhancementPlan.tooShort ? '输入过短，直接使用原文' : enhancementPlan.label ? `拟采用：${enhancementPlan.label}` : '拟采用：轻量整理'), h('div', { key: 'reason', style: { marginTop: '3px' } }, enhancementPlan.reason), referencedFiles.length ? h('div', { key: 'files', style: { marginTop: '3px', color: C.teal } }, `保留 @ 文件引用：${referencedFiles.map(path => `@${path}`).join('、')}`) : null, enhancementPlan.signals?.length ? h('div', { key: 'signals', style: { marginTop: '3px' } }, `识别信号：${enhancementPlan.signals.join('、')}`) : null, enhancementPlan.conflicts?.length ? h('div', { key: 'conflicts', style: { marginTop: '3px', color: C.amber } }, `方法冲突：${enhancementPlan.conflicts.map(item => `${item.label || item.title}（命中“${item.signals.join('、')}”）`).join('；')}，采用「${enhancementPlan.label || enhancementPlan.method}」。`) : null, h('div', { key: 'size', style: { marginTop: '3px', color: C.muted } }, `预计 ${enhancementPlan.prompt.length} 字符。`)]
         : '当前输入框为空，请先写下原始请求。'
   const enhancementKinds = enhancer ? [['light', '轻量 · 零 Token'], ['semantic', '语义 · 模型']] : [['light', '轻量 · 零 Token']]
   const enhancerPanel = h('div', { key: 'enhancer', style: { marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '11px', background: C.tealTint } }, [h('strong', { key: 'title', style: { fontSize: '13px', color: C.ink } }, '增强当前输入框提示词'), h('div', { key: 'kind', style: { display: 'grid', gridTemplateColumns: `repeat(${enhancementKinds.length},minmax(0,1fr))`, gap: '6px', marginTop: '9px' } }, enhancementKinds.map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => setEnhancementKind(id), style: { padding: '7px', border: `1px solid ${enhancementKind === id ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: enhancementKind === id ? C.tealTintDeep : C.surface, color: enhancementKind === id ? C.teal : C.slate, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, label))), h('div', { key: 'description', style: { marginTop: '7px', color: C.slate, fontSize: '12px', lineHeight: 1.5 } }, enhancementKind === 'semantic' ? '把草稿交给模型独立改写；只发送当前草稿与补充要求，不读取对话参考。' : '本地保守增强，最多采用一种合适方法，不产生额外模型调用。'), h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode), h('button', { key: 'enhance', className: 'pk-btn', disabled: !draft.trim() || (loading && enhancementKind !== 'semantic'), onClick: loading && enhancementKind === 'semantic' ? cancelEnhance : enhanceIntoInput, style: { width: '100%', marginTop: '10px', padding: '11px 14px', border: 0, borderRadius: '9px', background: draft.trim() && !loading ? C.actionBg : loading && enhancementKind === 'semantic' ? C.amber : C.tealLine, color: draft.trim() && !loading ? C.actionFg : loading && enhancementKind === 'semantic' ? C.onInk : C.muted, cursor: (draft.trim() && !loading) || (loading && enhancementKind === 'semantic') ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' } }, loading && enhancementKind === 'semantic' ? h(Spinner, { key: 'spin', text: '取消增强' }) : loading ? h(Spinner, { key: 'spin', text: '正在增强…' }) : '应用增强到消息框')])

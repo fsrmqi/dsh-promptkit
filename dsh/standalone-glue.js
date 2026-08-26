@@ -5,6 +5,16 @@
 
 const promptkitMethodProvider = new StaticMethodProvider()
 
+async function promptkitSearchMemory(sessionId, query) {
+  const url = new URL('/memory-center/context-search', window.location.origin)
+  url.searchParams.set('session_id', sessionId)
+  url.searchParams.set('query', query)
+  const response = await fetch(url)
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.next_action || '项目记忆服务不可用；请安装并启用 Memory Center DSH 插件。')
+  return String(body.suggested_context || '')
+}
+
 class DshSessionEnhancer {
   constructor(getSessionId) { this.getSessionId = getSessionId; this.controller = null }
   get loading() { return !!this.controller }
@@ -44,13 +54,14 @@ function PromptkitQuickActionHost({ sessionId, useSession, inputActions, input }
   const messages = React.useMemo(() => conversationMessages(snapshot), [snapshot?.nodes])
   const composer = React.useMemo(() => new DshDraftComposer(input, inputActions), [input, inputActions])
   const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
+  const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
   React.useEffect(() => { composer.notify(input?.draft ?? '') }, [input?.draft, composer])
-  return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages })
+  return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages, searchMemory })
 }
 
 // 方法工坊宿主：conversation.view 视图，onSend 走当前会话
 function PromptkitStudioHost({ sessionId, onSend }) {
-  return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend })
+  return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend, searchMemory: query => promptkitSearchMemory(sessionId, query) })
 }
 
 const promptkitApply = ctx => {
