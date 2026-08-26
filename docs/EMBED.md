@@ -1,6 +1,6 @@
 # dsh-promptkit Embed Protocol v1
 
-让 dsh-promptkit 的方法工坊（PromptStudio）与对话增强器（QuickEnhancer）嵌入**任意宿主 DSH 插件**的标准协议。dsh-promptkit 对宿主零感知：它只发布标准产物与契约，集成脚本和 adapter 由宿主自持。首个参考实现是 [memory-center-dsh-plugin](https://github.com/)（MC），未来任何插件按本文档即可接入，dsh-promptkit 无需改动。
+让 dsh-promptkit 的方法工坊（PromptStudio）与对话增强器（QuickEnhancer）嵌入**任意 React/DSH 宿主**的标准协议。dsh-promptkit 对宿主零感知：它只发布标准产物与契约，宿主自持集成脚本和 adapter。
 
 ## 1. 标准产物：`ui/embed.js`
 
@@ -16,7 +16,7 @@ const PromptKit = (React => {
 - **IIFE 私有化**：内部符号（`C`、`S`、`utils`、`Composer` 等）不进入宿主闭包，与宿主同名符号零冲突（有契约测试保障）。
 - **唯一前提**：宿主闭包内存在 `React`（DSH 插件工厂的标准符号，来自 `require('react')`）。`h` 在 IIFE 内部自建。
 - **视觉命名空间**：CSS 变量与 class 一律 `pk-*` / `--pk-*` 前缀，与宿主主题（如 MC 的 `--mc-*`）互不覆盖，两插件可同装一个 DSH 实例。
-- **零外部依赖**：无网络请求、无后端调用（`OpenAIEnhancer` 仅在宿主主动实例化时才发起 fetch）。
+- **默认本地优先**：内置方法、私有方法、收藏与历史均可在浏览器本地工作；`Enhancer` 与 `searchMemory` 只会在宿主主动注入且用户触发时调用。
 - **运行环境**：浏览器（用到 `window.localStorage`、`AbortController`、`fetch`）。
 
 ## 2. 宿主接入五步
@@ -39,7 +39,7 @@ const PromptKit = (React => {
 | `StaticMethodProvider` | class | 内置 12 方法源，`{ storagePrefix }` 可配 |
 | `MethodProvider` / `Composer` / `Enhancer` | class | 三大基类（宿主 adapter 继承实现） |
 | `TextareaComposer` / `OpenAIEnhancer` | class | 通用 adapter（任意 `<textarea>` / OpenAI 兼容端点） |
-| `utils` | object | 纯函数集（`conversationMessages`、`planPromptEnhancement`、`recommendMethods` 等），宿主 glue 可复用 |
+| `utils` | object | 纯函数集（`conversationMessages`、`fileMentions`、`planPromptEnhancement`、`recommendMethods` 等），宿主 glue 可复用 |
 | `builtinMethods` | Method[] | 12 个方法原始数据（宿主自建 provider 时直接消费） |
 
 ### 3.2 组件 props
@@ -66,13 +66,16 @@ getById(id): Promise<Method|null>
 compose({ methodId, question, facts, constraints, options }): Promise<{ prompt, method }>
 getTemplate(methodId): Promise<{ prompt }>
 getFavorites()/setFavorites(ids)/getHistory()/pushHistory(item)   // 收藏与历史持久化
+onHistoryChange(callback): () => void                             // 可选：历史更新订阅
 ```
 
 `compose` 语义：**模板在前 + 「本次任务」结构化输入块在后**（不替换模板内占位符）。
 
+`onHistoryChange` 用于让同一宿主中的 QuickEnhancer 和 PromptStudio 同步「最近方法」。自定义 Provider 若实现历史持久化，应实现该可选订阅；`StaticMethodProvider` 已通过同页事件与 `storage` 事件实现。
+
 ### 3.4 协议保障
 
-`test/embed.test.js`（7 项契约测试）在最小宿主环境（仅 mock `React` + `localStorage`）中执行 `ui/embed.js`，锁定：命名空间完整性、12 方法、compose 契约、storagePrefix 隔离、`pk-*` 视觉命名空间、IIFE 零符号泄漏。宿主升级 dsh-promptkit 后建议重跑该套件确认协议未破坏。
+`test/embed.test.js` 在最小宿主环境（仅 mock `React` + `localStorage`）中执行 `ui/embed.js`，锁定命名空间、内置方法、compose、历史订阅、私有方法、`@文件` 解析、storagePrefix 隔离、视觉命名空间和 IIFE 零符号泄漏。宿主升级 dsh-promptkit 后建议重跑该套件确认协议未破坏。
 
 ## 4. 变更政策
 

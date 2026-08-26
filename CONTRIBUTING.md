@@ -42,12 +42,18 @@ npm test         # embed 契约测试
 
 | 目录 | 职责 | 修改注意 |
 | --- | --- | --- |
-| `src/core/` | 三大接口定义 | 改接口 = 破坏 Embed Protocol 契约，需同步更新 `docs/EMBED.md` 和 `test/embed.test.js` |
+| `src/core/` | 三大接口定义 | 改接口 = 破坏 Embed Protocol 契约，需同步更新 `docs/EMBED.md` 和 `test/embed.test.js`；历史 Provider 应保留 `onHistoryChange()` 订阅语义 |
 | `src/ui/` | React 组件 | 修改后必须 `npm run build:ui` 重新生成 `ui/client.js` |
 | `src/adapters/` | 默认实现 | 可自由扩展，不影响协议面 |
 | `methods/` | 方法库源文件 | Markdown 格式，`build:methods` 解析为 `builtin.json` |
 | `scripts/` | 构建脚本 | `build-methods.mjs`（md→json）+ `build-client.mjs`（src→client.js/embed.js） |
 | `test/` | 契约测试 | 保护 Embed Protocol 不被意外破坏 |
+
+## 私有方法与隐私
+
+- 不要把个人 Prompt、Obsidian 笔记或真实会话内容加入 `methods/`；公开方法必须可安全发布。
+- 私有方法通过浏览器 localStorage 导入，不进入仓库、构建产物或测试夹具。
+- 本地使用计数和反馈不得上传、不得接入第三方 SDK。
 
 ## 提交规范
 

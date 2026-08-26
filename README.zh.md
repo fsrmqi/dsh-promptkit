@@ -8,12 +8,12 @@
 
 > npm 包名 / 仓库名：**`dsh-promptkit`**
 
-开源的 Prompt 构建与增强工具包，包含两个独立可用的能力：
+面向 DeepSeek Harness 与其他 React 宿主的开源 Prompt 增强工具。
 
-- **`PromptStudio`（方法工坊）**：选择思考方法，用问题 / 事实 / 约束生成可编辑 Prompt。内置 12 个完整 Markdown 方法（带 frontmatter 元数据 + 完整 prompt 正文）。
-- **`QuickEnhancer`（对话快捷增强器）**：轻量 React 组件，可悬浮或内嵌，把当前输入框提示词做轻量 / 语义增强，或从方法库填充、改造。
+- **`QuickEnhancer`（对话快捷增强器）**：可悬浮或内嵌，用于轻量/语义草稿增强、方法建议与方法库操作。
+- **`PromptStudio`（方法工坊）**：高级手动工作台，用问题 / 事实 / 约束生成可编辑 Prompt；内置 12 个完整 Markdown 方法。
 
-默认工作流是“方法找人”：从当前草稿、已选对话和可选项目记忆自动匹配合适方法，再将其作为语义增强的结构指导。完整方法工坊保留为高级入口；需要手动选择或管理方法时再打开。
+轻量增强完全本地、零 Token；独立 DSH 插件的语义增强复用当前会话模型且只回填草稿。两档都不会自动发送消息。
 
 ## 安装
 
@@ -59,7 +59,7 @@ PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，�
 
 | 接口 | 职责 | 开源默认实现 |
 | --- | --- | --- |
-| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 历史 | `StaticMethodProvider`（内置 12 个 Markdown 方法，localStorage 持久化，`storagePrefix` 可配） |
+| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 同步历史 | `StaticMethodProvider`（内置 12 法 + 本地私有方法，localStorage 持久化，`storagePrefix` 可配） |
 | `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） |
 | `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） |
 
@@ -146,17 +146,18 @@ dsh-promptkit/
 ├── test/            # embed 契约测试（最小宿主环境执行 ui/embed.js，锁定协议面）
 ├── examples/basic/  # 零构建可运行 demo（importmap + esm.sh）
 ├── LICENSE          # MIT
-└── package.json     # 含 dsh.client manifest（DSH Loader 发现用）
+└── package.json     # 包与 DSH bundle manifest
 ```
 
 ## DSH 插件架构
 
-本仓库 `package.json` 声明 `dsh.client`（浏览器端插件 manifest），DSH Web App 的 ModuleLoader 自动发现并加载 `ui/client.js`：
+`ui/` 子包声明浏览器端 `dsh.client` manifest，DSH Web App 的 ModuleLoader 自动发现并加载 `ui/client.js`：
 
 - **内置 12 个 Markdown 方法**（`StaticMethodProvider`，全本地、零后端，prompt 正文随包内联）；
-- **方法工坊**挂 `conversation.view` 插槽（DSH 顶部标签页），**快捷助手**挂 `conversation.input.right` 插槽（输入框右侧悬浮按钮）；
+- **快捷助手**挂在 `conversation.input.right`；**方法工坊**挂在 `conversation.view`，标签为「高级方法工坊」；
 - 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right` 注入的 `inputActions`），「发送到当前会话」走 DSH 会话 API；
 - **语义增强**（模型改写草稿）：复用当前 DSH 会话已经选定的模型路由，由插件 Node 半区调用 Harness 的 LLM 服务；无需填写 API Key 或 endpoint，结果仅回填输入框、不自动发送。当前会话尚未建立模型路由时，先正常发送一次消息即可。
+- **上下文 adapter**：`@文件` 引用会被保留但不会由 PromptKit 读取文件内容；项目记忆由可选 `searchMemory` adapter 提供。
 
 构建产物 `ui/client.js` 为单文件 lazy-CJS 工厂（`window.__ModuleLoader__.load`），由 `scripts/build-client.mjs` 从 `src/` 剥离 ESM 语法拼接生成——**组件代码只有一份源码**，npm 库形态与 DSH 插件形态共用。
 
@@ -214,12 +215,12 @@ const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
 
 | 访问项 | 用途 | 可关闭 |
 | --- | --- | --- |
-| `window.localStorage` | 收藏 / 历史持久化（前缀可配置，与其他插件隔离） | 清除 localStorage 即清空，无服务端持久化 |
+| `window.localStorage` | 收藏、同步方法历史、私有方法和可选本地使用信号 | 清除 localStorage 即清空，无服务端持久化 |
 | 目标输入框（Composer） | 「写入输入框」按钮把生成的 Prompt 填入当前草稿 | 不点按钮不触发 |
 | 当前会话（onSend） | 「发送到当前会话」按钮把 Prompt 作为消息发出 | 不点按钮不触发 |
 | `fetch` | 用户点击语义增强时调用本地插件桥接；Node 半区复用当前会话模型 | 不点击则不发起请求 |
 
-**零遥测**：本插件不收集任何使用数据，不向任何第三方服务发送信息。所有数据存储在用户本地 localStorage，可随时清除。
+**零遥测**：本插件不会向第三方发送分析或使用数据。本地用法计数和反馈在启用或记录后仅保存于 localStorage，可在 UI 中清除。
 
 ## 支持环境与兼容性
 
