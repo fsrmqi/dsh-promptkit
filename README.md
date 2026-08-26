@@ -13,6 +13,8 @@ An open-source prompt building and enhancement toolkit with two independently us
 - **`PromptStudio`** — Select a thinking method, fill in your problem / facts / constraints, and generate an editable prompt. Ships with 12 complete Markdown methods (with frontmatter metadata + full prompt body).
 - **`QuickEnhancer`** — A lightweight React component (floatable or inline) that lightly or semantically enhances the current input draft, or fills/transforms it from the method library.
 
+The default flow lets methods find the user: it matches the current draft, selected conversation context, and optional project memory before using the best-fitting method as semantic-enhancement guidance. PromptStudio remains available as an advanced manual workspace.
+
 ## Installation
 
 ### Option 1: npm (recommended, no build permission needed)
@@ -203,6 +205,10 @@ const messages = PromptKit.utils.conversationMessages(/* host session data */)
 12 Markdown methods (with frontmatter metadata: scenario, purpose, tags, trigger words). The `prompt` field extracts the `## Prompt` code block from the body as a clean template (strips article narration; falls back to full body when no code block). After user fills in problem/facts/constraints, a "Current task input" structured block is appended after the template to form the final prompt — placeholders like 【…】 in the template are preserved as instructions for the model to fill in, no regex substitution.
 
 To add a new method: create a new Markdown file under `methods/` (same frontmatter format as existing ones), then `npm run build:methods` to regenerate `methods/builtin.json` (`scripts/build-methods.mjs` parses frontmatter + body; `mode`/`outcome` maintained in the `OVERRIDES` table inside the script), then `npm run build:ui` to inline the new method into `ui/client.js`. `npm run build` does all three steps in one command.
+
+### Personal methods
+
+The QuickEnhancer “Advanced settings” panel accepts pasted Obsidian-style Markdown prompt cards. It extracts frontmatter, the title, and the `## Prompt` code block, then stores the resulting private method only in the current browser's localStorage. It never scans, reads, or uploads an Obsidian vault. Private methods participate in search and automatic matching but are never added to the public repository or package.
 
 ## Permissions & Privacy
 

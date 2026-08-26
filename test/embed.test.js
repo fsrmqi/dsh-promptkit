@@ -91,6 +91,20 @@ test('storagePrefix：宿主数据隔离', async () => {
   assert.ok([...host.store.keys()].every(key => key.startsWith('my-host.')), 'localStorage key 必须带宿主前缀')
 })
 
+test('私有方法：可从 Obsidian 风格 Markdown 导入且不污染开源方法库', async () => {
+  const host = minimalHost()
+  const PromptKit = loadEmbed(host)
+  const provider = new PromptKit.StaticMethodProvider({ storagePrefix: 'my-notes.' })
+  const method = await provider.importPrivateMarkdown([
+    '---', '场景: 写作', '用途: 把零散笔记整理成提纲', '标签: [Obsidian, 写作]', '---', '',
+    '# 我的提纲法', '', '## Prompt', '', '```', '请把以下笔记整理成层级提纲。', '```',
+  ].join('\n'))
+  const methods = await provider.list()
+  assert.equal(method.source, 'private')
+  assert.ok(methods.some(item => item.id === method.id))
+  assert.ok([...host.store.keys()].some(key => key === 'my-notes.prompt-library.private-methods.v1'))
+})
+
 test('视觉命名空间：pk-* 前缀，不占用 mc-*（避免与宿主主题冲突）', () => {
   const code = readFileSync(resolve(ROOT, 'ui/embed.js'), 'utf8')
   assert.ok(code.includes('--pk-'), 'CSS 变量应为 --pk-* 前缀')

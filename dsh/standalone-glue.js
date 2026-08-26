@@ -58,8 +58,8 @@ const promptkitApply = ctx => {
     {
       name: 'conversation.view',
       id: 'dsh-promptkit-studio',
-      order: 17,
-      label: () => '方法工坊',
+      order: 90,
+      label: () => '高级方法工坊',
       inject: sessionId => {
         const session = ctx.sessions.binding(sessionId)?.session
         if (!session) throw new Error('dsh-promptkit: session unavailable')

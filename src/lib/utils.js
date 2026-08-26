@@ -89,7 +89,8 @@
     function buildSignatures(methods) {
       const signatures = { ...METHOD_SIGNATURES }
       for (const method of list(methods)) {
-        if (method?.title && method.keywords?.length) signatures[method.title] = method.keywords
+        const keywords = method?.triggerKeywords || method?.keywords
+        if (method?.title && keywords?.length) signatures[method.title] = keywords
       }
       return signatures
     }

@@ -13,6 +13,8 @@
 - **`PromptStudio`（方法工坊）**：选择思考方法，用问题 / 事实 / 约束生成可编辑 Prompt。内置 12 个完整 Markdown 方法（带 frontmatter 元数据 + 完整 prompt 正文）。
 - **`QuickEnhancer`（对话快捷增强器）**：轻量 React 组件，可悬浮或内嵌，把当前输入框提示词做轻量 / 语义增强，或从方法库填充、改造。
 
+默认工作流是“方法找人”：从当前草稿、已选对话和可选项目记忆自动匹配合适方法，再将其作为语义增强的结构指导。完整方法工坊保留为高级入口；需要手动选择或管理方法时再打开。
+
 ## 安装
 
 ### 方式一：npm（推荐，免编译权限）
@@ -203,6 +205,10 @@ const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
 12 个 Markdown 方法（带 frontmatter 元数据：场景、用途、标签、触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留，作为方法对模型的填写指令，不做正则替换。
 
 新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:methods` 重新生成 `methods/builtin.json`（`scripts/build-methods.mjs` 解析 frontmatter + 正文；`mode`/`outcome` 在脚本内 `OVERRIDES` 表维护），再 `npm run build:ui` 把新方法内联到 `ui/client.js`。直接 `npm run build` 一条命令完成全部三步。
+
+### 我的私有方法
+
+在快捷增强器的「高级设置」中，可直接粘贴一张 Obsidian 风格 Markdown Prompt 卡片。它会从 frontmatter / 标题 / `## Prompt` 代码块提取方法并仅保存在当前浏览器的 localStorage；不会读取、扫描或上传 Obsidian 笔记库。私有方法会和 12 个开源方法一起参与搜索与自动匹配，但不会写入仓库或发布包。
 
 ## 权限与隐私
 

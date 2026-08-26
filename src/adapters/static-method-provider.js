@@ -17,12 +17,13 @@ export class StaticMethodProvider extends MethodProvider {
     super()
     this.favoritesKey = `${storagePrefix}prompt-library.favorites.v1`
     this.historyKey = `${storagePrefix}prompt-library.history.v1`
+    this.privateMethodsKey = `${storagePrefix}prompt-library.private-methods.v1`
   }
 
-  async list() { return getMethods() }
+  async list() { return [...await getMethods(), ...this._privateMethods()] }
 
   async search(query) {
-    const methods = await getMethods()
+    const methods = await this.list()
     if (!query) return methods
     const q = query.toLowerCase()
     return methods.filter(m =>
@@ -38,7 +39,7 @@ export class StaticMethodProvider extends MethodProvider {
   // 与 MC 原 prompt_studio.composePrompt() 一致：模板原样保留（【…】占位符即方法对模型的
   // 填写指令），用户输入以「本次任务输入」结构块追加在模板之后，不做正则替换。
   async compose({ methodId, question, facts, constraints, options }) {
-    const methods = await getMethods()
+    const methods = await this.list()
     const method = methods.find(m => m.id === methodId) || methods[0]
     const base = method.prompt || ''
     const clean = value => String(value ?? '').trim()
@@ -58,7 +59,7 @@ export class StaticMethodProvider extends MethodProvider {
   }
 
   async getTemplate(methodId) {
-    const methods = await getMethods()
+    const methods = await this.list()
     const m = methods.find(x => x.id === methodId)
     if (!m) return { prompt: '' }
     return { prompt: m.prompt || '' }
@@ -72,6 +73,46 @@ export class StaticMethodProvider extends MethodProvider {
     const next = [item, ...this._readStore(this.historyKey, [])].slice(0, 20)
     this._writeStore(this.historyKey, next)
     return next
+  }
+
+  /** 导入一张 Obsidian/Markdown 提示词卡片；仅保存到当前浏览器 localStorage。 */
+  async importPrivateMarkdown(raw) {
+    const source = String(raw || '').trim()
+    if (!source) throw new Error('请粘贴一张 Markdown 提示词卡片。')
+    const frontmatter = source.match(/^---\n([\s\S]*?)\n---\n?/)
+    const meta = Object.fromEntries((frontmatter?.[1] || '').split('\n').map(line => {
+      const match = line.match(/^([^:]+):\s*(.*)$/)
+      return match ? [match[1].trim(), match[2].trim()] : []
+    }).filter(pair => pair.length))
+    const body = source.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+    const title = meta.title || meta['标题'] || body.match(/^#\s+(.+)$/m)?.[1]?.trim() || `我的方法 ${this._privateMethods().length + 1}`
+    const prompt = body.match(/## Prompt\s*\n+```(?:\w+)?\n([\s\S]*?)```/)?.[1]?.trim() || body.replace(/^#\s+[^\n]+\n?/, '').trim()
+    if (!prompt) throw new Error('卡片中没有可用的提示词正文。')
+    const method = {
+      id: `private:${Date.now().toString(36)}`,
+      title,
+      category: meta.category || meta['场景'] || '我的方法',
+      purpose: meta.purpose || meta['用途'] || '从我的 Obsidian Prompt 卡片导入',
+      tags: this._parseTags(meta.tags || meta['标签']),
+      triggerKeywords: this._parseTags(meta.keywords || meta['触发词']),
+      prompt,
+      mode: 'structured',
+      outcome: meta.outcome || '按我的私有方法组织输出',
+      source: 'private',
+    }
+    this._writeStore(this.privateMethodsKey, [method, ...this._privateMethods()])
+    return method
+  }
+
+  async removePrivateMethod(id) {
+    this._writeStore(this.privateMethodsKey, this._privateMethods().filter(method => method.id !== id))
+  }
+
+  _privateMethods() {
+    return this._readStore(this.privateMethodsKey, []).filter(method => method && typeof method.id === 'string' && method.id.startsWith('private:') && typeof method.prompt === 'string')
+  }
+  _parseTags(value) {
+    return String(value || '').replace(/^\[|\]$/g, '').split(/[,，]/).map(item => item.trim()).filter(Boolean)
   }
 
   _readStore(key, fallback) {
