@@ -7,12 +7,15 @@
   "module": "src/index.js",
   "exports": {
     ".": "./src/index.js",
-    "./ui/client": "./ui/client.js"
+    "./ui": "./ui/plugin.js",
+    "./ui/client": "./ui/client.js",
+    "./ui/package.json": "./ui/package.json"
   },
   "files": [
     "src",
     "ui",
     "dsh",
+    "cordis.patch.yml",
     "scripts",
     "docs",
     "examples",
@@ -59,6 +62,9 @@
     "test": "node --test"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [

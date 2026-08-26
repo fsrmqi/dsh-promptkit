@@ -1,0 +1,22 @@
+{
+  "name": "dsh-promptkit-ui",
+  "version": "0.1.0",
+  "description": "Browser half of dsh-promptkit (PromptStudio + QuickEnhancer) for DeepSeek Harness",
+  "license": "MIT",
+  "type": "module",
+  "main": "plugin.js",
+  "exports": {
+    ".": "./plugin.js",
+    "./client": "./client.js"
+  },
+  "files": ["plugin.js", "client.js", "embed.js"],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

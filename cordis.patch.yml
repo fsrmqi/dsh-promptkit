@@ -1,0 +1,10 @@
+# dsh-promptkit bundle for DeepSeek Harness (dsh).
+#
+# PromptKit 是纯浏览器端插件：方法工坊（PromptStudio）与快捷助手（QuickEnhancer）
+# 全部在 ui/client.js 中通过 dsh.client 客户端模块注册。该行挂载 ui 子包：
+#   - node 半区（ui/plugin.js）是合法的 Cordis 插件入口，让 loader 成功挂载该行；
+#   - ui/package.json 的 dsh.client 声明让客户端模块系统把 ui/client.js 加入 Web 图，
+#     bundle 自注册 id `dsh-promptkit/ui` 与行 name 一致。
+- insert:
+    - id: dsh-promptkit
+      name: dsh-promptkit/ui
