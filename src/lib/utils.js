@@ -81,14 +81,6 @@
       return 'zh'
     }
 
-    // 方法触发词表：轻量增强、方法推荐与冲突检测共用同一份信号，避免“推荐 ≠ 采用”。
-    // MethodProvider 返回的方法 keywords（触发词）会覆盖同名条目。
-    const METHOD_SIGNATURES = {
-      '第一性原理': ['全链路', '链路', '整体分析', '本质', '根因', '拆解', '架构', '审查'],
-      '苏格拉底式提问': ['报错', '异常', '失败', '为什么', '原因', '排查'],
-      '用最小实验替代空想': ['实现', '开发', '修改', '重构', '新增', '优化'],
-      '双向钢人论证': ['方案', '选型', '取舍', '哪个好', '是否', '比较', '对比', '决策', '选择', '风险'],
-    }
     // 轻量增强模板的语义展示名：内置模板是单轮整形，与多轮方法名实不符，
     // 展示用语义名（链路审查/排障收敛/开发收敛/决策权衡），内部仍按方法名联动推荐。
     const TEMPLATE_LABELS = {
@@ -97,21 +89,14 @@
       '用最小实验替代空想': '开发收敛',
       '双向钢人论证': '决策权衡',
     }
-    // 计分制：强信号命中 1 个即判该方法，弱信号需 ≥2 个组合命中才判，
-    // 避免 ‘是否’/‘选择’/‘风险’ 等常见词单独出现时误分类。
-    // 集合覆盖：内置 4 卡的触发词（决策/审查类）+ 场景卡的核心意图词（技术方案、接口、
-    // 论文、数据分析等）。命中词只对已声明该词的方法生效；此集合决定该词计几分。
-    const STRONG_SIGNALS = new Set([
-      '选型', '取舍', '哪个好', '对比', '决策', '全链路', '链路', '本质', '根因', '报错', '异常', '排查',
-      '技术方案', '接口设计', '代码评审', '代码审查', 'code review', '接口文档', 'API 文档', '论文', '文献', '精读',
-      '数据分析', '数据挖掘', '核查', '科普', '逆向拆解', '横向', '纵向', '会诊', '跨域迁移', '人生设计', '天赋',
-    ])
-
     function buildSignatures(methods) {
-      const signatures = { ...METHOD_SIGNATURES }
+      const signatures = {}
       for (const method of list(methods)) {
         const keywords = method?.triggerKeywords || method?.keywords
-        if (method?.title && keywords?.length) signatures[method.title] = keywords
+        if (method?.title && keywords?.length) signatures[method.title] = {
+          triggers: keywords,
+          strong: new Set(method?.strongTriggerKeywords || []),
+        }
       }
       return signatures
     }
@@ -128,18 +113,18 @@
     function classify(source, guidance, signatures, promptSource = source, singleTriggerTitles = new Set()) {
       const suffix = guidance ? `\n\n额外要求：${guidance}` : ''
       const hits = []
-      for (const [title, triggers] of Object.entries(signatures)) {
+      for (const [title, signature] of Object.entries(signatures)) {
         // 统一计分制（P1-2，2026-08）：内置方法与场景卡方法使用同一套强/弱信号规则，
         // 不再"内置计分、扩展一命中即判"双轨。强命中 ≥1 或弱命中 ≥2 判定为候选；
         // 同一方法的候选命中按强→弱排序交由上层按命中顺序取主方法。
-        const strong = triggers.filter(token => STRONG_SIGNALS.has(token) && source.includes(token))
-        const weak = triggers.filter(token => !STRONG_SIGNALS.has(token) && source.includes(token))
-        if (strong.length >= 1 || weak.length >= 2 || (singleTriggerTitles.has(title) && weak.length >= 1)) hits.push({ title, signals: [...strong, ...weak] })
+        const strong = signature.strong ? signature.triggers.filter(token => signature.strong.has(token) && source.includes(token)) : []
+        const weak = signature.triggers.filter(token => !signature.strong?.has(token) && source.includes(token))
+        if (strong.length >= 1 || weak.length >= 2 || (singleTriggerTitles.has(title) && weak.length >= 1)) hits.push({ title, signals: [...strong, ...weak], strongCount: strong.length })
       }
       // 多个候选时：唯一强命中者优先；否则按命中信号总数降序，作为主方法候选顺序。
       hits.sort((a, b) => {
-        const sa = STRONG_SIGNALS.has(a.signals[0] ?? '') ? 1 : 0
-        const sb = STRONG_SIGNALS.has(b.signals[0] ?? '') ? 1 : 0
+        const sa = a.strongCount > 0 ? 1 : 0
+        const sb = b.strongCount > 0 ? 1 : 0
         if (sa !== sb) return sb - sa
         return b.signals.length - a.signals.length
       })
@@ -210,4 +195,4 @@ function conversationMessages(snapshot, limit = 12) {
   return messages
 }
 
-export { safeText, conversationDraft, conversationMessages, list, obj, cleanSummary, cleanContext, cleanConversationText, fileMentions, selectedConversationDraft, methodChoice, detectLanguage, METHOD_SIGNATURES, TEMPLATE_LABELS, STRONG_SIGNALS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }
+export { safeText, conversationDraft, conversationMessages, list, obj, cleanSummary, cleanContext, cleanConversationText, fileMentions, selectedConversationDraft, methodChoice, detectLanguage, TEMPLATE_LABELS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }

@@ -130,7 +130,7 @@ ${body}
     utils: {
       safeText, conversationDraft, conversationMessages, list, obj, fileMentions,
       cleanSummary, cleanContext, cleanConversationText, selectedConversationDraft,
-      methodChoice, detectLanguage, METHOD_SIGNATURES, TEMPLATE_LABELS, STRONG_SIGNALS,
+      methodChoice, detectLanguage, TEMPLATE_LABELS,
       buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods,
     },
     // 内置方法数据（宿主自建 provider 时可直接消费）

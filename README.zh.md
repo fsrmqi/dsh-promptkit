@@ -205,7 +205,7 @@ const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
 
 ### 方法库来源
 
-17 个 Markdown 方法（带 frontmatter 元数据：场景、用途、标签、触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留作为方法对模型的填写指令，不做正则替换；组合时会在末尾追加一句提示语，向模型声明【…】是填写指示符而非字面占位，实际内容以「本次任务输入」为准。
+17 个 Markdown 方法（带 frontmatter 元数据：场景、用途、标签、触发词、可选强触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留作为方法对模型的填写指令，不做正则替换；组合时会在末尾追加一句提示语，向模型声明【…】是填写指示符而非字面占位，实际内容以「本次任务输入」为准。
 
 新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:methods` 重新生成 `methods/builtin.json`（`scripts/build-methods.mjs` 解析 frontmatter + 正文；`mode`/`outcome` 在脚本内 `OVERRIDES` 表维护），再 `npm run build:ui` 把新方法内联到 `ui/client.js`。直接 `npm run build` 一条命令完成全部三步。
 

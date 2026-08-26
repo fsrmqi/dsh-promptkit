@@ -3,7 +3,7 @@
  * 从 methods/<场景>/*.md 重新生成 methods/builtin.json。
  *
  * Markdown 约定：
- *   - frontmatter（--- 包裹）：场景 / 用途 / 标签: [a, b] / 触发词: 逗号分隔（可选）
+ *   - frontmatter（--- 包裹）：场景 / 用途 / 标签: [a, b] / 触发词 / 强触发词: 逗号分隔（可选）
  *   - 正文：首行 H1（与文件名一致）+ 叙述性说明 + 「## Prompt」代码块（真正的模板）
  *     prompt 字段优先提取「## Prompt」代码块（对齐 MC 原 prompt_studio.template()），
  *     无代码块时回退为完整正文（剥掉 frontmatter 与 H1）。
@@ -88,6 +88,7 @@ for (const category of categories) {
       purpose: fm['用途'].trim(),
       tags: parseList(fm['标签'] || ''),
       triggerKeywords: parseList(fm['触发词'] || ''),
+      strongTriggerKeywords: parseList(fm['强触发词'] || ''),
       prompt,
       ...DEFAULT_META,
       ...(OVERRIDES[title] || {}),
