@@ -2,59 +2,59 @@ import React from 'react'
 
 const h = React.createElement
     const C = {
-      ink: 'var(--mc-ink)', muted: 'var(--mc-muted)', line: 'var(--mc-line)', canvas: 'var(--mc-canvas)', surface: 'var(--mc-surface)',
-      teal: 'var(--mc-teal)', tealStrong: 'var(--mc-teal-strong)',
-      tealLine: 'var(--mc-teal-line)', tealLineStrong: 'var(--mc-teal-line-strong)', tealLineActive: 'var(--mc-teal-line-active)',
-      tealTint: 'var(--mc-teal-tint)', tealTintDeep: 'var(--mc-teal-tint-deep)',
-      blue: 'var(--mc-blue)', amber: 'var(--mc-amber)', amberLine: 'var(--mc-amber-line)', amberTint: 'var(--mc-amber-tint)',
-      red: 'var(--mc-red)', redTint: 'var(--mc-red-tint)', slate: 'var(--mc-slate)',
-      divide: 'var(--mc-divide)', surfaceAlt: 'var(--mc-surface-alt)', track: 'var(--mc-track)',
+      ink: 'var(--pk-ink)', muted: 'var(--pk-muted)', line: 'var(--pk-line)', canvas: 'var(--pk-canvas)', surface: 'var(--pk-surface)',
+      teal: 'var(--pk-teal)', tealStrong: 'var(--pk-teal-strong)',
+      tealLine: 'var(--pk-teal-line)', tealLineStrong: 'var(--pk-teal-line-strong)', tealLineActive: 'var(--pk-teal-line-active)',
+      tealTint: 'var(--pk-teal-tint)', tealTintDeep: 'var(--pk-teal-tint-deep)',
+      blue: 'var(--pk-blue)', amber: 'var(--pk-amber)', amberLine: 'var(--pk-amber-line)', amberTint: 'var(--pk-amber-tint)',
+      red: 'var(--pk-red)', redTint: 'var(--pk-red-tint)', slate: 'var(--pk-slate)',
+      divide: 'var(--pk-divide)', surfaceAlt: 'var(--pk-surface-alt)', track: 'var(--pk-track)',
     }
     const GLOBAL_CSS = `
 :root {
-  --mc-ink: #17212b; --mc-muted: #607080; --mc-line: #d8e1e8; --mc-canvas: #f4f7f9; --mc-surface: #fff;
-  --mc-teal: #0f766e; --mc-teal-strong: #0b5f58;
-  --mc-teal-line: #cce8e2; --mc-teal-line-strong: #8acbbd; --mc-teal-line-active: #67b9aa;
-  --mc-teal-tint: #f1faf8; --mc-teal-tint-deep: #effaf7;
-  --mc-blue: #2563eb; --mc-amber: #b45309; --mc-amber-line: #f1d4a5; --mc-amber-tint: #fff7ed;
-  --mc-red: #b91c1c; --mc-red-tint: #fdecec; --mc-slate: #52606d;
-  --mc-divide: #edf1f4; --mc-surface-alt: #fcfdff; --mc-track: #e8eef2;
+  --pk-ink: #17212b; --pk-muted: #607080; --pk-line: #d8e1e8; --pk-canvas: #f4f7f9; --pk-surface: #fff;
+  --pk-teal: #0f766e; --pk-teal-strong: #0b5f58;
+  --pk-teal-line: #cce8e2; --pk-teal-line-strong: #8acbbd; --pk-teal-line-active: #67b9aa;
+  --pk-teal-tint: #f1faf8; --pk-teal-tint-deep: #effaf7;
+  --pk-blue: #2563eb; --pk-amber: #b45309; --pk-amber-line: #f1d4a5; --pk-amber-tint: #fff7ed;
+  --pk-red: #b91c1c; --pk-red-tint: #fdecec; --pk-slate: #52606d;
+  --pk-divide: #edf1f4; --pk-surface-alt: #fcfdff; --pk-track: #e8eef2;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --mc-ink: #e8eaed; --mc-muted: #9aa0a6; --mc-line: #3c4043; --mc-canvas: #181a20; --mc-surface: #242830;
-    --mc-teal: #3dbdb4; --mc-teal-strong: #2a9d94;
-    --mc-teal-line: #1a3d38; --mc-teal-line-strong: #2a6a60; --mc-teal-line-active: #3a9a8a;
-    --mc-teal-tint: #1a2e2c; --mc-teal-tint-deep: #162a28;
-    --mc-blue: #5c9dff; --mc-amber: #f0a040; --mc-amber-line: #5a3a10; --mc-amber-tint: #2a1f10;
-    --mc-red: #ff6b6b; --mc-red-tint: #3a1a1a; --mc-slate: #8a9199;
-    --mc-divide: #2d3139; --mc-surface-alt: #1e2127; --mc-track: #2d3139;
+    --pk-ink: #e8eaed; --pk-muted: #9aa0a6; --pk-line: #3c4043; --pk-canvas: #181a20; --pk-surface: #242830;
+    --pk-teal: #3dbdb4; --pk-teal-strong: #2a9d94;
+    --pk-teal-line: #1a3d38; --pk-teal-line-strong: #2a6a60; --pk-teal-line-active: #3a9a8a;
+    --pk-teal-tint: #1a2e2c; --pk-teal-tint-deep: #162a28;
+    --pk-blue: #5c9dff; --pk-amber: #f0a040; --pk-amber-line: #5a3a10; --pk-amber-tint: #2a1f10;
+    --pk-red: #ff6b6b; --pk-red-tint: #3a1a1a; --pk-slate: #8a9199;
+    --pk-divide: #2d3139; --pk-surface-alt: #1e2127; --pk-track: #2d3139;
   }
-  .mc-spinner { border-color: rgba(61,189,180,.22) }
-  .mc-scroll::-webkit-scrollbar-thumb { background: #4a4f59 }
+  .pk-spinner { border-color: rgba(61,189,180,.22) }
+  .pk-scroll::-webkit-scrollbar-thumb { background: #4a4f59 }
   button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline-color: rgba(61,189,180,.45) }
-  .mc-card:hover { box-shadow: 0 10px 26px rgba(0,0,0,.22) }
+  .pk-card:hover { box-shadow: 0 10px 26px rgba(0,0,0,.22) }
 }
-@keyframes mc-pop { from { opacity: 0; transform: translateY(6px) scale(.985) } to { opacity: 1; transform: none } }
-@keyframes mc-fade { from { opacity: 0 } to { opacity: 1 } }
-@keyframes mc-spin { to { transform: rotate(360deg) } }
-@keyframes mc-fan-in { from { opacity: 0; transform: translateY(4px) scale(.9) } to { opacity: 1; transform: none } }
-.mc-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(15,118,110,.22); border-top-color: var(--mc-teal); border-radius: 50%; animation: mc-spin .7s linear infinite; vertical-align: -2px; margin-right: 7px }
-.mc-fab { transition: transform .18s ease, box-shadow .18s ease }
-.mc-fab:hover { transform: scale(1.06) }
-.mc-fab:active { transform: scale(.96) }
-.mc-btn { transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease, opacity .15s ease }
-.mc-btn:hover:not(:disabled) { transform: translateY(-1px) }
-.mc-btn:active:not(:disabled) { transform: translateY(0) scale(.98) }
-.mc-card { transition: transform .18s ease, box-shadow .18s ease }
-.mc-card:hover { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(17,38,60,.08) }
-.mc-scroll::-webkit-scrollbar { width: 8px; height: 8px }
-.mc-scroll::-webkit-scrollbar-thumb { background: #cdd8df; border-radius: 999px }
-.mc-scroll::-webkit-scrollbar-track { background: transparent }
+@keyframes pk-pop { from { opacity: 0; transform: translateY(6px) scale(.985) } to { opacity: 1; transform: none } }
+@keyframes pk-fade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes pk-spin { to { transform: rotate(360deg) } }
+@keyframes pk-fan-in { from { opacity: 0; transform: translateY(4px) scale(.9) } to { opacity: 1; transform: none } }
+.pk-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(15,118,110,.22); border-top-color: var(--pk-teal); border-radius: 50%; animation: pk-spin .7s linear infinite; vertical-align: -2px; margin-right: 7px }
+.pk-fab { transition: transform .18s ease, box-shadow .18s ease }
+.pk-fab:hover { transform: scale(1.06) }
+.pk-fab:active { transform: scale(.96) }
+.pk-btn { transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease, opacity .15s ease }
+.pk-btn:hover:not(:disabled) { transform: translateY(-1px) }
+.pk-btn:active:not(:disabled) { transform: translateY(0) scale(.98) }
+.pk-card { transition: transform .18s ease, box-shadow .18s ease }
+.pk-card:hover { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(17,38,60,.08) }
+.pk-scroll::-webkit-scrollbar { width: 8px; height: 8px }
+.pk-scroll::-webkit-scrollbar-thumb { background: #cdd8df; border-radius: 999px }
+.pk-scroll::-webkit-scrollbar-track { background: transparent }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid rgba(15,118,110,.45); outline-offset: 2px }
 `
-    const GlobalStyle = () => h('style', { key: 'mc-global-css', dangerouslySetInnerHTML: { __html: GLOBAL_CSS } })
-    const Spinner = ({ text }) => h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '7px', lineHeight: 1.5 } }, [h('span', { key: 'spin', className: 'mc-spinner', 'aria-hidden': 'true' }), text])
+    const GlobalStyle = () => h('style', { key: 'pk-global-css', dangerouslySetInnerHTML: { __html: GLOBAL_CSS } })
+    const Spinner = ({ text }) => h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '7px', lineHeight: 1.5 } }, [h('span', { key: 'spin', className: 'pk-spinner', 'aria-hidden': 'true' }), text])
     const ICON_PATHS = {
       sparkles: 'M12 3.2l1.7 4.1 4.1 1.7-4.1 1.7L12 14.8l-1.7-4.1-4.1-1.7 4.1-1.7L12 3.2zM18.8 13.5l.9 2.2 2.2.9-2.2.9-.9 2.2-.9-2.2-2.2-.9 2.2-.9.9-2.2z',
       wand: 'M14.5 5.5 18.5 9.5M4 20 13.5 10.5M13.5 10.5l1.5-1.5a2.12 2.12 0 0 1 3 3L16.5 13.5',

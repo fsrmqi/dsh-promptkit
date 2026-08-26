@@ -2,20 +2,20 @@
 /**
  * dsh-promptkit 浏览器端构建器（零依赖）。
  *
- * 两种产物共用同一策略：把 src/ 下的 ESM 文件剥掉 import/export 语法后，
- * 按依赖顺序拼接进 DSH 的 lazy-CJS 工厂闭包（window.__ModuleLoader__.load）。
- * React 由宿主 require 提供，保持唯一外部依赖。
+ * 共用策略：把 src/ 下的 ESM 文件剥掉 import/export 语法后按依赖顺序拼接。
+ * 产物两种：
  *
- * 用法：
- *   node scripts/build-client.mjs                          生成 ui/client.js（独立 DSH 浏览器视图）
- *   node scripts/build-client.mjs --mc <mc-repo-path>       更新 MC 仓库 client.js 的标记块并同步部署
+ *   ui/client.js   独立 DSH 插件的浏览器视图（lazy-CJS 工厂闭包 + glue 装配）
+ *   ui/embed.js    标准嵌入产物（Embed Protocol v1，见 docs/EMBED.md）
  *
- * 标记块语法（--mc 模式替换两者之间的内容）：
- *   /* ==== dsh-promptkit:begin (GENERATED) ==== *​/
- *   ...
- *   /* ==== dsh-promptkit:end ==== *​/
+ * Embed Protocol v1 要点：
+ *   - 形态：const PromptKit = (React => { ...; return { ... } })(React)
+ *   - 全部内部符号私有化于 IIFE，宿主闭包零污染、零同名冲突
+ *   - 唯一前提：宿主闭包提供 React（DSH 插件工厂的标准符号）
+ *   - 宿主消费方式：把 embed.js 拼进自己的 client.js，经 PromptKit.* 命名空间取用
+ *   - dsh-promptkit 不感知任何宿主——宿主侧自持集成脚本与 adapter
  */
-import { readFileSync, writeFileSync, copyFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -49,49 +49,53 @@ function stripBuiltinJs(code, jsonData) {
   )
 }
 
-const SEP = comment => `\n      /* ================= ${comment} ================= */\n`
+const SEP = comment => `\n/* ================= ${comment} ================= */\n`
 
-function concat(files, { indent = '      ', banner = '', customStrip = {} } = {}) {
-  let out = banner
+/** 按序读取并 strip 一组源文件，返回拼接后的代码（不缩进）。 */
+function concat(files, { customStrip = {} = {} } = {}) {
+  let out = ''
   for (const [file, comment] of files) {
     const raw = readFileSync(resolve(ROOT, file), 'utf8')
     const stripFn = customStrip[file] || strip
-    const code = stripFn(raw).trim()
-    const body = code.split('\n').map(l => (l ? indent + l : l)).join('\n')
-    out += SEP(comment) + body + '\n'
+    out += SEP(comment) + stripFn(raw).trim() + '\n'
   }
   return out
 }
 
-// ---------- 模式一：独立 DSH 浏览器视图 ui/client.js ----------
+/** embed 与 standalone 共用的模块清单（不含 glue / 不含缩进）。 */
+const MODULES = [
+  ['src/ui/foundation.js', 'dsh-promptkit foundation（C / GlobalStyle / Icon / S / workbenchStyle，pk-* 视觉命名空间）'],
+  ['src/lib/utils.js', 'dsh-promptkit utils（纯函数 + 分类链 + DSH 快照转换）'],
+  ['src/core/method-provider.js', 'dsh-promptkit core: MethodProvider'],
+  ['src/core/composer.js', 'dsh-promptkit core: Composer / withPrefix'],
+  ['src/core/enhancer.js', 'dsh-promptkit core: Enhancer'],
+  ['src/methods/builtin.js', 'dsh-promptkit 内置方法库（12 个完整 Markdown 方法，构建时内联 JSON）'],
+  ['src/adapters/static-method-provider.js', 'dsh-promptkit adapter: StaticMethodProvider'],
+  ['src/adapters/textarea-composer.js', 'dsh-promptkit adapter: TextareaComposer'],
+  ['src/adapters/openai-enhancer.js', 'dsh-promptkit adapter: OpenAIEnhancer'],
+  ['src/ui/studio.js', 'dsh-promptkit 组件: PromptStudio（方法工坊）'],
+  ['src/ui/quick-enhancer.js', 'dsh-promptkit 组件: ConversationQuickAction（快捷助手）'],
+]
+
+// ---------- 产物一：独立 DSH 浏览器视图 ui/client.js ----------
 function buildStandalone() {
   const builtinJson = JSON.parse(readFileSync(resolve(ROOT, 'methods/builtin.json'), 'utf8'))
-  const body = concat([
-    ['src/ui/foundation.js', 'dsh-promptkit foundation（C / GlobalStyle / Icon / S / workbenchStyle）'],
-    ['src/lib/utils.js', 'dsh-promptkit utils（纯函数 + 分类链 + DSH 快照转换）'],
-    ['src/core/method-provider.js', 'dsh-promptkit core: MethodProvider'],
-    ['src/core/composer.js', 'dsh-promptkit core: Composer / withPrefix'],
-    ['src/core/enhancer.js', 'dsh-promptkit core: Enhancer'],
-    ['src/methods/builtin.js', 'dsh-promptkit 内置方法库（12 个完整 Markdown 方法）'],
-    ['src/adapters/static-method-provider.js', 'adapter: StaticMethodProvider'],
-    ['src/adapters/textarea-composer.js', 'adapter: TextareaComposer'],
-    ['src/adapters/openai-enhancer.js', 'adapter: OpenAIEnhancer'],
-    ['src/ui/studio.js', '组件: PromptStudio（方法工坊）'],
-    ['src/ui/quick-enhancer.js', '组件: QuickEnhancer（快捷助手）'],
-    ['dsh/standalone-glue.js', '独立插件 glue：DSH 插槽注册 + 默认 adapter 装配'],
-  ], {
+  const body = concat(MODULES, {
     customStrip: {
       'src/methods/builtin.js': (code) => stripBuiltinJs(code, builtinJson),
     }
   })
+    .split('\n').map(l => (l ? '      ' + l : l)).join('\n')
+  const glue = strip(readFileSync(resolve(ROOT, 'dsh/standalone-glue.js'), 'utf8')).trim()
+    .split('\n').map(l => (l ? '      ' + l : l)).join('\n')
   const out = `/* eslint-disable */
 /* dsh-promptkit 独立 DSH 浏览器视图 — 本文件由 scripts/build-client.mjs 生成，勿手改。 */
-/* 源码：https://github.com/<you>/dsh-promptkit（MIT License） */
 window.__ModuleLoader__.load({
   id: 'dsh-promptkit/ui',
   factory: require => {
     const React = require('react')
 ${body}
+${SEP('独立插件 glue：DSH 插槽注册 + 默认 adapter 装配')}${glue}
     return { inject: ['slots', 'sessions'], apply: promptkitApply }
   },
 })
@@ -100,56 +104,48 @@ ${body}
   console.log(`[standalone] ui/client.js 生成完毕（${out.split('\n').length} 行）`)
 }
 
-// ---------- 模式二：更新 MC 仓库 client.js 的标记块 ----------
-const BEGIN = '/* ==== dsh-promptkit:begin (GENERATED — 由 dsh-promptkit/scripts/build-client.mjs 生成，勿手改) ==== */'
-const END = '/* ==== dsh-promptkit:end ==== */'
-
-function buildMc(mcRepo) {
-  const mcClient = resolve(mcRepo, 'ui/client.js')
-  const source = readFileSync(mcClient, 'utf8')
-  const adapters = readFileSync(resolve(mcRepo, 'ui/promptkit-adapters.js'), 'utf8')
+// ---------- 产物二：标准嵌入产物 ui/embed.js（Embed Protocol v1） ----------
+function buildEmbed() {
   const builtinJson = JSON.parse(readFileSync(resolve(ROOT, 'methods/builtin.json'), 'utf8'))
-
-  const block =
-    `      ${BEGIN}\n` +
-    concat([
-      ['src/core/composer.js', 'dsh-promptkit core: Composer / withPrefix（组件依赖）'],
-      ['src/core/method-provider.js', 'dsh-promptkit core: MethodProvider（组件依赖）'],
-      ['src/methods/builtin.js', 'dsh-promptkit 内置方法库（12 个方法，构建时内联 JSON，MC 唯一数据源）'],
-      ['src/adapters/static-method-provider.js', 'dsh-promptkit adapter: StaticMethodProvider（本地方法源，零后端）'],
-      ['src/ui/studio.js', 'dsh-promptkit 组件: PromptStudio（方法工坊，唯一代码源）'],
-      ['src/ui/quick-enhancer.js', 'dsh-promptkit 组件: QuickEnhancer（快捷助手，唯一代码源）'],
-    ], {
-      customStrip: {
-        'src/methods/builtin.js': (code) => stripBuiltinJs(code, builtinJson),
-      }
-    }) +
-    SEP('Memory Center 私有运行时 → dsh-promptkit 三接口桥接（唯一允许引用 fetchView 的地方）') +
-    strip(adapters).trim().split('\n').map(l => (l ? '      ' + l : l)).join('\n') + '\n' +
-    `      ${END}\n`
-
-  let next
-  const esc = s => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
-  if (source.includes(BEGIN)) {
-    const re = new RegExp(esc(BEGIN) + '[\\s\\S]*?' + esc(END))
-    next = source.replace(re, block.trim())
-  } else {
-    // 首次切换：定位原两组件定义区（PromptStudio 起 → viewEntry 前）整段替换
-    const start = source.indexOf('    function PromptStudio(')
-    const endMark = '    const viewEntry'
-    const end = source.indexOf(endMark)
-    if (start < 0 || end < 0 || end <= start) throw new Error('MC client.js 结构与预期不符（未找到组件区边界）')
-    next = source.slice(0, start) + block.trim() + '\n\n' + source.slice(end)
+  const body = concat(MODULES, {
+    customStrip: {
+      'src/methods/builtin.js': (code) => stripBuiltinJs(code, builtinJson),
+    }
+  })
+  const out = `/* eslint-disable */
+/* dsh-promptkit 标准嵌入产物（Embed Protocol v1）— 由 scripts/build-client.mjs 生成，勿手改。 */
+/* 契约：宿主闭包提供 React；全部符号私有化，仅暴露 PromptKit 命名空间。集成指南见 docs/EMBED.md。 */
+const PromptKit = (React => {
+${body}
+  return {
+    version: '1',
+    // 组件（props 契约见 docs/EMBED.md）
+    PromptStudio,            // 方法工坊（conversation.view 视图）
+    QuickEnhancer: ConversationQuickAction,  // 对话快捷增强器（conversation.input.right 挂载）
+    // 数据源 adapter
+    StaticMethodProvider,    // 内置 12 方法（storagePrefix 可配，默认 'promptkit.'）
+    // 基类与通用 adapter
+    MethodProvider, Composer, Enhancer, TextareaComposer, OpenAIEnhancer,
+    // 宿主 glue 可复用的纯函数与推荐信号表
+    utils: {
+      safeText, conversationDraft, conversationMessages, list, obj,
+      cleanSummary, cleanContext, cleanConversationText, selectedConversationDraft,
+      methodChoice, detectLanguage, METHOD_SIGNATURES, TEMPLATE_LABELS, STRONG_SIGNALS,
+      buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods,
+    },
+    // 内置方法数据（宿主自建 provider 时可直接消费）
+    builtinMethods: BUILTIN_METHODS,
   }
-  writeFileSync(mcClient, next)
-  // 同步部署到 DSH 实际加载的浏览器视图包
-  copyFileSync(mcClient, resolve(mcRepo, 'node_modules/memory-center-dsh-plugin-ui/client.js'))
-  console.log(`[mc] ${mcClient} 标记块已更新并同步部署（${next.split('\n').length} 行）`)
+})(React)
+`
+  writeFileSync(resolve(ROOT, 'ui/embed.js'), out)
+  console.log(`[embed] ui/embed.js 生成完毕（${out.split('\n').length} 行）`)
 }
 
 const args = process.argv.slice(2)
-if (args[0] === '--mc') {
-  buildMc(resolve(args[1] || '.'))
+if (args[0] === '--embed') {
+  buildEmbed()
 } else {
   buildStandalone()
+  buildEmbed()
 }

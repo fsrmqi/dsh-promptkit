@@ -14,10 +14,12 @@
     "ui",
     "dsh",
     "scripts",
+    "docs",
     "examples",
     "methods",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "test"
   ],
   "license": "MIT",
   "keywords": [
@@ -34,7 +36,9 @@
     "check": "node --check src/index.js && node --check src/ui/foundation.js && node --check src/ui/studio.js && node --check src/ui/quick-enhancer.js && node --check src/lib/utils.js && node --check src/core/method-provider.js && node --check src/core/composer.js && node --check src/core/enhancer.js && node --check src/methods/builtin.js && node --check src/adapters/static-method-provider.js && node --check src/adapters/textarea-composer.js && node --check src/adapters/openai-enhancer.js",
     "build:ui": "node scripts/build-client.mjs",
     "build": "npm run check && npm run build:methods && npm run build:ui",
-    "build:methods": "node scripts/build-methods.mjs"
+    "build:methods": "node scripts/build-methods.mjs",
+    "test": "node --test",
+    "build:embed": "node scripts/build-client.mjs --embed"
   },
   "dsh": {
     "client": {

@@ -11,13 +11,13 @@
 
 PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，具体实现由宿主注入：
 
-| 接口 | 职责 | 开源默认实现 | Memory Center 闭源实现 |
+| 接口 | 职责 | 开源默认实现 | 宿主侧实现示例 |
 | --- | --- | --- | --- |
-| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 历史 | `StaticMethodProvider`（内置 12 个 Markdown 方法，localStorage 持久化） | 接 MC 私有 catalog |
+| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 历史 | `StaticMethodProvider`（内置 12 个 Markdown 方法，localStorage 持久化，`storagePrefix` 可配） | 桥接宿主私有方法源，或直接用 `StaticMethodProvider` |
 | `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） | 接 DSH 消息框 `inputActions` |
-| `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） | 接当前会话模型 |
+| `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） | 接宿主后端或当前会话模型 |
 
-这样 **开源出去的和你自用的，是同一份核心代码**——差别只在注入什么 adapter，绝不分叉成两份维护。
+这样 **开源出去的和宿主嵌入的，是同一份核心代码**——差别只在注入什么 adapter，绝不分叉成两份维护。dsh-promptkit 对宿主零感知（Embed Protocol，见下文）。
 
 ## 组件 Props
 
@@ -93,8 +93,11 @@ dsh-promptkit/
 │   ├── 认识你自己/  # 人生设计术、挖掘隐藏天赋
 │   └── 问清问题/    # 苏格拉底式提问
 ├── dsh/             # 独立 DSH 插件 glue（standalone-glue.js：插槽注册 + 默认 adapter 装配）
-├── scripts/         # build-methods.mjs（md → builtin.json）+ build-client.mjs（零依赖浏览器端构建器，standalone / --mc 两模式）
+├── scripts/         # build-methods.mjs（md → builtin.json）+ build-client.mjs（零依赖浏览器端构建器：standalone + embed 两产物）
 ├── ui/client.js     # 生成的独立 DSH 浏览器视图（勿手改，npm run build:ui 产出）
+├── ui/embed.js      # 生成的标准嵌入产物（Embed Protocol v1，勿手改，供其他插件消费）
+├── docs/EMBED.md    # 嵌入协议标准（宿主接入指南）
+├── test/            # embed 契约测试（最小宿主环境执行 ui/embed.js，锁定协议面）
 ├── examples/basic/  # 零构建可运行 demo（importmap + esm.sh）
 ├── LICENSE          # MIT
 └── package.json     # 含 dsh.client manifest（DSH Loader 发现用）
@@ -118,34 +121,44 @@ npm run build:ui
 
 构建产物 `ui/client.js` 为单文件 lazy-CJS 工厂（`window.__ModuleLoader__.load`），由 `scripts/build-client.mjs` 从 `src/` 剥离 ESM 语法拼接生成——**组件代码只有一份源码**，npm 库形态与 DSH 插件形态共用。
 
-## 宿主对接（闭源侧怎么做）
+## 嵌入其他插件（Embed Protocol v1）
 
-以 Memory Center / DSH 插件为例，写三个 adapter 即可接入同一份核心：
+任何 DSH 插件（宿主）都可以组合 dsh-promptkit 的方法工坊与对话增强器，**dsh-promptkit 对宿主零感知**：
+
+- 标准产物 `ui/embed.js`：IIFE 私有化全部内部符号，仅暴露 `PromptKit` 命名空间（组件 / 方法源 / 基类 / utils），唯一前提是宿主闭包提供 `React`；
+- 视觉命名空间 `pk-*` 独立于宿主主题，两插件可同装一个 DSH 实例互不覆盖；
+- 宿主自持集成脚本与 adapter（方法源 / 草稿读写 / 模型调用），按 props 契约装配组件；
+- 契约有测试锁定（`test/embed.test.js`，7 项），协议面只增不改。
+
+完整契约与接入步骤见 **[docs/EMBED.md](docs/EMBED.md)**。首个参考实现是 memory-center-dsh-plugin（其 `scripts/integrate-promptkit.mjs` + `ui/promptkit-adapters.js` 即标准宿主样例）。
+
+## 宿主对接（写哪些 adapter）
+
+以任意宿主插件为例，经 `PromptKit` 命名空间接入同一份核心：
 
 ```js
-// 1) 方法源：桥接 MC 私有 catalog
-class MemoryCenterMethodProvider extends MethodProvider {
-  async list() { return (await fetchView(sessionId, 'prompt-catalog')).methods }
-  async compose(input) { return fetchView(sessionId, 'prompt-compose', input) }
-  async getTemplate(methodId) { return fetchView(sessionId, 'prompt-template', { method_id: methodId }) }
-  // 收藏 / 历史可沿用 localStorage（key 与开源版一致），或落到 MC 存储
-}
+// 拼接 ui/embed.js 后，宿主闭包内可用 PromptKit（详见 docs/EMBED.md）
 
-// 2) 写入目标：桥接 DSH 消息框
-class DshComposer extends Composer {
-  getDraft() { return input.draft }
-  write(text) { inputActions.setDraft(text) }
+// 1) 方法源：直接用内置 12 方法（storagePrefix 隔离本宿主的收藏/历史）
+const methodProvider = new PromptKit.StaticMethodProvider({ storagePrefix: 'my-host.' })
+//    或继承基类桥接宿主自己的方法源：
+//    class HostMethodProvider extends PromptKit.MethodProvider { async list() { ... } }
+
+// 2) 写入目标：桥接 DSH 消息框（conversation.input.right 注入的 input / inputActions）
+class DshComposer extends PromptKit.Composer {
+  getDraft() { return this.input?.draft ?? '' }
+  write(text) { this.inputActions?.setDraft(text) }
   onChange(cb) { return subscribeDraft(cb) }   // 订阅草稿变化
 }
 
-// 3) 模型调用：桥接当前会话模型
-class MemoryCenterEnhancer extends Enhancer {
-  async enhance({ draft, extra, lang, kind, method }) { /* 调 /memory-center/semantic-enhance */ }
+// 3) 模型调用（可选）：桥接宿主后端或直连 OpenAI 兼容端点
+class HostEnhancer extends PromptKit.Enhancer {
+  async enhance({ draft, extra, lang, kind, method }) { /* 宿主模型调用 */ }
   cancel() { /* 透传 AbortController */ }
 }
 
-// 4) 对话上下文：DSH snapshot → messages（本包不感知 snapshot 结构）
-const messages = conversationMessages(useSession(value => value))
+// 4) 对话上下文：DSH snapshot → messages（宿主 glue 职责，可复用工具函数）
+const messages = PromptKit.utils.conversationMessages(useSession(value => value))
 ```
 
 ### 方法库来源
