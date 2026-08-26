@@ -55,13 +55,22 @@ function PromptkitQuickActionHost({ sessionId, useSession, inputActions, input }
   const composer = React.useMemo(() => new DshDraftComposer(input, inputActions), [input, inputActions])
   const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
   const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
+  const [memoryAvailable, setMemoryAvailable] = React.useState(false)
+  React.useEffect(() => {
+    let alive = true
+    const url = new URL('/memory-center/context-search', window.location.origin)
+    url.searchParams.set('session_id', sessionId)
+    url.searchParams.set('query', '__promptkit_probe__')
+    fetch(url).then(response => { if (alive) setMemoryAvailable(response.ok) }).catch(() => { if (alive) setMemoryAvailable(false) })
+    return () => { alive = false }
+  }, [sessionId])
   React.useEffect(() => { composer.notify(input?.draft ?? '') }, [input?.draft, composer])
-  return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages, searchMemory })
+  return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages, ...(memoryAvailable ? { searchMemory } : {}) })
 }
 
 // 方法工坊宿主：conversation.view 视图，onSend 走当前会话
 function PromptkitStudioHost({ sessionId, onSend }) {
-  return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend, searchMemory: query => promptkitSearchMemory(sessionId, query) })
+  return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend })
 }
 
 const promptkitApply = ctx => {

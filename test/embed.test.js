@@ -130,6 +130,18 @@ test('私有方法：可从 Obsidian 风格 Markdown 导入且不污染开源方
   assert.ok([...host.store.keys()].some(key => key === 'my-notes.prompt-library.private-methods.v1'))
 })
 
+test('私有方法：JSON 备份可恢复且不会覆盖现有方法', async () => {
+  const host = minimalHost()
+  const PromptKit = loadEmbed(host)
+  const provider = new PromptKit.StaticMethodProvider({ storagePrefix: 'backup.' })
+  await provider.importPrivateMarkdown('# 原有方法\n\n## Prompt\n\n```\n原有正文\n```')
+  const backup = await provider.exportPrivateMethods()
+  const restored = await provider.importPrivateBackup(backup)
+  const methods = await provider.list()
+  assert.equal(restored.length, 1)
+  assert.equal(methods.filter(method => method.source === 'private').length, 2)
+})
+
 test('视觉命名空间：pk-* 前缀，不占用 mc-*（避免与宿主主题冲突）', () => {
   const code = readFileSync(resolve(ROOT, 'ui/embed.js'), 'utf8')
   assert.ok(code.includes('--pk-'), 'CSS 变量应为 --pk-* 前缀')

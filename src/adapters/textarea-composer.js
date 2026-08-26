@@ -20,6 +20,22 @@ export class TextareaComposer extends Composer {
     this.el.dispatchEvent(new Event('input', { bubbles: true }))
   }
 
+  getSelection() {
+    if (!this.el || !Number.isInteger(this.el.selectionStart) || !Number.isInteger(this.el.selectionEnd)) return null
+    const start = this.el.selectionStart
+    const end = this.el.selectionEnd
+    if (start === end) return null
+    return { start, end, text: this.el.value.slice(start, end), draft: this.el.value }
+  }
+
+  replaceSelection(text, selection = this.getSelection()) {
+    if (!this.el || !selection) { this.write(text); return }
+    const next = `${this.el.value.slice(0, selection.start)}${text}${this.el.value.slice(selection.end)}`
+    this.write(next)
+    const caret = selection.start + String(text).length
+    this.el.setSelectionRange?.(caret, caret)
+  }
+
   onChange(cb) {
     this._subs.add(cb)
     return () => { this._subs.delete(cb) }

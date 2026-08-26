@@ -460,6 +460,12 @@ window.__ModuleLoader__.load({
         /** @param {string} text 写入目标 */
         write(text) { throw new Error('Composer.write() 未实现') }
 
+        /** @returns {{start:number,end:number,text:string,draft:string}|null} 当前选区（可选实现） */
+        getSelection() { return null }
+
+        /** 用 text 替换给定选区；不支持选区的宿主可不实现。 */
+        replaceSelection(text, selection = this.getSelection()) { this.write(text) }
+
         /**
          * 订阅草稿变化（含用户手动输入与 write() 写入），组件据此同步本地状态。
          * @param {(text:string)=>void} cb
@@ -601,6 +607,42 @@ window.__ModuleLoader__.load({
 
         /** 导入一张 Obsidian/Markdown 提示词卡片；仅保存到当前浏览器 localStorage。 */
         async importPrivateMarkdown(raw) {
+          const method = this._privateMethodFromMarkdown(raw)
+          this._writeStore(this.privateMethodsKey, [method, ...this._privateMethods()])
+          return method
+        }
+
+        async updatePrivateMarkdown(id, raw) {
+          const current = this._privateMethods()
+          if (!current.some(method => method.id === id)) throw new Error('未找到要编辑的私有方法。')
+          const updated = { ...this._privateMethodFromMarkdown(raw), id }
+          this._writeStore(this.privateMethodsKey, current.map(method => method.id === id ? updated : method))
+          return updated
+        }
+
+        async removePrivateMethod(id) {
+          this._writeStore(this.privateMethodsKey, this._privateMethods().filter(method => method.id !== id))
+        }
+
+        async exportPrivateMethods() {
+          return JSON.stringify({ version: 1, methods: this._privateMethods() }, null, 2)
+        }
+
+        async importPrivateBackup(raw) {
+          let parsed
+          try { parsed = JSON.parse(String(raw || '')) } catch { throw new Error('备份文件不是有效 JSON。') }
+          const methods = Array.isArray(parsed?.methods) ? parsed.methods : []
+          const valid = methods.filter(method => method && typeof method.title === 'string' && typeof method.prompt === 'string')
+            .map(method => ({ ...method, id: `private:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, source: 'private' }))
+          if (!valid.length) throw new Error('备份中没有可导入的私有方法。')
+          this._writeStore(this.privateMethodsKey, [...valid, ...this._privateMethods()])
+          return valid
+        }
+
+        _privateMethods() {
+          return this._readStore(this.privateMethodsKey, []).filter(method => method && typeof method.id === 'string' && method.id.startsWith('private:') && typeof method.prompt === 'string')
+        }
+        _privateMethodFromMarkdown(raw) {
           const source = String(raw || '').trim()
           if (!source) throw new Error('请粘贴一张 Markdown 提示词卡片。')
           const frontmatter = source.match(/^---\n([\s\S]*?)\n---\n?/)
@@ -612,28 +654,7 @@ window.__ModuleLoader__.load({
           const title = meta.title || meta['标题'] || body.match(/^#\s+(.+)$/m)?.[1]?.trim() || `我的方法 ${this._privateMethods().length + 1}`
           const prompt = body.match(/## Prompt\s*\n+```(?:\w+)?\n([\s\S]*?)```/)?.[1]?.trim() || body.replace(/^#\s+[^\n]+\n?/, '').trim()
           if (!prompt) throw new Error('卡片中没有可用的提示词正文。')
-          const method = {
-            id: `private:${Date.now().toString(36)}`,
-            title,
-            category: meta.category || meta['场景'] || '我的方法',
-            purpose: meta.purpose || meta['用途'] || '从我的 Obsidian Prompt 卡片导入',
-            tags: this._parseTags(meta.tags || meta['标签']),
-            triggerKeywords: this._parseTags(meta.keywords || meta['触发词']),
-            prompt,
-            mode: 'structured',
-            outcome: meta.outcome || '按我的私有方法组织输出',
-            source: 'private',
-          }
-          this._writeStore(this.privateMethodsKey, [method, ...this._privateMethods()])
-          return method
-        }
-
-        async removePrivateMethod(id) {
-          this._writeStore(this.privateMethodsKey, this._privateMethods().filter(method => method.id !== id))
-        }
-
-        _privateMethods() {
-          return this._readStore(this.privateMethodsKey, []).filter(method => method && typeof method.id === 'string' && method.id.startsWith('private:') && typeof method.prompt === 'string')
+          return { id: `private:${Date.now().toString(36)}`, title, category: meta.category || meta['场景'] || '我的方法', purpose: meta.purpose || meta['用途'] || '从我的 Obsidian Prompt 卡片导入', tags: this._parseTags(meta.tags || meta['标签']), triggerKeywords: this._parseTags(meta.keywords || meta['触发词']), prompt, mode: 'structured', outcome: meta.outcome || '按我的私有方法组织输出', source: 'private' }
         }
         _parseTags(value) {
           return String(value || '').replace(/^\[|\]$/g, '').split(/[,，]/).map(item => item.trim()).filter(Boolean)
@@ -664,6 +685,22 @@ window.__ModuleLoader__.load({
           this.el.value = text
           // 派发 input 事件：既让宿主框架感知变化，也触发 _notify 同步订阅者。
           this.el.dispatchEvent(new Event('input', { bubbles: true }))
+        }
+
+        getSelection() {
+          if (!this.el || !Number.isInteger(this.el.selectionStart) || !Number.isInteger(this.el.selectionEnd)) return null
+          const start = this.el.selectionStart
+          const end = this.el.selectionEnd
+          if (start === end) return null
+          return { start, end, text: this.el.value.slice(start, end), draft: this.el.value }
+        }
+
+        replaceSelection(text, selection = this.getSelection()) {
+          if (!this.el || !selection) { this.write(text); return }
+          const next = `${this.el.value.slice(0, selection.start)}${text}${this.el.value.slice(selection.end)}`
+          this.write(next)
+          const caret = selection.start + String(text).length
+          this.el.setSelectionRange?.(caret, caret)
         }
 
         onChange(cb) {
@@ -1042,6 +1079,9 @@ window.__ModuleLoader__.load({
         const [enhancementMethodId, setEnhancementMethodId] = React.useState('')
         const [privateMarkdown, setPrivateMarkdown] = React.useState('')
         const [privateNotice, setPrivateNotice] = React.useState('')
+        const [privateBackup, setPrivateBackup] = React.useState('')
+        const [privateEditingId, setPrivateEditingId] = React.useState('')
+        const [confirmDeletePrivateId, setConfirmDeletePrivateId] = React.useState('')
         const [metricsEnabled, setMetricsEnabled] = React.useState(() => { try { return window.localStorage.getItem(storageKey('metrics.enabled.v1')) === 'true' } catch { return false } })
         const [metrics, setMetrics] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('metrics.v1')) || '{}') } catch { return {} } })
         const [feedback, setFeedback] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('feedback.v1')) || '[]') } catch { return [] } })
@@ -1151,8 +1191,46 @@ window.__ModuleLoader__.load({
           } catch (error) { setError(String(error?.message || error)); return false }
         }
         const importPrivateMethod = async () => {
-          const imported = await importCard(privateMarkdown)
-          if (imported) { setPrivateMarkdown(''); setPrivateNotice('已导入，仅保存在此浏览器。') }
+          try {
+            const method = privateEditingId && methodProvider.updatePrivateMarkdown
+              ? await methodProvider.updatePrivateMarkdown(privateEditingId, privateMarkdown)
+              : await methodProvider.importPrivateMarkdown(privateMarkdown)
+            setMethods(await methodProvider.list())
+            setPrivateMarkdown('')
+            setPrivateEditingId('')
+            setPrivateNotice(privateEditingId ? '已保存私有方法。' : `已导入「${method.title}」。`)
+          } catch (error) { setPrivateNotice(String(error?.message || error)) }
+        }
+        const privateMethodMarkdown = method => `# ${method.title}\n\n## Prompt\n\n\`\`\`\n${method.prompt}\n\`\`\``
+        const editPrivateMethod = method => { setPrivateEditingId(method.id); setPrivateMarkdown(privateMethodMarkdown(method)); setPrivateNotice(`正在编辑「${method.title}」。`) }
+        const deletePrivateMethod = async id => {
+          if (confirmDeletePrivateId !== id) { setConfirmDeletePrivateId(id); return }
+          await methodProvider.removePrivateMethod?.(id)
+          setMethods(await methodProvider.list())
+          setConfirmDeletePrivateId('')
+          setPrivateNotice('已删除私有方法。')
+        }
+        const exportPrivateMethods = async () => {
+          if (!methodProvider.exportPrivateMethods) { setPrivateNotice('当前方法源不支持私有方法备份。'); return }
+          try {
+            const contents = await methodProvider.exportPrivateMethods()
+            const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }))
+            const link = document.createElement('a')
+            link.href = url
+            link.download = 'dsh-promptkit-private-methods.json'
+            link.click()
+            URL.revokeObjectURL(url)
+            setPrivateNotice('已导出私有方法备份。')
+          } catch (error) { setPrivateNotice(String(error?.message || error)) }
+        }
+        const importPrivateBackup = async () => {
+          if (!methodProvider.importPrivateBackup) { setPrivateNotice('当前方法源不支持私有方法恢复。'); return }
+          try {
+            const methods = await methodProvider.importPrivateBackup(privateBackup)
+            setMethods(await methodProvider.list())
+            setPrivateBackup('')
+            setPrivateNotice(`已恢复 ${methods.length} 个私有方法。`)
+          } catch (error) { setPrivateNotice(String(error?.message || error)) }
         }
         const recordUsage = ({ kind, method }) => {
           if (!metricsEnabled) return
@@ -1252,8 +1330,17 @@ window.__ModuleLoader__.load({
             if (await importCard(importSource)) composer?.write('')
             return
           }
-          if (source.length > 3000) { setWarn(`草稿过长（${source.length} 字符），建议精简到 3000 字符以内再增强。`); return }
-          const original = draft
+          const selection = composer.getSelection?.()
+          const original = selection?.text || draft
+          if (original.trim().length > 3000) { setWarn(`草稿过长（${original.trim().length} 字符），建议精简到 3000 字符以内再增强。`); return }
+          const applyEnhanced = text => {
+            if (selection?.text && composer.replaceSelection) {
+              composer.replaceSelection(text, selection)
+              return `${selection.draft.slice(0, selection.start)}${text}${selection.draft.slice(selection.end)}`
+            }
+            composer?.write(text)
+            return text
+          }
           if (enhancementKind === 'semantic') {
             if (!enhancer) { setNotice('未注入语义增强模型（enhancer），仅支持轻量增强。'); return }
             setLoading(true)
@@ -1265,12 +1352,12 @@ window.__ModuleLoader__.load({
               }
               const template = matchedMethod ? await methodProvider.getTemplate(matchedMethod.id) : null
               const body = await enhancer.enhance({ draft: original, extra, lang: detectLanguage(original), kind: 'semantic', method: matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined })
-              setUndoDraft({ before: original, after: body.prompt })
-              composer?.write(body.prompt)
+              const after = applyEnhanced(body.prompt)
+              setUndoDraft({ before: selection?.draft || original, after })
               rememberMethod(matchedMethod, original)
               recordUsage({ kind: 'semantic', method: matchedMethod?.title })
               setLastEnhancement({ kind: 'semantic', method: matchedMethod?.title })
-              setNotice(`语义增强完成${body.model ? `（${body.model}）` : ''}；草稿已替换，可在此撤销或对比原稿。`)
+              setNotice(`语义增强完成${body.model ? `（${body.model}）` : ''}；${selection?.text ? '选中片段' : '草稿'}已替换，可在此撤销或对比原稿。`)
             } catch (error) {
               if (error?.name === 'AbortError') setNotice('已取消语义增强，草稿未改动。')
               else if (error?.timeout) setError(`${error.message}（可稍后重试）`)
@@ -1281,12 +1368,12 @@ window.__ModuleLoader__.load({
           }
           const plan = enhancementPlan
           if (plan.tooShort) { setNotice('输入过短，未做增强，可直接发送。'); return }
-          setUndoDraft({ before: original, after: plan.prompt })
-          composer?.write(plan.prompt)
+          const after = applyEnhanced(plan.prompt)
+          setUndoDraft({ before: selection?.draft || original, after })
           rememberMethod(matchedMethod, original)
           recordUsage({ kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
           setLastEnhancement({ kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
-          setNotice(plan.method ? `已采用「${plan.label || plan.method}」做保守增强，可检查后直接发送。` : '已做最小化提示词整理，可检查后直接发送。')
+          setNotice(plan.method ? `已采用「${plan.label || plan.method}」做保守增强${selection?.text ? '并替换选中片段' : ''}，可检查后直接发送。` : '已做最小化提示词整理，可检查后直接发送。')
         }
         const common = ['苏格拉底式提问', '第一性原理', '双向钢人论证'].map(title => methodChoice(methods, title)).filter(Boolean)
         const recommended = autoMethods
@@ -1324,6 +1411,17 @@ window.__ModuleLoader__.load({
               h('div', { key: 'mode', style: { display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '6px', marginTop: '10px' } }, [['enhance', '智能增强'], ['method', '手动选方法']].map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => { setMode(id); setLibraryOpen(false) }, style: { padding: '8px', border: `1px solid ${mode === id && !libraryOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: mode === id && !libraryOpen ? C.tealTintDeep : C.surface, color: mode === id && !libraryOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, label)).concat(h('button', { key: 'library', className: 'pk-btn', onClick: () => { const next = !libraryOpen; setMode(next ? 'library' : 'method'); setLibraryOpen(next) }, style: { padding: '8px', border: `1px solid ${libraryOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: libraryOpen ? C.tealTintDeep : C.surface, color: libraryOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, '方法库'))),
               libraryOpen ? h('div', { key: 'library-panel', style: { marginTop: '10px', padding: '10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [h('input', { key: 'search', value: librarySearch, onChange: event => setLibrarySearch(event.target.value), placeholder: '搜索方法、用途或标签', style: { ...workbenchStyle.input, padding: '8px 9px', fontSize: '12px' } }), libraryFavorites.length ? h('div', { key: 'favorites', style: { marginTop: '8px', color: C.slate, fontSize: '11px' } }, [h('strong', { key: 'label', style: { color: C.teal } }, '我的收藏：'), ' ', libraryFavorites.map(id => methods.find(method => method.id === id)).filter(Boolean).map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => { setSelectedMethodId(method.id); setMode('method'); setLibraryOpen(false) }, style: { margin: '3px', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '3px 6px', fontSize: '10px' } }, method.title))]) : null, libraryHistory.length ? h('div', { key: 'history', style: { marginTop: '7px', color: C.slate, fontSize: '11px' } }, [h('strong', { key: 'label', style: { color: C.teal } }, '最近生成：'), ' ', libraryHistory.slice(0, 3).map(item => h('button', { key: `${item.id}:${item.at}`, className: 'pk-btn', onClick: () => { setSelectedMethodId(item.id); setMode('method'); if (item.question) setRequirement(item.question); setLibraryOpen(false) }, style: { margin: '3px', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '3px 6px', fontSize: '10px' } }, item.title || '未命名方法'))]) : null, h('div', { key: 'matches', style: { display: 'grid', gap: '5px', maxHeight: '180px', overflowY: 'auto', marginTop: '8px' } }, libraryMatches.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => { setSelectedMethodId(method.id); setMode('method'); setLibraryOpen(false) }, style: { padding: '8px 9px', border: `1px solid ${method.id === selectedMethodId ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: C.surface, textAlign: 'left', color: C.ink, cursor: 'pointer', fontSize: '11px' } }, [h('strong', { key: 'title' }, method.title), h('span', { key: 'meta', style: { marginLeft: '6px', color: C.muted } }, method.purpose || method.category)])))] ) : null,
               libraryOpen ? h('div', { key: 'library-actions', style: { marginTop: '9px', padding: '10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.surface } }, [h('select', { key: 'select', value: selectedMethodId, onChange: event => setSelectedMethodId(event.target.value), style: { width: '100%', padding: '8px', border: `1px solid ${C.line}`, borderRadius: '8px', background: C.surface, fontSize: '12px' } }, [h('option', { key: 'empty', value: '' }, '选择一个提示词…'), ...libraryMatches.map(method => h('option', { key: method.id, value: method.id }, method.title))]), libraryMethod ? h('div', { key: 'selected', style: { marginTop: '7px', color: C.slate, fontSize: '11px', lineHeight: 1.4 } }, `已选择「${libraryMethod.title}」：可直接填充模板，或基于当前草稿改造。`) : null, h('div', { key: 'buttons', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', marginTop: '9px' } }, [h('button', { key: 'fill', className: 'pk-btn', disabled: !libraryMethod || loading, onClick: fillLibraryTemplate, style: { ...workbenchStyle.action, opacity: libraryMethod ? 1 : .55 } }, '填充模板'), h('button', { key: 'adapt', className: 'pk-btn', disabled: !libraryMethod || !draft.trim() || loading || !enhancer, onClick: adaptLibraryDraft, style: { ...workbenchStyle.action, opacity: libraryMethod && draft.trim() && enhancer ? 1 : .55 } }, loading ? h(Spinner, { key: 'spin', text: '改造中…' }) : '基于草稿改造')]), h('details', { key: 'private', style: { marginTop: '10px', borderTop: `1px solid ${C.divide}`, paddingTop: '9px' } }, [h('summary', { style: { cursor: 'pointer', color: C.teal, fontSize: '12px', fontWeight: 800 } }, '导入我的 Obsidian Prompt 卡片'), h('div', { style: { marginTop: '7px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, '粘贴一张 Markdown 卡片即可，仅保存到当前浏览器；不会读取或上传你的笔记库。'), h('textarea', { value: privateMarkdown, onChange: event => setPrivateMarkdown(event.target.value), placeholder: '# 我的方法\n\n## Prompt\n```\n提示词正文\n```', style: { ...workbenchStyle.input, width: '100%', minHeight: '100px', marginTop: '7px', resize: 'vertical', fontSize: '11px' } }), h('button', { className: 'pk-btn', disabled: !privateMarkdown.trim(), onClick: importPrivateMethod, style: { ...workbenchStyle.action, marginTop: '7px', opacity: privateMarkdown.trim() ? 1 : .55 } }, '导入到我的私有方法'), privateNotice ? h('div', { style: { marginTop: '6px', color: C.teal, fontSize: '11px' } }, privateNotice) : null]), h('details', { key: 'signals', style: { marginTop: '10px', borderTop: `1px solid ${C.divide}`, paddingTop: '9px' } }, [h('summary', { style: { cursor: 'pointer', color: C.teal, fontSize: '12px', fontWeight: 800 } }, '本地使用信号（默认关闭）'), h('div', { style: { marginTop: '7px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, '只记录增强类型和方法名，不记录草稿、对话或模型内容，也不会联网。'), h('button', { className: 'pk-btn', onClick: toggleMetrics, style: { ...workbenchStyle.action, marginTop: '7px' } }, metricsEnabled ? '已开启本地计数' : '开启本地计数'), metricsEnabled ? h('div', { style: { marginTop: '7px', color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, `轻量通用改写 ${Number(metrics.lightGeneric || 0)} 次 · 轻量方法 ${Number(metrics.lightMethod || 0)} 次 · 语义增强 ${Number(metrics.semantic || 0)} 次 · 反馈 ${feedback.length} 条`) : null, h('button', { className: 'pk-btn', onClick: clearLocalSignals, style: { marginTop: '7px', border: `1px solid ${C.amberLine}`, borderRadius: '8px', background: C.surface, color: C.amber, cursor: 'pointer', padding: '7px 9px', fontSize: '11px', fontWeight: 800 } }, confirmClearMetrics ? '再次点击确认清空本地信号' : '清空本地信号')])]) : null,
+              libraryOpen ? h('details', { key: 'private-manage', style: { marginTop: '9px', padding: '10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.surface } }, [
+                h('summary', { style: { cursor: 'pointer', color: C.teal, fontSize: '12px', fontWeight: 800 } }, '管理我的私有方法'),
+                ...methods.filter(method => method.source === 'private').map(method => h('div', { key: method.id, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '11px' } }, [h('span', { style: { color: C.slate } }, method.title), h('span', null, [h('button', { onClick: () => editPrivateMethod(method), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px' } }, '编辑'), h('button', { onClick: () => deletePrivateMethod(method.id), style: { marginLeft: '6px', border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px' } }, confirmDeletePrivateId === method.id ? '再次点击删除' : '删除')])])),
+              ]) : null,
+              libraryOpen ? h('details', { key: 'private-backup', style: { marginTop: '9px', padding: '10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.surface } }, [
+                h('summary', { style: { cursor: 'pointer', color: C.teal, fontSize: '12px', fontWeight: 800 } }, '备份或恢复私有方法'),
+                h('div', { style: { marginTop: '7px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, '导出 JSON 备份；恢复只会追加，不会删除当前私有方法。'),
+                h('button', { className: 'pk-btn', onClick: exportPrivateMethods, style: { ...workbenchStyle.action, marginTop: '7px' } }, '导出私有方法'),
+                h('textarea', { value: privateBackup, onChange: event => setPrivateBackup(event.target.value), placeholder: '粘贴此前导出的 JSON 备份', style: { ...workbenchStyle.input, width: '100%', minHeight: '74px', marginTop: '8px', resize: 'vertical', fontSize: '11px' } }),
+                h('button', { className: 'pk-btn', disabled: !privateBackup.trim(), onClick: importPrivateBackup, style: { ...workbenchStyle.action, marginTop: '7px', opacity: privateBackup.trim() ? 1 : .55 } }, '恢复私有方法'),
+              ]) : null,
               libraryOpen ? h('details', { key: 'metrics-entry', style: { marginTop: '9px', padding: '10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.surface } }, [
                 h('summary', { style: { cursor: 'pointer', color: C.teal, fontSize: '12px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' } }, [h(Icon, { key: 'ic', name: 'history', size: 13 }), '用法统计（本地，可选）']),
                 h('div', { style: { marginTop: '9px', fontSize: '12px', color: C.slate, lineHeight: 1.5 } }, [
@@ -1406,13 +1504,22 @@ window.__ModuleLoader__.load({
         const composer = React.useMemo(() => new DshDraftComposer(input, inputActions), [input, inputActions])
         const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
         const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
+        const [memoryAvailable, setMemoryAvailable] = React.useState(false)
+        React.useEffect(() => {
+          let alive = true
+          const url = new URL('/memory-center/context-search', window.location.origin)
+          url.searchParams.set('session_id', sessionId)
+          url.searchParams.set('query', '__promptkit_probe__')
+          fetch(url).then(response => { if (alive) setMemoryAvailable(response.ok) }).catch(() => { if (alive) setMemoryAvailable(false) })
+          return () => { alive = false }
+        }, [sessionId])
         React.useEffect(() => { composer.notify(input?.draft ?? '') }, [input?.draft, composer])
-        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages, searchMemory })
+        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages, ...(memoryAvailable ? { searchMemory } : {}) })
       }
 
       // 方法工坊宿主：conversation.view 视图，onSend 走当前会话
       function PromptkitStudioHost({ sessionId, onSend }) {
-        return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend, searchMemory: query => promptkitSearchMemory(sessionId, query) })
+        return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend })
       }
 
       const promptkitApply = ctx => {

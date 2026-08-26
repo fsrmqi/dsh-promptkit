@@ -99,6 +99,42 @@ export class StaticMethodProvider extends MethodProvider {
 
   /** 导入一张 Obsidian/Markdown 提示词卡片；仅保存到当前浏览器 localStorage。 */
   async importPrivateMarkdown(raw) {
+    const method = this._privateMethodFromMarkdown(raw)
+    this._writeStore(this.privateMethodsKey, [method, ...this._privateMethods()])
+    return method
+  }
+
+  async updatePrivateMarkdown(id, raw) {
+    const current = this._privateMethods()
+    if (!current.some(method => method.id === id)) throw new Error('未找到要编辑的私有方法。')
+    const updated = { ...this._privateMethodFromMarkdown(raw), id }
+    this._writeStore(this.privateMethodsKey, current.map(method => method.id === id ? updated : method))
+    return updated
+  }
+
+  async removePrivateMethod(id) {
+    this._writeStore(this.privateMethodsKey, this._privateMethods().filter(method => method.id !== id))
+  }
+
+  async exportPrivateMethods() {
+    return JSON.stringify({ version: 1, methods: this._privateMethods() }, null, 2)
+  }
+
+  async importPrivateBackup(raw) {
+    let parsed
+    try { parsed = JSON.parse(String(raw || '')) } catch { throw new Error('备份文件不是有效 JSON。') }
+    const methods = Array.isArray(parsed?.methods) ? parsed.methods : []
+    const valid = methods.filter(method => method && typeof method.title === 'string' && typeof method.prompt === 'string')
+      .map(method => ({ ...method, id: `private:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, source: 'private' }))
+    if (!valid.length) throw new Error('备份中没有可导入的私有方法。')
+    this._writeStore(this.privateMethodsKey, [...valid, ...this._privateMethods()])
+    return valid
+  }
+
+  _privateMethods() {
+    return this._readStore(this.privateMethodsKey, []).filter(method => method && typeof method.id === 'string' && method.id.startsWith('private:') && typeof method.prompt === 'string')
+  }
+  _privateMethodFromMarkdown(raw) {
     const source = String(raw || '').trim()
     if (!source) throw new Error('请粘贴一张 Markdown 提示词卡片。')
     const frontmatter = source.match(/^---\n([\s\S]*?)\n---\n?/)
@@ -110,28 +146,7 @@ export class StaticMethodProvider extends MethodProvider {
     const title = meta.title || meta['标题'] || body.match(/^#\s+(.+)$/m)?.[1]?.trim() || `我的方法 ${this._privateMethods().length + 1}`
     const prompt = body.match(/## Prompt\s*\n+```(?:\w+)?\n([\s\S]*?)```/)?.[1]?.trim() || body.replace(/^#\s+[^\n]+\n?/, '').trim()
     if (!prompt) throw new Error('卡片中没有可用的提示词正文。')
-    const method = {
-      id: `private:${Date.now().toString(36)}`,
-      title,
-      category: meta.category || meta['场景'] || '我的方法',
-      purpose: meta.purpose || meta['用途'] || '从我的 Obsidian Prompt 卡片导入',
-      tags: this._parseTags(meta.tags || meta['标签']),
-      triggerKeywords: this._parseTags(meta.keywords || meta['触发词']),
-      prompt,
-      mode: 'structured',
-      outcome: meta.outcome || '按我的私有方法组织输出',
-      source: 'private',
-    }
-    this._writeStore(this.privateMethodsKey, [method, ...this._privateMethods()])
-    return method
-  }
-
-  async removePrivateMethod(id) {
-    this._writeStore(this.privateMethodsKey, this._privateMethods().filter(method => method.id !== id))
-  }
-
-  _privateMethods() {
-    return this._readStore(this.privateMethodsKey, []).filter(method => method && typeof method.id === 'string' && method.id.startsWith('private:') && typeof method.prompt === 'string')
+    return { id: `private:${Date.now().toString(36)}`, title, category: meta.category || meta['场景'] || '我的方法', purpose: meta.purpose || meta['用途'] || '从我的 Obsidian Prompt 卡片导入', tags: this._parseTags(meta.tags || meta['标签']), triggerKeywords: this._parseTags(meta.keywords || meta['触发词']), prompt, mode: 'structured', outcome: meta.outcome || '按我的私有方法组织输出', source: 'private' }
   }
   _parseTags(value) {
     return String(value || '').replace(/^\[|\]$/g, '').split(/[,，]/).map(item => item.trim()).filter(Boolean)

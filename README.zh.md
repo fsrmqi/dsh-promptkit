@@ -209,7 +209,7 @@ const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
 
 ### 我的私有方法
 
-在快捷增强器的「高级设置」中，可直接粘贴一张 Obsidian 风格 Markdown Prompt 卡片。它会从 frontmatter / 标题 / `## Prompt` 代码块提取方法并仅保存在当前浏览器的 localStorage；不会读取、扫描或上传 Obsidian 笔记库。私有方法会和 12 个开源方法一起参与搜索与自动匹配，但不会写入仓库或发布包。
+在快捷增强器的「高级设置」中，可直接粘贴一张 Obsidian 风格 Markdown Prompt 卡片。它会从 frontmatter / 标题 / `## Prompt` 代码块提取方法并仅保存在当前浏览器的 localStorage；不会读取、扫描或上传 Obsidian 笔记库。私有方法可导出为 JSON，并以追加方式恢复备份；它们会和 12 个开源方法一起参与搜索与自动匹配，但不会写入仓库或发布包。
 
 ## 权限与隐私
 

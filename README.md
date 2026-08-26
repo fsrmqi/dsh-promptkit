@@ -209,7 +209,7 @@ To add a new method: create a new Markdown file under `methods/` (same frontmatt
 
 ### Personal methods
 
-The QuickEnhancer “Advanced settings” panel accepts pasted Obsidian-style Markdown prompt cards. It extracts frontmatter, the title, and the `## Prompt` code block, then stores the resulting private method only in the current browser's localStorage. It never scans, reads, or uploads an Obsidian vault. Private methods participate in search and automatic matching but are never added to the public repository or package.
+The QuickEnhancer “Advanced settings” panel accepts pasted Obsidian-style Markdown prompt cards. It extracts frontmatter, the title, and the `## Prompt` code block, then stores the resulting private method only in the current browser's localStorage. It never scans, reads, or uploads an Obsidian vault. Private methods can be exported as JSON and restored by appending a backup; they participate in search and automatic matching but are never added to the public repository or package.
 
 ## Permissions & Privacy
 

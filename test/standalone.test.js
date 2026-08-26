@@ -13,6 +13,7 @@ function loadStandalone() {
     createElement: (type, props) => ({ type, props }),
     useMemo: callback => callback(),
     useCallback: callback => callback,
+    useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
     useEffect: () => {},
   }
   const sandbox = {
