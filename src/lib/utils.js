@@ -104,7 +104,7 @@
       return { label, reason: '任务意图已较清楚，不强行套用方法，只做最小化表达整理。', prompt: `请直接处理这项任务：${source}\n\n先给出结论或可执行方案；再说明关键依据、资源/时间/数据可得性等现实限制与下一步。若信息不足，只提出最关键的澄清问题，不要编造事实。${suffix}` }
     }
 
-    function classify(source, guidance, signatures) {
+    function classify(source, guidance, signatures, promptSource = source) {
       const suffix = guidance ? `\n\n额外要求：${guidance}` : ''
       const hits = []
       for (const [title, triggers] of Object.entries(signatures)) {
@@ -119,19 +119,20 @@
         }
       }
       const first = hits[0]
-      if (!first) return { method: '', label: '', signals: [], conflicts: [], ...lightTemplate('', source, suffix) }
+      if (!first) return { method: '', label: '', signals: [], conflicts: [], ...lightTemplate('', promptSource, suffix) }
       const conflicts = hits.slice(1).map(item => ({ title: item.title, label: TEMPLATE_LABELS[item.title] || item.title, signals: item.signals }))
-      return { method: first.title, label: TEMPLATE_LABELS[first.title] || first.title, signals: hits.flatMap(item => item.signals), conflicts, ...lightTemplate(first.title, source, suffix) }
+      return { method: first.title, label: TEMPLATE_LABELS[first.title] || first.title, signals: hits.flatMap(item => item.signals), conflicts, ...lightTemplate(first.title, promptSource, suffix) }
     }
 
-    function planPromptEnhancement(draft, extra = '', methods = []) {
+    function planPromptEnhancement(draft, extra = '', methods = [], context = '') {
       const source = String(draft || '').trim()
       const guidance = String(extra || '').trim()
+      const signals = [source, String(context || '').trim()].filter(Boolean).join('\n')
       const lang = detectLanguage(source)
       if (source && source.length < 8) return { lang, method: '', label: '', signals: [], conflicts: [], tooShort: true, reason: '输入过短，直接使用原文，不做增强。', prompt: source }
       if (lang === 'en') return { lang, method: '', label: '', signals: [], conflicts: [], reason: '检测到英文输入，采用通用英文整理模板。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
       if (lang === 'mixed') return { lang, method: '', label: '', signals: [], conflicts: [], reason: '检测到中英混合输入，采用双语整理模板，输出保留原语言比例。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. Keep the output language proportional to the input (mixed Chinese/English). If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
-      return { lang, ...classify(source, guidance, buildSignatures(methods)) }
+      return { lang, ...classify(signals, guidance, buildSignatures(methods), source) }
     }
 
     function recommendMethods(methods, requirement) {

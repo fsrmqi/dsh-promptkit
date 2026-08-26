@@ -81,6 +81,13 @@ test('search：标题/用途全字段匹配', async () => {
   assert.ok(byPurpose.some(method => method.id === '事实核查'))
 })
 
+test('轻量增强：上下文参与方法匹配，但不混入输出草稿', async () => {
+  const PromptKit = loadEmbed(minimalHost())
+  const plan = PromptKit.utils.planPromptEnhancement('帮我处理这个问题', '', PromptKit.builtinMethods, '当前在排查接口报错和异常日志')
+  assert.equal(plan.method, '苏格拉底式提问')
+  assert.ok(!plan.prompt.includes('当前在排查接口报错和异常日志'))
+})
+
 test('storagePrefix：宿主数据隔离', async () => {
   const host = minimalHost()
   const PromptKit = loadEmbed(host)

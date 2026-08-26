@@ -234,7 +234,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
       return { label, reason: '任务意图已较清楚，不强行套用方法，只做最小化表达整理。', prompt: `请直接处理这项任务：${source}\n\n先给出结论或可执行方案；再说明关键依据、资源/时间/数据可得性等现实限制与下一步。若信息不足，只提出最关键的澄清问题，不要编造事实。${suffix}` }
     }
 
-    function classify(source, guidance, signatures) {
+    function classify(source, guidance, signatures, promptSource = source) {
       const suffix = guidance ? `\n\n额外要求：${guidance}` : ''
       const hits = []
       for (const [title, triggers] of Object.entries(signatures)) {
@@ -249,19 +249,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
         }
       }
       const first = hits[0]
-      if (!first) return { method: '', label: '', signals: [], conflicts: [], ...lightTemplate('', source, suffix) }
+      if (!first) return { method: '', label: '', signals: [], conflicts: [], ...lightTemplate('', promptSource, suffix) }
       const conflicts = hits.slice(1).map(item => ({ title: item.title, label: TEMPLATE_LABELS[item.title] || item.title, signals: item.signals }))
-      return { method: first.title, label: TEMPLATE_LABELS[first.title] || first.title, signals: hits.flatMap(item => item.signals), conflicts, ...lightTemplate(first.title, source, suffix) }
+      return { method: first.title, label: TEMPLATE_LABELS[first.title] || first.title, signals: hits.flatMap(item => item.signals), conflicts, ...lightTemplate(first.title, promptSource, suffix) }
     }
 
-    function planPromptEnhancement(draft, extra = '', methods = []) {
+    function planPromptEnhancement(draft, extra = '', methods = [], context = '') {
       const source = String(draft || '').trim()
       const guidance = String(extra || '').trim()
+      const signals = [source, String(context || '').trim()].filter(Boolean).join('\n')
       const lang = detectLanguage(source)
       if (source && source.length < 8) return { lang, method: '', label: '', signals: [], conflicts: [], tooShort: true, reason: '输入过短，直接使用原文，不做增强。', prompt: source }
       if (lang === 'en') return { lang, method: '', label: '', signals: [], conflicts: [], reason: '检测到英文输入，采用通用英文整理模板。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
       if (lang === 'mixed') return { lang, method: '', label: '', signals: [], conflicts: [], reason: '检测到中英混合输入，采用双语整理模板，输出保留原语言比例。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. Keep the output language proportional to the input (mixed Chinese/English). If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
-      return { lang, ...classify(source, guidance, buildSignatures(methods)) }
+      return { lang, ...classify(signals, guidance, buildSignatures(methods), source) }
     }
 
     function recommendMethods(methods, requirement) {
@@ -768,6 +769,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
   const [librarySearch, setLibrarySearch] = React.useState('')
   const [libraryFavorites, setLibraryFavorites] = React.useState([])
   const [libraryHistory, setLibraryHistory] = React.useState([])
+  const [enhancementMethodId, setEnhancementMethodId] = React.useState('')
   const [privateMarkdown, setPrivateMarkdown] = React.useState('')
   const [privateNotice, setPrivateNotice] = React.useState('')
   const [recentMethodIds, setRecentMethodIds] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('recent-methods.v1')) || '[]') } catch { return [] } })
@@ -852,16 +854,23 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
   const selectedMethod = methods.find(method => method.id === selectedMethodId)
   const libraryMethod = libraryOpen ? selectedMethod : null
   const contextText = () => activeMessages.map(item => `${item.role === 'user' ? '用户' : '助手'}：${cleanContext(item.text)}`).join('\n').slice(0, 2400)
-  const autoMethods = recommendMethods(methods, [draft, requirement, contextText()].filter(Boolean).join('\n'))
-  const importPrivateMethod = async () => {
-    if (!methodProvider.importPrivateMarkdown) { setPrivateNotice('当前方法源不支持私有方法导入。'); return }
+  const selectedContextText = contextLevel === 'question' ? '' : contextText()
+  const autoMethods = recommendMethods(methods, [draft, requirement, selectedContextText].filter(Boolean).join('\n'))
+  const matchedMethod = methods.find(method => method.id === enhancementMethodId) || autoMethods[0]
+  const importCard = async raw => {
+    if (!methodProvider.importPrivateMarkdown) { setNotice('当前方法源不支持私有方法导入。'); return false }
     try {
-      const method = await methodProvider.importPrivateMarkdown(privateMarkdown)
+      const method = await methodProvider.importPrivateMarkdown(raw)
       setMethods(await methodProvider.list())
       setSelectedMethodId(method.id)
-      setPrivateMarkdown('')
-      setPrivateNotice(`已导入「${method.title}」，仅保存在此浏览器。`)
-    } catch (error) { setPrivateNotice(String(error?.message || error)) }
+      setEnhancementMethodId(method.id)
+      setNotice(`已导入「${method.title}」到我的私有方法，可立即用于增强。`)
+      return true
+    } catch (error) { setNotice(String(error?.message || error)); return false }
+  }
+  const importPrivateMethod = async () => {
+    const imported = await importCard(privateMarkdown)
+    if (imported) { setPrivateMarkdown(''); setPrivateNotice('已导入，仅保存在此浏览器。') }
   }
   const composeIntoInput = async choice => {
     if (!choice || !composer) return
@@ -924,20 +933,24 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
   const enhanceIntoInput = async () => {
     const source = draft.trim()
     if (!source) { setNotice('请先在输入框中写入原始请求。'); return }
+    const importSource = source.replace(/^\/import\b\s*/i, '')
+    if (/^\/import\b/i.test(source) || /^(?:---\n[\s\S]*?\n---\n)?#\s+[^\n]+[\s\S]*?## Prompt\s*\n/.test(source)) {
+      if (await importCard(importSource)) composer?.write('')
+      return
+    }
     if (source.length > 3000) { setNotice(`草稿过长（${source.length} 字符），建议精简到 3000 字符以内再增强。`); return }
     const original = draft
     if (enhancementKind === 'semantic') {
       if (!enhancer) { setNotice('未注入语义增强模型（enhancer），仅支持轻量增强。'); return }
       setLoading(true)
       try {
-        let extra = [requirement.trim(), contextText() ? `对话参考：\n${contextText()}` : ''].filter(Boolean).join('\n\n')
+        let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : ''].filter(Boolean).join('\n\n')
         if (contextLevel === 'memory' && searchMemory) {
           const remembered = cleanContext(await searchMemory(original) || '')
           if (remembered) extra = [extra, `项目记忆：${remembered}`].filter(Boolean).join('\n\n')
         }
-        const suggested = autoMethods[0]
-        const template = suggested ? await methodProvider.getTemplate(suggested.id) : null
-        const body = await enhancer.enhance({ draft: original, extra, lang: detectLanguage(original), kind: 'semantic', method: suggested ? { title: suggested.title, template: template.prompt } : undefined })
+        const template = matchedMethod ? await methodProvider.getTemplate(matchedMethod.id) : null
+        const body = await enhancer.enhance({ draft: original, extra, lang: detectLanguage(original), kind: 'semantic', method: matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined })
         setUndoDraft({ before: original, after: body.prompt })
         composer?.write(body.prompt)
         setNotice(`语义增强完成${body.model ? `（${body.model}）` : ''}；草稿已替换，可在此撤销或对比原稿。`)
@@ -949,7 +962,7 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
       finally { setLoading(false) }
       return
     }
-    const plan = planPromptEnhancement(original, requirement, methods)
+    const plan = enhancementPlan
     if (plan.tooShort) { setNotice('输入过短，未做增强，可直接发送。'); return }
     setUndoDraft({ before: original, after: plan.prompt })
     composer?.write(plan.prompt)
@@ -969,10 +982,13 @@ function ConversationQuickAction({ methodProvider, composer, enhancer, messages,
   const methodCards = h('div', { style: { display: 'grid', gap: '7px' } }, methodItems.map(method => h('button', { key: method.id, className: 'pk-btn', disabled: loading, onClick: () => setSelectedMethodId(method.id), style: { width: '100%', padding: '10px 11px', border: `1px solid ${selectedMethodId === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '10px', background: selectedMethodId === method.id ? C.tealTintDeep : C.surface, textAlign: 'left', color: C.ink, cursor: 'pointer' } }, [h('div', { key: 'title', style: { display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '12px', fontWeight: 800 } }, [h('span', { key: 'name' }, method.title), selectedMethodId === method.id ? h('span', { key: 'picked', style: { color: C.teal } }, '已选择') : recommended.includes(method) ? h('span', { key: 'recommended', style: { color: C.teal } }, '推荐') : null]), h('div', { key: 'purpose', style: { marginTop: '3px', color: C.slate, fontSize: '11px', lineHeight: 1.4 } }, method.purpose || '按该方法组织分析。')])) )
   const structurePreview = selectedMethod ? h('div', { style: { marginTop: '9px', padding: '9px 10px', border: `1px dashed ${C.tealLine}`, borderRadius: '9px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, `组装预览：问题 · ${contextLevel === 'question' ? '仅问题' : contextLevel === 'conversation' ? `已选对话 ${activeMessages.length} 条` : `已选对话 ${activeMessages.length} 条 + 项目记忆`} · ${selectedMethod.title} 的分析结构`) : null
   const methodFooter = h('div', { style: { position: 'sticky', bottom: '-14px', margin: '10px -14px -14px', padding: '11px 14px 14px', borderTop: `1px solid ${C.tealLine}`, background: C.surface } }, [selectedMethod ? h('div', { key: 'outcome', style: { marginBottom: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, fontSize: '12px', lineHeight: 1.5 } }, [h('strong', { key: 'title', style: { color: C.teal } }, `将使用「${selectedMethod.title}」`), h('div', { key: 'body', style: { marginTop: '3px', color: C.slate } }, selectedMethod.outcome || (selectedMethod.mode === 'guided' ? '先通过追问澄清问题，再推进下一步。' : '生成结构化分析、风险与下一步行动。'))]) : null, h('button', { key: 'generate', className: 'pk-btn', disabled: loading || !canCompose || !selectedMethod, onClick: () => composeIntoInput(selectedMethod), style: { width: '100%', padding: '11px 14px', border: 0, borderRadius: '9px', background: loading || !canCompose || !selectedMethod ? C.tealLine : C.teal, color: loading || !canCompose || !selectedMethod ? C.muted : C.surface, cursor: loading || !canCompose || !selectedMethod ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' } }, loading ? h(Spinner, { key: 'spin', text: '正在组装…' }) : selectedMethod ? '生成并填入消息框' : '请选择一种方法')])
-  const enhancementPlan = planPromptEnhancement(draft, requirement, methods)
+  const autoPlan = planPromptEnhancement(draft, requirement, methods, selectedContextText)
+  const enhancementPlan = matchedMethod && !autoPlan.tooShort
+    ? { ...autoPlan, method: matchedMethod.title, label: matchedMethod.title, ...lightTemplate(matchedMethod.title, draft, requirement ? `\n\n额外要求：${requirement}` : '') }
+    : autoPlan
   const enhancementLang = detectLanguage(draft || '')
   const strategyNode = draft.trim() ? enhancementKind === 'semantic'
-        ? [h('div', { key: 'meta', style: { marginBottom: '3px' } }, `将把当前 ${draft.trim().length} 个字符交给模型改写。`), autoMethods[0] ? h('div', { key: 'method', style: { color: C.teal } }, `自动匹配方法：${autoMethods[0].title}${autoMethods[1] ? `（备选：${autoMethods[1].title}）` : ''}`) : h('div', { key: 'method', style: { color: C.muted } }, '未强行套用方法，只做结构化改写。'), h('div', { key: 'lang', style: { color: C.muted } }, `检测语言：${enhancementLang === 'en' ? '英文（输出与输入一致）' : enhancementLang === 'mixed' ? '中英混合（输出与输入一致）' : '中文'}。`), draft.trim().length > 3000 ? h('div', { key: 'warn', style: { marginTop: '3px', color: C.amber } }, '草稿超过 3000 字符，建议精简后再增强。') : null]
+        ? [h('div', { key: 'meta', style: { marginBottom: '3px' } }, `将把当前 ${draft.trim().length} 个字符交给模型改写。`), autoMethods.length ? h('div', { key: 'method', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', color: C.teal } }, [h('span', { key: 'label' }, '自动匹配：'), ...autoMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setEnhancementMethodId(method.id), style: { border: `1px solid ${matchedMethod?.id === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '999px', background: matchedMethod?.id === method.id ? C.tealTintDeep : C.surface, color: C.teal, cursor: 'pointer', padding: '3px 7px', fontSize: '10px', fontWeight: 800 } }, matchedMethod?.id === method.id ? `✓ ${method.title}` : `改用 ${method.title}`))]) : h('div', { key: 'method', style: { color: C.muted } }, '未强行套用方法，只做结构化改写。'), h('div', { key: 'lang', style: { color: C.muted } }, `检测语言：${enhancementLang === 'en' ? '英文（输出与输入一致）' : enhancementLang === 'mixed' ? '中英混合（输出与输入一致）' : '中文'}。`), draft.trim().length > 3000 ? h('div', { key: 'warn', style: { marginTop: '3px', color: C.amber } }, '草稿超过 3000 字符，建议精简后再增强。') : null]
         : [h('strong', { key: 'method', style: { color: C.teal } }, enhancementPlan.tooShort ? '输入过短，直接使用原文' : enhancementPlan.label ? `拟采用：${enhancementPlan.label}` : '拟采用：轻量整理'), h('div', { key: 'reason', style: { marginTop: '3px' } }, enhancementPlan.reason), enhancementPlan.signals?.length ? h('div', { key: 'signals', style: { marginTop: '3px' } }, `识别信号：${enhancementPlan.signals.join('、')}`) : null, enhancementPlan.conflicts?.length ? h('div', { key: 'conflicts', style: { marginTop: '3px', color: C.amber } }, `方法冲突：${enhancementPlan.conflicts.map(item => `${item.label || item.title}（命中“${item.signals.join('、')}”）`).join('；')}，采用「${enhancementPlan.label || enhancementPlan.method}」。`) : null, h('div', { key: 'size', style: { marginTop: '3px', color: C.muted } }, `预计 ${enhancementPlan.prompt.length} 字符。`)]
         : '当前输入框为空，请先写下原始请求。'
   const enhancementKinds = enhancer ? [['light', '轻量 · 零 Token'], ['semantic', '语义 · 模型']] : [['light', '轻量 · 零 Token']]
