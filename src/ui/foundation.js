@@ -13,6 +13,7 @@ const h = React.createElement
       blue: 'var(--pk-blue)', amber: 'var(--pk-amber)', amberLine: 'var(--pk-amber-line)', amberTint: 'var(--pk-amber-tint)',
       red: 'var(--pk-red)', redTint: 'var(--pk-red-tint)', slate: 'var(--pk-slate)',
       divide: 'var(--pk-divide)', surfaceAlt: 'var(--pk-surface-alt)', track: 'var(--pk-track)',
+      font: 'var(--pk-font)', fontMono: 'var(--pk-font-mono)',
     }
     const GLOBAL_CSS = `
 :root {
@@ -32,7 +33,17 @@ const h = React.createElement
   --pk-blue: #2563eb; --pk-amber: #b45309; --pk-amber-line: #f1d4a5; --pk-amber-tint: #fff7ed;
   --pk-red: #b91c1c; --pk-red-tint: #fdecec; --pk-slate: #52606d;
   --pk-divide: #edf1f4; --pk-surface-alt: #fcfdff; --pk-track: #e8eef2;
+  --pk-font: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --pk-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, "Liberation Mono", monospace;
 }
+body { font-family: var(--pk-font); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+pre, code, .pk-mono { font-family: var(--pk-font-mono); }
+.pk-field { display: block }
+.pk-label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 500; color: var(--pk-ink); transition: color .15s ease }
+.pk-label--muted { color: var(--pk-muted); font-weight: 700; font-size: 11px }
+.pk-field:focus-within > .pk-label, .pk-field:focus-within > div > .pk-label { color: var(--pk-teal) }
+@keyframes pk-breath { 0%,100% { box-shadow: 0 0 0 2px var(--pk-teal-tint) } 50% { box-shadow: 0 0 0 4px var(--pk-teal-tint) } }
+input:focus, textarea:focus, select:focus { outline: 2px solid rgba(15,118,110,.45); outline-offset: 1px; border-color: var(--pk-teal-line-active) !important; animation: pk-breath 1.8s ease-in-out infinite }
 @media (prefers-color-scheme: dark) {
   :root {
     --pk-ink: #e8eaed; --pk-muted: #9aa0a6; --pk-line: #3c4043; --pk-canvas: #181a20; --pk-surface: #242830;
@@ -107,10 +118,26 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
     const Spinner = ({ text }) => h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '7px', lineHeight: 1.5 } }, [h('span', { key: 'spin', className: 'pk-spinner', 'aria-hidden': 'true' }), text])
     const ICON_PATHS = {
       sparkles: 'M12 3.2l1.7 4.1 4.1 1.7-4.1 1.7L12 14.8l-1.7-4.1-4.1-1.7 4.1-1.7L12 3.2zM18.8 13.5l.9 2.2 2.2.9-2.2.9-.9 2.2-.9-2.2-2.2-.9 2.2-.9.9-2.2z',
+      sparkle: 'M12 3.2l1.7 4.1 4.1 1.7-4.1 1.7L12 14.8l-1.7-4.1-4.1-1.7 4.1-1.7L12 3.2z',
       wand: 'M14.5 5.5 18.5 9.5M4 20 13.5 10.5M13.5 10.5l1.5-1.5a2.12 2.12 0 0 1 3 3L16.5 13.5',
       close: 'M6 6l12 12M18 6 6 18',
       star: 'M12 3.2l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3.2z',
       check: 'M4.5 12.5l5 5L19.5 7',
+      thumbsUp: 'M7 11v8H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h3zm0 0 4.2-6.6a1.6 1.6 0 0 1 2.8 1.1V8h4.6a2 2 0 0 1 2 2.4l-1.3 6.2A2 2 0 0 1 16.9 18H7',
+      thumbsDown: 'M17 13v-8h3a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-3zm0 0-4.2 6.6a1.6 1.6 0 0 1-2.8-1.1V16H5.4a2 2 0 0 1-2-2.4l1.3-6.2A2 2 0 0 1 7.1 6H17',
+      extract: 'M4 6h16M4 12h9M4 18h6M13 14l3 3 3-3M16 11v6',
+      send: 'M4 12 20 4l-6 16-3-6-7-2z',
+      copy: 'M9 9h10v10H9zM5 15V5h10v2',
+      history: 'M12 7v5l3 2M21 12a9 9 0 1 1-2.6-6.4M21 4v4h-4',
+      search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-3.6-3.6',
+      edit: 'M4 20h4L18.5 9.5l-4-4L4 16v4zM13.5 6.5l4 4',
+      trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
+      refresh: 'M20 11a8 8 0 1 0-1.8 5M20 5v6h-6',
+      document: 'M6 3h8l4 4v14H6zM14 3v4h4',
+      chevronDown: 'M6 9l6 6 6-6',
+      link: 'M9 15l6-6M10.5 6.5l1-1a4 4 0 0 1 5.6 5.6l-1 1M13.5 17.5l-1 1a4 4 0 0 1-5.6-5.6l1-1',
+      arrowRight: 'M5 12h14M13 6l6 6-6 6',
+      plus: 'M12 5v14M5 12h14',
     }
     const Icon = ({ name, size = 14, style, strokeWidth = 1.7 }) => h('svg', { viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true', style }, ICON_PATHS[name] ? h('path', { d: ICON_PATHS[name] }) : null)
     function Panel({ title, hint, children, style }) { return h('section', { style: { ...S.panel, ...style } }, [h('div', { key: 'h', style: S.head }, [h('h2', { key: 't', style: S.h2 }, title), h('span', { key: 'i', style: S.hint }, hint)]), children]) }

@@ -1,5 +1,5 @@
 import React from 'react'
-import { h, C, S, workbenchStyle, GlobalStyle, Spinner, Panel } from './foundation.js'
+import { h, C, S, workbenchStyle, GlobalStyle, Spinner, Icon, Panel } from './foundation.js'
 import { list, cleanSummary, cleanContext, selectedConversationDraft } from '../lib/utils.js'
 import { withPrefix } from '../core/composer.js'
 
@@ -30,6 +30,7 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
   const [preview, setPreview] = React.useState(null)
   const [extracted, setExtracted] = React.useState(null)
   const [message, setMessage] = React.useState('')
+  const [showOptional, setShowOptional] = React.useState(false)
   React.useEffect(() => {
     let alive = true
     setLoadingMethods(true)
@@ -71,6 +72,15 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
     const context = cleanContext(contextPreview || '')
     if (context) setFacts(value => [value, '项目记忆检索：', context].filter(Boolean).join('\n'))
     setContextPreview('')
+  }
+  const restoreRecent = item => {
+    setMethodId(item.id)
+    setQuestion(item.question || '')
+    setPreview(null)
+    setMessage('正在重新生成预览…')
+    methodProvider.compose({ methodId: item.id, question: item.question || '', facts, constraints, options })
+      .then(value => { setPreview(value); setMessage('已恢复最近一次问题，并重新生成预览。') })
+      .catch(error => setMessage(String(error?.message || error)))
   }
   const writePreview = () => {
     const next = withPrefix(composer.getDraft(), preview.prompt)
@@ -138,7 +148,7 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
         }, [
           isPinned ? h('span', { key: 'pin', style: { fontSize: '10px', color: C.muted, fontWeight: 400 }, title: '常用' }, '常用') : null,
           h('span', { key: 't', style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, item.title),
-          isFav ? h('span', { key: 'fav', style: { color: C.teal, fontSize: '12px' }, title: '已收藏' }, '★') : null,
+          isFav ? h(Icon, { key: 'fav', name: 'star', size: 12, style: { color: C.teal, fill: C.teal, flexShrink: 0 }, title: '已收藏', 'aria-label': '已收藏' }) : null,
         ]),
         h('span', { key: 'purpose', style: { fontSize: '11px', color: C.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' } }, item.purpose || ''),
       ])
@@ -148,7 +158,7 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
     h('ul', { style: { listStyle: 'none', padding: '4px 14px 12px', margin: 0, display: 'grid', gap: '2px' } },
       history.slice(0, 5).map(item => h('li', { key: `${item.id}:${item.at}`, style: { borderBottom: `1px solid ${C.divide}` } },
         h('button', {
-          onClick: () => { setMethodId(item.id); setQuestion(item.question); setMessage('已恢复最近一次问题，可继续编辑。') },
+          onClick: () => restoreRecent(item),
           style: {
             width: '100%',
             padding: '8px 0',
@@ -195,7 +205,7 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
         ]),
         methodList,
       ]),
-      h('section', { key: 'form', style: { display: 'grid', gap: '20px', minWidth: 0 } }, [
+      h('section', { key: 'form', style: { display: 'grid', gap: '20px', minWidth: 0 }, onKeyDown: event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && method && question.trim()) { event.preventDefault(); void compose() } } }, [
         h('div', { key: 'header', style: { borderBottom: `1px solid ${C.divide}`, paddingBottom: '14px' } }, [
           h('div', { key: 't-row', style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' } }, [
             h('h2', { key: 'title', style: { ...S.title, fontSize: '17px', margin: 0 } }, method?.title || '方法输入'),
@@ -204,30 +214,34 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
           method?.purpose ? h('p', { key: 'purpose', style: { margin: '8px 0 0', fontSize: '13px', color: C.slate, lineHeight: 1.55 } }, method.purpose) : null,
         ]),
         h('div', { key: 'tools', style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
-          messages?.length ? h('button', { key: 'extract', onClick: () => setExtracted(selectedConversationDraft(messages)), style: { ...workbenchStyle.action, background: C.surface, color: C.ink } }, '从对话提取') : null,
-          method ? h('button', { key: 'favorite', onClick: () => toggleFavorite(method.id), style: { ...workbenchStyle.action, background: isFav(method, favorites) ? C.tealTintDeep : C.surface, color: isFav(method, favorites) ? C.teal : C.ink } }, isFav(method, favorites) ? '★ 已收藏' : '☆ 收藏方法') : null,
-          h('button', { key: 'clear', onClick: () => { setQuestion(''); setFacts(''); setConstraints(''); setOptions(''); setExtracted(null); setPreview(null) }, style: { ...workbenchStyle.action, background: C.surface, color: C.muted } }, '清空')
+          messages?.length ? h('button', { key: 'extract', onClick: () => setExtracted(selectedConversationDraft(messages)), style: { ...workbenchStyle.action, background: C.surface, color: C.ink, display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'extract', size: 13 }), extracted ? '重新提取' : '从对话提取']) : null,
+          method ? h('button', { key: 'favorite', onClick: () => toggleFavorite(method.id), style: { ...workbenchStyle.action, background: isFav(method, favorites) ? C.tealTintDeep : C.surface, color: isFav(method, favorites) ? C.teal : C.ink, display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'star', size: 13, style: isFav(method, favorites) ? { fill: C.teal } : undefined }), isFav(method, favorites) ? '已收藏' : '收藏方法']) : null,
+          h('button', { key: 'clear', onClick: () => { setQuestion(''); setFacts(''); setConstraints(''); setOptions(''); setExtracted(null); setPreview(null) }, style: { ...workbenchStyle.action, background: C.surface, color: C.muted, display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'trash', size: 13 }), '清空'])
         ]),
-        extracted ? h('div', { key: 'extracted', style: { padding: '12px 14px', border: `1px solid ${C.line}`, borderRadius: '8px', background: C.paper, fontSize: '12px', lineHeight: 1.55 } }, [
-          h('strong', { key: 'head', style: { color: C.ink } }, `已从 ${extracted.source_count} 条文本消息生成草稿`),
-          h('div', { key: 'summary', style: { marginTop: '5px', fontSize: '11px', color: C.muted } }, `问题 ${extracted.question ? '✓' : '—'} · 事实 ${extracted.facts ? '✓' : '—'} · 约束 ${extracted.constraints ? '✓' : '—'} · 未决问题 ${extracted.unresolved ? '✓' : '—'}`),
+        extracted ? h('div', { key: 'extracted', style: { padding: '12px 14px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.paper, fontSize: '12px', lineHeight: 1.55 } }, [
+          h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, [
+            h('span', { style: workbenchStyle.badge(C.teal) }, `已提取 ${extracted.source_count} 条`),
+            h('span', { style: { color: C.ink, fontWeight: 600 } }, '从对话生成草稿'),
+          ]),
+          h('div', { key: 'summary', style: { marginTop: '8px', fontSize: '11px', color: C.muted } }, `问题 ${extracted.question ? '✓' : '—'} · 事实 ${extracted.facts ? '✓' : '—'} · 约束 ${extracted.constraints ? '✓' : '—'} · 未决问题 ${extracted.unresolved ? '✓' : '—'}`),
           extracted.question ? h('div', { key: 'question', style: { marginTop: '7px', color: C.slate } }, `问题：${cleanSummary(extracted.question)}`) : null,
           extracted.unresolved ? h('div', { key: 'unresolved', style: { marginTop: '4px', color: C.slate } }, `未决：${cleanSummary(extracted.unresolved)}`) : null,
-          h('button', { key: 'apply', onClick: () => { setQuestion(extracted.question); setFacts(extracted.facts); setConstraints(extracted.constraints); setOptions(extracted.options); setExtracted(null) }, style: { ...workbenchStyle.action, marginTop: '9px' } }, '确认并填入表单')
+          h('button', { key: 'apply', className: 'pk-action-primary', onClick: () => { setQuestion(extracted.question); setFacts(extracted.facts); setConstraints(extracted.constraints); setOptions(extracted.options); setExtracted(null) }, style: { ...workbenchStyle.actionPrimary, marginTop: '10px' } }, '确认并填入表单')
         ]) : null,
         method ? h('div', { key: 'guide', style: { padding: '10px 14px', borderRadius: '6px', background: C.paperWarm, color: C.slate, fontSize: '12px', lineHeight: 1.55 } }, [
           h('strong', { key: 'label', style: { color: C.ink, marginRight: '6px', fontWeight: 500 } }, '你会得到'),
           h('span', null, method.outcome || (method.mode === 'guided' ? 'AI 会逐步追问,直到问题足够清楚。' : '一份结构化分析、风险和下一步行动。'))
         ]) : null,
-        h('div', { key: 'q' }, [
-          h('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 500, color: C.ink } }, '问题'),
-          h('textarea', { value: question, onChange: e => setQuestion(e.target.value), placeholder: '输入你想解决的问题', style: { ...workbenchStyle.input, minHeight: '84px', resize: 'vertical', width: '100%' } })
+        h('div', { key: 'steps', style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [stepPill(question, '问题'), stepPill(facts, '事实'), stepPill(constraints, '约束'), stepPill(options, '方案')]),
+        h('div', { key: 'q', className: 'pk-field' }, [
+          h('label', { className: 'pk-label', htmlFor: 'pk-question' }, '问题'),
+          h('textarea', { id: 'pk-question', value: question, onChange: e => setQuestion(e.target.value), placeholder: '输入你想解决的问题', style: { ...workbenchStyle.input, minHeight: '84px', resize: 'vertical', width: '100%' } })
         ]),
-        h('div', { key: 'supporting', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '12px' } }, [
-          h('div', null, [h('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 500, color: C.ink } }, '已知事实 (可选)'), h('textarea', { value: facts, onChange: e => setFacts(e.target.value), placeholder: '输入已知的事实', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })]),
-          h('div', null, [h('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 500, color: C.ink } }, '现实约束 (可选)'), h('textarea', { value: constraints, onChange: e => setConstraints(e.target.value), placeholder: '输入资源、时间或不可接受的结果', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })]),
-          h('div', null, [h('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 500, color: C.ink } }, '已有方案 (可选)'), h('textarea', { value: options, onChange: e => setOptions(e.target.value), placeholder: '输入已有方案或备选路径', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })])
-        ]),
+        showOptional || facts || constraints || options ? h('div', { key: 'supporting', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '12px' } }, [
+          h('div', { key: 'f', className: 'pk-field' }, [h('label', { className: 'pk-label' }, '已知事实 (可选)'), h('textarea', { value: facts, onChange: e => setFacts(e.target.value), placeholder: '输入已知的事实', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })]),
+          h('div', { key: 'c', className: 'pk-field' }, [h('label', { className: 'pk-label' }, '现实约束 (可选)'), h('textarea', { value: constraints, onChange: e => setConstraints(e.target.value), placeholder: '输入资源、时间或不可接受的结果', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })]),
+          h('div', { key: 'o', className: 'pk-field' }, [h('label', { className: 'pk-label' }, '已有方案 (可选)'), h('textarea', { value: options, onChange: e => setOptions(e.target.value), placeholder: '输入已有方案或备选路径', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })])
+        ]) : h('button', { key: 'show-optional', onClick: () => setShowOptional(true), style: { ...workbenchStyle.action, background: 'transparent', color: C.muted, width: 'fit-content', display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'plus', size: 13 }), '添加可选字段（事实 / 约束 / 方案）']),
         getRecentSessions ? h('div', { key: 'history-controls', style: { paddingTop: '12px', borderTop: `1px solid ${C.divide}` } }, [
           h('div', { key: 'l', style: { fontSize: '12px', fontWeight: 500, color: C.ink, marginBottom: '4px' } }, '追加最近会话摘要'),
           h('div', { key: 'h', style: { fontSize: '11px', color: C.muted, marginBottom: '8px' } }, '只读取已保存的简短摘要,不读取完整历史对话、工具参数或工具结果。'),
@@ -252,7 +266,7 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
             h('button', { key: 'apply', onClick: appendContext, style: { ...workbenchStyle.action, marginTop: '8px' } }, '追加到事实')
           ]) : null
         ]) : null,
-        h('button', { key: 'compose', className: 'pk-action-primary', onClick: compose, style: workbenchStyle.actionPrimary }, '✦  生成 Prompt 预览'),
+        h('button', { key: 'compose', className: 'pk-action-primary', onClick: compose, style: { ...workbenchStyle.actionPrimary, display: 'inline-flex', alignItems: 'center', gap: '8px' } }, [h(Icon, { key: 'ic', name: 'sparkle', size: 14 }), h('span', { key: 't' }, '生成 Prompt 预览'), h('span', { key: 'kbd', style: { opacity: 0.65, fontSize: '11px', fontWeight: 600 } }, '⌘↵')]),
         previewPanel,
         historyList,
         message ? h('div', { key: 'message', style: { color: C.teal, fontSize: '13px', padding: '10px 14px', background: C.tealTint, borderRadius: '6px', border: `1px solid ${C.tealLine}` } }, message) : null,
@@ -262,5 +276,9 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
 }
 
 function isFav(method, favorites) { return !!method && favorites.includes(method.id) }
+
+function stepPill(value, label) {
+  return h('span', { key: label, style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, border: `1px solid ${value ? 'var(--pk-teal-line-active)' : 'var(--pk-line)'}`, background: value ? 'var(--pk-teal-tint)' : 'transparent', color: value ? 'var(--pk-teal)' : 'var(--pk-muted)' } }, value ? `✓ ${label}` : label)
+}
 
 export { PromptStudio }

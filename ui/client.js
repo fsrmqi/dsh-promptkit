@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
             blue: 'var(--pk-blue)', amber: 'var(--pk-amber)', amberLine: 'var(--pk-amber-line)', amberTint: 'var(--pk-amber-tint)',
             red: 'var(--pk-red)', redTint: 'var(--pk-red-tint)', slate: 'var(--pk-slate)',
             divide: 'var(--pk-divide)', surfaceAlt: 'var(--pk-surface-alt)', track: 'var(--pk-track)',
+            font: 'var(--pk-font)', fontMono: 'var(--pk-font-mono)',
           }
           const GLOBAL_CSS = `
       :root {
@@ -38,7 +39,17 @@ window.__ModuleLoader__.load({
         --pk-blue: #2563eb; --pk-amber: #b45309; --pk-amber-line: #f1d4a5; --pk-amber-tint: #fff7ed;
         --pk-red: #b91c1c; --pk-red-tint: #fdecec; --pk-slate: #52606d;
         --pk-divide: #edf1f4; --pk-surface-alt: #fcfdff; --pk-track: #e8eef2;
+        --pk-font: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --pk-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, "Liberation Mono", monospace;
       }
+      body { font-family: var(--pk-font); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+      pre, code, .pk-mono { font-family: var(--pk-font-mono); }
+      .pk-field { display: block }
+      .pk-label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 500; color: var(--pk-ink); transition: color .15s ease }
+      .pk-label--muted { color: var(--pk-muted); font-weight: 700; font-size: 11px }
+      .pk-field:focus-within > .pk-label, .pk-field:focus-within > div > .pk-label { color: var(--pk-teal) }
+      @keyframes pk-breath { 0%,100% { box-shadow: 0 0 0 2px var(--pk-teal-tint) } 50% { box-shadow: 0 0 0 4px var(--pk-teal-tint) } }
+      input:focus, textarea:focus, select:focus { outline: 2px solid rgba(15,118,110,.45); outline-offset: 1px; border-color: var(--pk-teal-line-active) !important; animation: pk-breath 1.8s ease-in-out infinite }
       @media (prefers-color-scheme: dark) {
         :root {
           --pk-ink: #e8eaed; --pk-muted: #9aa0a6; --pk-line: #3c4043; --pk-canvas: #181a20; --pk-surface: #242830;
@@ -113,10 +124,26 @@ window.__ModuleLoader__.load({
           const Spinner = ({ text }) => h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '7px', lineHeight: 1.5 } }, [h('span', { key: 'spin', className: 'pk-spinner', 'aria-hidden': 'true' }), text])
           const ICON_PATHS = {
             sparkles: 'M12 3.2l1.7 4.1 4.1 1.7-4.1 1.7L12 14.8l-1.7-4.1-4.1-1.7 4.1-1.7L12 3.2zM18.8 13.5l.9 2.2 2.2.9-2.2.9-.9 2.2-.9-2.2-2.2-.9 2.2-.9.9-2.2z',
+            sparkle: 'M12 3.2l1.7 4.1 4.1 1.7-4.1 1.7L12 14.8l-1.7-4.1-4.1-1.7 4.1-1.7L12 3.2z',
             wand: 'M14.5 5.5 18.5 9.5M4 20 13.5 10.5M13.5 10.5l1.5-1.5a2.12 2.12 0 0 1 3 3L16.5 13.5',
             close: 'M6 6l12 12M18 6 6 18',
             star: 'M12 3.2l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3.2z',
             check: 'M4.5 12.5l5 5L19.5 7',
+            thumbsUp: 'M7 11v8H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h3zm0 0 4.2-6.6a1.6 1.6 0 0 1 2.8 1.1V8h4.6a2 2 0 0 1 2 2.4l-1.3 6.2A2 2 0 0 1 16.9 18H7',
+            thumbsDown: 'M17 13v-8h3a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-3zm0 0-4.2 6.6a1.6 1.6 0 0 1-2.8-1.1V16H5.4a2 2 0 0 1-2-2.4l1.3-6.2A2 2 0 0 1 7.1 6H17',
+            extract: 'M4 6h16M4 12h9M4 18h6M13 14l3 3 3-3M16 11v6',
+            send: 'M4 12 20 4l-6 16-3-6-7-2z',
+            copy: 'M9 9h10v10H9zM5 15V5h10v2',
+            history: 'M12 7v5l3 2M21 12a9 9 0 1 1-2.6-6.4M21 4v4h-4',
+            search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-3.6-3.6',
+            edit: 'M4 20h4L18.5 9.5l-4-4L4 16v4zM13.5 6.5l4 4',
+            trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
+            refresh: 'M20 11a8 8 0 1 0-1.8 5M20 5v6h-6',
+            document: 'M6 3h8l4 4v14H6zM14 3v4h4',
+            chevronDown: 'M6 9l6 6 6-6',
+            link: 'M9 15l6-6M10.5 6.5l1-1a4 4 0 0 1 5.6 5.6l-1 1M13.5 17.5l-1 1a4 4 0 0 1-5.6-5.6l1-1',
+            arrowRight: 'M5 12h14M13 6l6 6-6 6',
+            plus: 'M12 5v14M5 12h14',
           }
           const Icon = ({ name, size = 14, style, strokeWidth = 1.7 }) => h('svg', { viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true', style }, ICON_PATHS[name] ? h('path', { d: ICON_PATHS[name] }) : null)
           function Panel({ title, hint, children, style }) { return h('section', { style: { ...S.panel, ...style } }, [h('div', { key: 'h', style: S.head }, [h('h2', { key: 't', style: S.h2 }, title), h('span', { key: 'i', style: S.hint }, hint)]), children]) }
@@ -684,6 +711,7 @@ window.__ModuleLoader__.load({
         const [preview, setPreview] = React.useState(null)
         const [extracted, setExtracted] = React.useState(null)
         const [message, setMessage] = React.useState('')
+        const [showOptional, setShowOptional] = React.useState(false)
         React.useEffect(() => {
           let alive = true
           setLoadingMethods(true)
@@ -725,6 +753,15 @@ window.__ModuleLoader__.load({
           const context = cleanContext(contextPreview || '')
           if (context) setFacts(value => [value, '项目记忆检索：', context].filter(Boolean).join('\n'))
           setContextPreview('')
+        }
+        const restoreRecent = item => {
+          setMethodId(item.id)
+          setQuestion(item.question || '')
+          setPreview(null)
+          setMessage('正在重新生成预览…')
+          methodProvider.compose({ methodId: item.id, question: item.question || '', facts, constraints, options })
+            .then(value => { setPreview(value); setMessage('已恢复最近一次问题，并重新生成预览。') })
+            .catch(error => setMessage(String(error?.message || error)))
         }
         const writePreview = () => {
           const next = withPrefix(composer.getDraft(), preview.prompt)
@@ -792,7 +829,7 @@ window.__ModuleLoader__.load({
               }, [
                 isPinned ? h('span', { key: 'pin', style: { fontSize: '10px', color: C.muted, fontWeight: 400 }, title: '常用' }, '常用') : null,
                 h('span', { key: 't', style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, item.title),
-                isFav ? h('span', { key: 'fav', style: { color: C.teal, fontSize: '12px' }, title: '已收藏' }, '★') : null,
+                isFav ? h(Icon, { key: 'fav', name: 'star', size: 12, style: { color: C.teal, fill: C.teal, flexShrink: 0 }, title: '已收藏', 'aria-label': '已收藏' }) : null,
               ]),
               h('span', { key: 'purpose', style: { fontSize: '11px', color: C.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' } }, item.purpose || ''),
             ])
@@ -802,7 +839,7 @@ window.__ModuleLoader__.load({
           h('ul', { style: { listStyle: 'none', padding: '4px 14px 12px', margin: 0, display: 'grid', gap: '2px' } },
             history.slice(0, 5).map(item => h('li', { key: `${item.id}:${item.at}`, style: { borderBottom: `1px solid ${C.divide}` } },
               h('button', {
-                onClick: () => { setMethodId(item.id); setQuestion(item.question); setMessage('已恢复最近一次问题，可继续编辑。') },
+                onClick: () => restoreRecent(item),
                 style: {
                   width: '100%',
                   padding: '8px 0',
@@ -849,7 +886,7 @@ window.__ModuleLoader__.load({
               ]),
               methodList,
             ]),
-            h('section', { key: 'form', style: { display: 'grid', gap: '20px', minWidth: 0 } }, [
+            h('section', { key: 'form', style: { display: 'grid', gap: '20px', minWidth: 0 }, onKeyDown: event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && method && question.trim()) { event.preventDefault(); void compose() } } }, [
               h('div', { key: 'header', style: { borderBottom: `1px solid ${C.divide}`, paddingBottom: '14px' } }, [
                 h('div', { key: 't-row', style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' } }, [
                   h('h2', { key: 'title', style: { ...S.title, fontSize: '17px', margin: 0 } }, method?.title || '方法输入'),
@@ -858,30 +895,34 @@ window.__ModuleLoader__.load({
                 method?.purpose ? h('p', { key: 'purpose', style: { margin: '8px 0 0', fontSize: '13px', color: C.slate, lineHeight: 1.55 } }, method.purpose) : null,
               ]),
               h('div', { key: 'tools', style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
-                messages?.length ? h('button', { key: 'extract', onClick: () => setExtracted(selectedConversationDraft(messages)), style: { ...workbenchStyle.action, background: C.surface, color: C.ink } }, '从对话提取') : null,
-                method ? h('button', { key: 'favorite', onClick: () => toggleFavorite(method.id), style: { ...workbenchStyle.action, background: isFav(method, favorites) ? C.tealTintDeep : C.surface, color: isFav(method, favorites) ? C.teal : C.ink } }, isFav(method, favorites) ? '★ 已收藏' : '☆ 收藏方法') : null,
-                h('button', { key: 'clear', onClick: () => { setQuestion(''); setFacts(''); setConstraints(''); setOptions(''); setExtracted(null); setPreview(null) }, style: { ...workbenchStyle.action, background: C.surface, color: C.muted } }, '清空')
+                messages?.length ? h('button', { key: 'extract', onClick: () => setExtracted(selectedConversationDraft(messages)), style: { ...workbenchStyle.action, background: C.surface, color: C.ink, display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'extract', size: 13 }), extracted ? '重新提取' : '从对话提取']) : null,
+                method ? h('button', { key: 'favorite', onClick: () => toggleFavorite(method.id), style: { ...workbenchStyle.action, background: isFav(method, favorites) ? C.tealTintDeep : C.surface, color: isFav(method, favorites) ? C.teal : C.ink, display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'star', size: 13, style: isFav(method, favorites) ? { fill: C.teal } : undefined }), isFav(method, favorites) ? '已收藏' : '收藏方法']) : null,
+                h('button', { key: 'clear', onClick: () => { setQuestion(''); setFacts(''); setConstraints(''); setOptions(''); setExtracted(null); setPreview(null) }, style: { ...workbenchStyle.action, background: C.surface, color: C.muted, display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'trash', size: 13 }), '清空'])
               ]),
-              extracted ? h('div', { key: 'extracted', style: { padding: '12px 14px', border: `1px solid ${C.line}`, borderRadius: '8px', background: C.paper, fontSize: '12px', lineHeight: 1.55 } }, [
-                h('strong', { key: 'head', style: { color: C.ink } }, `已从 ${extracted.source_count} 条文本消息生成草稿`),
-                h('div', { key: 'summary', style: { marginTop: '5px', fontSize: '11px', color: C.muted } }, `问题 ${extracted.question ? '✓' : '—'} · 事实 ${extracted.facts ? '✓' : '—'} · 约束 ${extracted.constraints ? '✓' : '—'} · 未决问题 ${extracted.unresolved ? '✓' : '—'}`),
+              extracted ? h('div', { key: 'extracted', style: { padding: '12px 14px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.paper, fontSize: '12px', lineHeight: 1.55 } }, [
+                h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, [
+                  h('span', { style: workbenchStyle.badge(C.teal) }, `已提取 ${extracted.source_count} 条`),
+                  h('span', { style: { color: C.ink, fontWeight: 600 } }, '从对话生成草稿'),
+                ]),
+                h('div', { key: 'summary', style: { marginTop: '8px', fontSize: '11px', color: C.muted } }, `问题 ${extracted.question ? '✓' : '—'} · 事实 ${extracted.facts ? '✓' : '—'} · 约束 ${extracted.constraints ? '✓' : '—'} · 未决问题 ${extracted.unresolved ? '✓' : '—'}`),
                 extracted.question ? h('div', { key: 'question', style: { marginTop: '7px', color: C.slate } }, `问题：${cleanSummary(extracted.question)}`) : null,
                 extracted.unresolved ? h('div', { key: 'unresolved', style: { marginTop: '4px', color: C.slate } }, `未决：${cleanSummary(extracted.unresolved)}`) : null,
-                h('button', { key: 'apply', onClick: () => { setQuestion(extracted.question); setFacts(extracted.facts); setConstraints(extracted.constraints); setOptions(extracted.options); setExtracted(null) }, style: { ...workbenchStyle.action, marginTop: '9px' } }, '确认并填入表单')
+                h('button', { key: 'apply', className: 'pk-action-primary', onClick: () => { setQuestion(extracted.question); setFacts(extracted.facts); setConstraints(extracted.constraints); setOptions(extracted.options); setExtracted(null) }, style: { ...workbenchStyle.actionPrimary, marginTop: '10px' } }, '确认并填入表单')
               ]) : null,
               method ? h('div', { key: 'guide', style: { padding: '10px 14px', borderRadius: '6px', background: C.paperWarm, color: C.slate, fontSize: '12px', lineHeight: 1.55 } }, [
                 h('strong', { key: 'label', style: { color: C.ink, marginRight: '6px', fontWeight: 500 } }, '你会得到'),
                 h('span', null, method.outcome || (method.mode === 'guided' ? 'AI 会逐步追问,直到问题足够清楚。' : '一份结构化分析、风险和下一步行动。'))
               ]) : null,
-              h('div', { key: 'q' }, [
-                h('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 500, color: C.ink } }, '问题'),
-                h('textarea', { value: question, onChange: e => setQuestion(e.target.value), placeholder: '输入你想解决的问题', style: { ...workbenchStyle.input, minHeight: '84px', resize: 'vertical', width: '100%' } })
+              h('div', { key: 'steps', style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [stepPill(question, '问题'), stepPill(facts, '事实'), stepPill(constraints, '约束'), stepPill(options, '方案')]),
+              h('div', { key: 'q', className: 'pk-field' }, [
+                h('label', { className: 'pk-label', htmlFor: 'pk-question' }, '问题'),
+                h('textarea', { id: 'pk-question', value: question, onChange: e => setQuestion(e.target.value), placeholder: '输入你想解决的问题', style: { ...workbenchStyle.input, minHeight: '84px', resize: 'vertical', width: '100%' } })
               ]),
-              h('div', { key: 'supporting', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '12px' } }, [
-                h('div', null, [h('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 500, color: C.ink } }, '已知事实 (可选)'), h('textarea', { value: facts, onChange: e => setFacts(e.target.value), placeholder: '输入已知的事实', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })]),
-                h('div', null, [h('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 500, color: C.ink } }, '现实约束 (可选)'), h('textarea', { value: constraints, onChange: e => setConstraints(e.target.value), placeholder: '输入资源、时间或不可接受的结果', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })]),
-                h('div', null, [h('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 500, color: C.ink } }, '已有方案 (可选)'), h('textarea', { value: options, onChange: e => setOptions(e.target.value), placeholder: '输入已有方案或备选路径', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })])
-              ]),
+              showOptional || facts || constraints || options ? h('div', { key: 'supporting', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '12px' } }, [
+                h('div', { key: 'f', className: 'pk-field' }, [h('label', { className: 'pk-label' }, '已知事实 (可选)'), h('textarea', { value: facts, onChange: e => setFacts(e.target.value), placeholder: '输入已知的事实', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })]),
+                h('div', { key: 'c', className: 'pk-field' }, [h('label', { className: 'pk-label' }, '现实约束 (可选)'), h('textarea', { value: constraints, onChange: e => setConstraints(e.target.value), placeholder: '输入资源、时间或不可接受的结果', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })]),
+                h('div', { key: 'o', className: 'pk-field' }, [h('label', { className: 'pk-label' }, '已有方案 (可选)'), h('textarea', { value: options, onChange: e => setOptions(e.target.value), placeholder: '输入已有方案或备选路径', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })])
+              ]) : h('button', { key: 'show-optional', onClick: () => setShowOptional(true), style: { ...workbenchStyle.action, background: 'transparent', color: C.muted, width: 'fit-content', display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'plus', size: 13 }), '添加可选字段（事实 / 约束 / 方案）']),
               getRecentSessions ? h('div', { key: 'history-controls', style: { paddingTop: '12px', borderTop: `1px solid ${C.divide}` } }, [
                 h('div', { key: 'l', style: { fontSize: '12px', fontWeight: 500, color: C.ink, marginBottom: '4px' } }, '追加最近会话摘要'),
                 h('div', { key: 'h', style: { fontSize: '11px', color: C.muted, marginBottom: '8px' } }, '只读取已保存的简短摘要,不读取完整历史对话、工具参数或工具结果。'),
@@ -906,7 +947,7 @@ window.__ModuleLoader__.load({
                   h('button', { key: 'apply', onClick: appendContext, style: { ...workbenchStyle.action, marginTop: '8px' } }, '追加到事实')
                 ]) : null
               ]) : null,
-              h('button', { key: 'compose', className: 'pk-action-primary', onClick: compose, style: workbenchStyle.actionPrimary }, '✦  生成 Prompt 预览'),
+              h('button', { key: 'compose', className: 'pk-action-primary', onClick: compose, style: { ...workbenchStyle.actionPrimary, display: 'inline-flex', alignItems: 'center', gap: '8px' } }, [h(Icon, { key: 'ic', name: 'sparkle', size: 14 }), h('span', { key: 't' }, '生成 Prompt 预览'), h('span', { key: 'kbd', style: { opacity: 0.65, fontSize: '11px', fontWeight: 600 } }, '⌘↵')]),
               previewPanel,
               historyList,
               message ? h('div', { key: 'message', style: { color: C.teal, fontSize: '13px', padding: '10px 14px', background: C.tealTint, borderRadius: '6px', border: `1px solid ${C.tealLine}` } }, message) : null,
@@ -916,6 +957,10 @@ window.__ModuleLoader__.load({
       }
 
       function isFav(method, favorites) { return !!method && favorites.includes(method.id) }
+
+      function stepPill(value, label) {
+        return h('span', { key: label, style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, border: `1px solid ${value ? 'var(--pk-teal-line-active)' : 'var(--pk-line)'}`, background: value ? 'var(--pk-teal-tint)' : 'transparent', color: value ? 'var(--pk-teal)' : 'var(--pk-muted)' } }, value ? `✓ ${label}` : label)
+      }
 
       /* ================= dsh-promptkit 组件: ConversationQuickAction（快捷助手） ================= */
       // ConversationQuickAction（对话快捷增强器 / QuickEnhancer）：开源核心组件，零宿主依赖。
@@ -998,8 +1043,13 @@ window.__ModuleLoader__.load({
             // 的 ⌘Enter 发送快捷键冲突。
             const insidePanel = rootRef.current?.contains(event.target)
             const index = Number(event.key) - 1
-            const title = ['苏格拉底式提问', '第一性原理', '双向钢人论证'][index]
-            if (title) { event.preventDefault(); const choice = methodChoice(methods, title); if (choice) { setSelectedMethodId(choice.id); setMode('method'); setOpen(true) }; return }
+            if (Number.isInteger(index) && index >= 0 && index < autoMethods.length) {
+              event.preventDefault()
+              setEnhancementMethodId(autoMethods[index].id)
+              if (open && mode === 'enhance') void enhanceIntoInput()
+              else { setMode('enhance'); setOpen(true) }
+              return
+            }
             if (event.key === 'Enter' && open && insidePanel) { event.preventDefault(); if (mode === 'enhance') enhanceIntoInput(); else { const choice = methods.find(method => method.id === selectedMethodId); if (choice) void composeIntoInput(choice) }; return }
             if (event.key.toLowerCase() !== 'k') return
             event.preventDefault()
@@ -1206,7 +1256,7 @@ window.__ModuleLoader__.load({
           : autoPlan
         const enhancementLang = detectLanguage(draft || '')
         const strategyNode = draft.trim() ? enhancementKind === 'semantic'
-              ? [h('div', { key: 'meta', style: { marginBottom: '3px' } }, `将把当前 ${draft.trim().length} 个字符交给模型改写。`), autoMethods.length ? h('div', { key: 'method', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', color: C.teal } }, [h('span', { key: 'label' }, '自动匹配：'), ...autoMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setEnhancementMethodId(method.id), style: { border: `1px solid ${matchedMethod?.id === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '999px', background: matchedMethod?.id === method.id ? C.tealTintDeep : C.surface, color: C.teal, cursor: 'pointer', padding: '3px 7px', fontSize: '10px', fontWeight: 800 } }, matchedMethod?.id === method.id ? `✓ ${method.title}` : `改用 ${method.title}`))]) : h('div', { key: 'method', style: { color: C.muted } }, '未强行套用方法，只做结构化改写。'), h('div', { key: 'lang', style: { color: C.muted } }, `检测语言：${enhancementLang === 'en' ? '英文（输出与输入一致）' : enhancementLang === 'mixed' ? '中英混合（输出与输入一致）' : '中文'}。`), draft.trim().length > 3000 ? h('div', { key: 'warn', style: { marginTop: '3px', color: C.amber } }, '草稿超过 3000 字符，建议精简后再增强。') : null]
+              ? [h('div', { key: 'meta', style: { marginBottom: '3px' } }, `将把当前 ${draft.trim().length} 个字符交给模型改写。`), autoMethods.length ? h('div', { key: 'method', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', color: C.teal } }, [h('span', { key: 'label' }, '自动匹配：'), ...autoMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setEnhancementMethodId(method.id), style: { border: `1px solid ${matchedMethod?.id === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '999px', background: matchedMethod?.id === method.id ? C.tealTintDeep : C.surface, color: C.teal, cursor: 'pointer', padding: '3px 7px', fontSize: '10px', fontWeight: 800 } }, matchedMethod?.id === method.id ? [h(Icon, { key: 'ck', name: 'check', size: 11, style: { marginRight: '2px' } }), method.title] : `改用 ${method.title}`))]) : h('div', { key: 'method', style: { color: C.muted } }, '未强行套用方法，只做结构化改写。'), h('div', { key: 'lang', style: { color: C.muted } }, `检测语言：${enhancementLang === 'en' ? '英文（输出与输入一致）' : enhancementLang === 'mixed' ? '中英混合（输出与输入一致）' : '中文'}。`), draft.trim().length > 3000 ? h('div', { key: 'warn', style: { marginTop: '3px', color: C.amber } }, '草稿超过 3000 字符，建议精简后再增强。') : null]
               : [h('strong', { key: 'method', style: { color: C.teal } }, enhancementPlan.tooShort ? '输入过短，直接使用原文' : enhancementPlan.label ? `拟采用：${enhancementPlan.label}` : '拟采用：轻量整理'), h('div', { key: 'reason', style: { marginTop: '3px' } }, enhancementPlan.reason), enhancementPlan.signals?.length ? h('div', { key: 'signals', style: { marginTop: '3px' } }, `识别信号：${enhancementPlan.signals.join('、')}`) : null, enhancementPlan.conflicts?.length ? h('div', { key: 'conflicts', style: { marginTop: '3px', color: C.amber } }, `方法冲突：${enhancementPlan.conflicts.map(item => `${item.label || item.title}（命中“${item.signals.join('、')}”）`).join('；')}，采用「${enhancementPlan.label || enhancementPlan.method}」。`) : null, h('div', { key: 'size', style: { marginTop: '3px', color: C.muted } }, `预计 ${enhancementPlan.prompt.length} 字符。`)]
               : '当前输入框为空，请先写下原始请求。'
         const enhancementKinds = enhancer ? [['light', '轻量 · 零 Token'], ['semantic', '语义 · 模型']] : [['light', '轻量 · 零 Token']]
@@ -1223,11 +1273,23 @@ window.__ModuleLoader__.load({
               h('div', { key: 'mode', style: { display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '6px', marginTop: '10px' } }, [['enhance', '智能增强'], ['method', '手动选方法']].map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => { setMode(id); setLibraryOpen(false) }, style: { padding: '8px', border: `1px solid ${mode === id && !libraryOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: mode === id && !libraryOpen ? C.tealTintDeep : C.surface, color: mode === id && !libraryOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, label)).concat(h('button', { key: 'library', className: 'pk-btn', onClick: () => { const next = !libraryOpen; setMode(next ? 'library' : 'method'); setLibraryOpen(next) }, style: { padding: '8px', border: `1px solid ${libraryOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: libraryOpen ? C.tealTintDeep : C.surface, color: libraryOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, '方法库'))),
               libraryOpen ? h('div', { key: 'library-panel', style: { marginTop: '10px', padding: '10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [h('input', { key: 'search', value: librarySearch, onChange: event => setLibrarySearch(event.target.value), placeholder: '搜索方法、用途或标签', style: { ...workbenchStyle.input, padding: '8px 9px', fontSize: '12px' } }), libraryFavorites.length ? h('div', { key: 'favorites', style: { marginTop: '8px', color: C.slate, fontSize: '11px' } }, [h('strong', { key: 'label', style: { color: C.teal } }, '我的收藏：'), ' ', libraryFavorites.map(id => methods.find(method => method.id === id)).filter(Boolean).map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => { setSelectedMethodId(method.id); setMode('method'); setLibraryOpen(false) }, style: { margin: '3px', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '3px 6px', fontSize: '10px' } }, method.title))]) : null, libraryHistory.length ? h('div', { key: 'history', style: { marginTop: '7px', color: C.slate, fontSize: '11px' } }, [h('strong', { key: 'label', style: { color: C.teal } }, '最近生成：'), ' ', libraryHistory.slice(0, 3).map(item => h('button', { key: `${item.id}:${item.at}`, className: 'pk-btn', onClick: () => { setSelectedMethodId(item.id); setMode('method'); if (item.question) setRequirement(item.question); setLibraryOpen(false) }, style: { margin: '3px', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '3px 6px', fontSize: '10px' } }, item.title || '未命名方法'))]) : null, h('div', { key: 'matches', style: { display: 'grid', gap: '5px', maxHeight: '180px', overflowY: 'auto', marginTop: '8px' } }, libraryMatches.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => { setSelectedMethodId(method.id); setMode('method'); setLibraryOpen(false) }, style: { padding: '8px 9px', border: `1px solid ${method.id === selectedMethodId ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: C.surface, textAlign: 'left', color: C.ink, cursor: 'pointer', fontSize: '11px' } }, [h('strong', { key: 'title' }, method.title), h('span', { key: 'meta', style: { marginLeft: '6px', color: C.muted } }, method.purpose || method.category)])))] ) : null,
               libraryOpen ? h('div', { key: 'library-actions', style: { marginTop: '9px', padding: '10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.surface } }, [h('select', { key: 'select', value: selectedMethodId, onChange: event => setSelectedMethodId(event.target.value), style: { width: '100%', padding: '8px', border: `1px solid ${C.line}`, borderRadius: '8px', background: C.surface, fontSize: '12px' } }, [h('option', { key: 'empty', value: '' }, '选择一个提示词…'), ...libraryMatches.map(method => h('option', { key: method.id, value: method.id }, method.title))]), libraryMethod ? h('div', { key: 'selected', style: { marginTop: '7px', color: C.slate, fontSize: '11px', lineHeight: 1.4 } }, `已选择「${libraryMethod.title}」：可直接填充模板，或基于当前草稿改造。`) : null, h('div', { key: 'buttons', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', marginTop: '9px' } }, [h('button', { key: 'fill', className: 'pk-btn', disabled: !libraryMethod || loading, onClick: fillLibraryTemplate, style: { ...workbenchStyle.action, opacity: libraryMethod ? 1 : .55 } }, '填充模板'), h('button', { key: 'adapt', className: 'pk-btn', disabled: !libraryMethod || !draft.trim() || loading || !enhancer, onClick: adaptLibraryDraft, style: { ...workbenchStyle.action, opacity: libraryMethod && draft.trim() && enhancer ? 1 : .55 } }, loading ? h(Spinner, { key: 'spin', text: '改造中…' }) : '基于草稿改造')]), h('details', { key: 'private', style: { marginTop: '10px', borderTop: `1px solid ${C.divide}`, paddingTop: '9px' } }, [h('summary', { style: { cursor: 'pointer', color: C.teal, fontSize: '12px', fontWeight: 800 } }, '导入我的 Obsidian Prompt 卡片'), h('div', { style: { marginTop: '7px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, '粘贴一张 Markdown 卡片即可，仅保存到当前浏览器；不会读取或上传你的笔记库。'), h('textarea', { value: privateMarkdown, onChange: event => setPrivateMarkdown(event.target.value), placeholder: '# 我的方法\n\n## Prompt\n```\n提示词正文\n```', style: { ...workbenchStyle.input, width: '100%', minHeight: '100px', marginTop: '7px', resize: 'vertical', fontSize: '11px' } }), h('button', { className: 'pk-btn', disabled: !privateMarkdown.trim(), onClick: importPrivateMethod, style: { ...workbenchStyle.action, marginTop: '7px', opacity: privateMarkdown.trim() ? 1 : .55 } }, '导入到我的私有方法'), privateNotice ? h('div', { style: { marginTop: '6px', color: C.teal, fontSize: '11px' } }, privateNotice) : null]), h('details', { key: 'signals', style: { marginTop: '10px', borderTop: `1px solid ${C.divide}`, paddingTop: '9px' } }, [h('summary', { style: { cursor: 'pointer', color: C.teal, fontSize: '12px', fontWeight: 800 } }, '本地使用信号（默认关闭）'), h('div', { style: { marginTop: '7px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, '只记录增强类型和方法名，不记录草稿、对话或模型内容，也不会联网。'), h('button', { className: 'pk-btn', onClick: toggleMetrics, style: { ...workbenchStyle.action, marginTop: '7px' } }, metricsEnabled ? '已开启本地计数' : '开启本地计数'), metricsEnabled ? h('div', { style: { marginTop: '7px', color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, `轻量通用改写 ${Number(metrics.lightGeneric || 0)} 次 · 轻量方法 ${Number(metrics.lightMethod || 0)} 次 · 语义增强 ${Number(metrics.semantic || 0)} 次 · 反馈 ${feedback.length} 条`) : null, h('button', { className: 'pk-btn', onClick: clearLocalSignals, style: { marginTop: '7px', border: `1px solid ${C.amberLine}`, borderRadius: '8px', background: C.surface, color: C.amber, cursor: 'pointer', padding: '7px 9px', fontSize: '11px', fontWeight: 800 } }, confirmClearMetrics ? '再次点击确认清空本地信号' : '清空本地信号')])]) : null,
-              h('label', { key: 'requirement', style: { display: libraryOpen ? 'none' : 'block', marginTop: '10px', marginBottom: '9px' } }, [h('span', { key: 'label', style: { display: 'block', marginBottom: '5px', color: C.muted, fontSize: '11px', fontWeight: 800 } }, mode === 'enhance' ? '补充增强要求（可选）' : '本次要求 / 问题'), h('textarea', { key: 'input', value: requirement, onChange: event => setRequirement(event.target.value), placeholder: mode === 'enhance' ? '例如：使用简洁中文，先给结论，再列出实施步骤。' : '例如：请重点评估风险，并给出可执行的下一步。', style: { ...workbenchStyle.input, minHeight: '58px', resize: 'vertical', fontSize: '12px', lineHeight: 1.45 } })]),
+              libraryOpen ? h('details', { key: 'metrics-entry', style: { marginTop: '9px', padding: '10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.surface } }, [
+                h('summary', { style: { cursor: 'pointer', color: C.teal, fontSize: '12px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' } }, [h(Icon, { key: 'ic', name: 'history', size: 13 }), '用法统计（本地，可选）']),
+                h('div', { style: { marginTop: '9px', fontSize: '12px', color: C.slate, lineHeight: 1.5 } }, [
+                  h('label', { key: 'toggle', style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' } }, [h('input', { key: 'cb', type: 'checkbox', checked: metricsEnabled, onChange: toggleMetrics, style: { accentColor: C.teal } }), '记录本地用法（轻量 / 语义档次数，不上传）']),
+                  metricsEnabled ? h('div', { key: 'nums', style: { marginTop: '9px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+                    h('span', { key: 't', style: workbenchStyle.badge(C.teal) }, `总计 ${metrics.total || 0}`),
+                    h('span', { key: 'l', style: workbenchStyle.badge(C.blue) }, `轻量 ${metrics.light || 0}`),
+                    h('span', { key: 's', style: workbenchStyle.badge(C.amber) }, `语义 ${metrics.semantic || 0}`),
+                  ]) : null,
+                  metricsEnabled && (metrics.total || 0) ? h('button', { key: 'clear', onClick: clearLocalSignals, style: { ...workbenchStyle.action, marginTop: '9px', background: C.surface, color: C.red } }, confirmClearMetrics ? '确认清空本地统计？' : '清空本地统计') : null,
+                ]),
+              ]) : null,
+              h('div', { key: 'requirement', className: 'pk-field', style: { display: libraryOpen ? 'none' : 'block', marginTop: '10px', marginBottom: '9px' } }, [h('span', { key: 'label', className: 'pk-label pk-label--muted' }, mode === 'enhance' ? '补充增强要求（可选）' : '本次要求 / 问题'), h('textarea', { key: 'input', value: requirement, onChange: event => setRequirement(event.target.value), placeholder: mode === 'enhance' ? '例如：使用简洁中文，先给结论，再列出实施步骤。' : '例如：请重点评估风险，并给出可执行的下一步。', style: { ...workbenchStyle.input, minHeight: '58px', resize: 'vertical', fontSize: '12px', lineHeight: 1.45 } })]),
               h('div', { key: 'context-level', style: { display: libraryOpen ? 'none' : 'grid', gridTemplateColumns: `repeat(${contextLevels.length},minmax(0,1fr))`, gap: '6px', marginBottom: '9px' } }, contextLevels.map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => setContextLevel(id), style: { padding: '7px 5px', border: `1px solid ${contextLevel === id ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: contextLevel === id ? C.tealTintDeep : C.surface, color: contextLevel === id ? C.teal : C.slate, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, label))),
               msgs.length ? h('details', { key: 'context', style: { display: libraryOpen ? 'none' : 'block', marginTop: '8px', paddingTop: '9px', borderTop: `1px solid ${C.divide}` } }, [h('summary', { key: 'summary', style: { color: C.muted, fontSize: '12px', fontWeight: 700, cursor: 'pointer' } }, activeMessages.length ? `可选：调整已选的 ${activeMessages.length} 条对话参考` : '可选：选择对话作为参考'), activeMessages.length ? h('div', { key: 'classification', style: { color: C.muted, fontSize: '11px', lineHeight: 1.45, margin: '9px 0 8px' } }, `自动归类：${selectedDraft.question ? '问题' : '—'} · ${selectedDraft.facts ? '事实' : '—'} · ${selectedDraft.constraints ? '约束' : '—'} · ${selectedDraft.options ? '方案' : '—'}`) : null, h('div', { key: 'privacy', style: { color: C.muted, fontSize: '11px', lineHeight: 1.45, margin: '9px 0 8px' } }, '仅展示用户与助手文本；工具调用、工具结果和代码块不会进入此面板。'), h('div', { key: 'messages', style: { display: 'grid', gap: '6px', maxHeight: '210px', overflow: 'auto', paddingRight: '2px' } }, msgs.map(item => h('label', { key: item.id, style: { display: 'grid', gridTemplateColumns: '18px minmax(0,1fr)', gap: '8px', padding: '8px', border: `1px solid ${selected.includes(item.id) ? C.tealLineStrong : C.line}`, borderRadius: '9px', background: selected.includes(item.id) ? C.tealTint : C.surface, cursor: 'pointer' } }, [h('input', { key: 'check', type: 'checkbox', checked: selected.includes(item.id), onChange: () => toggle(item.id), style: { marginTop: '2px', accentColor: C.teal } }), h('div', { key: 'text' }, [h('div', { key: 'role', style: { color: item.role === 'user' ? C.blue : C.teal, fontSize: '11px', fontWeight: 800 } }, item.role === 'user' ? '你的消息' : '助手消息'), h('div', { key: 'body', style: { marginTop: '2px', color: C.slate, fontSize: '12px', lineHeight: 1.45 } }, `${cleanSummary(item.text)}${item.truncated ? ' …（长消息已截断）' : ''}`)])])))]) : null,
               mode === 'enhance' ? enhancerPanel : null,
-              lastEnhancement ? h('div', { key: 'feedback', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, color: C.slate, fontSize: '12px' } }, [h('span', { key: 'label' }, '这次增强有帮助吗？'), h('button', { key: 'up', onClick: () => saveFeedback('up'), style: { marginLeft: '8px', border: 0, background: 'transparent', cursor: 'pointer', fontSize: '15px' } }, '👍'), h('button', { key: 'down', onClick: () => saveFeedback('down'), style: { marginLeft: '4px', border: 0, background: 'transparent', cursor: 'pointer', fontSize: '15px' } }, '👎')]) : null,
+              lastEnhancement ? h('div', { key: 'feedback', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, color: C.slate, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' } }, [h(Icon, { key: 'ck', name: 'check', size: 14, style: { color: C.teal } }), h('span', { key: 'label', style: { flex: 1 } }, '增强完成，可在此撤销或反馈'), h('button', { key: 'up', onClick: () => saveFeedback('up'), title: '有用', 'aria-label': '有用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-u', name: 'thumbsUp', size: 15 })), h('button', { key: 'down', onClick: () => saveFeedback('down'), title: '没用', 'aria-label': '没用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-d', name: 'thumbsDown', size: 15 }))]) : null,
               h('div', { key: 'methods', style: { display: mode === 'method' ? 'block' : 'none', marginTop: '12px', paddingTop: '10px', borderTop: `1px solid ${C.divide}` } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '4px' } }, [h('div', { key: 'label', style: { color: C.muted, fontSize: '11px', fontWeight: 800 } }, showAllMethods ? '全部思考方法' : '常用思考方法'), h('button', { key: 'toggle', disabled: loading, onClick: () => setShowAllMethods(value => !value), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, showAllMethods ? '返回常用 3 个' : `全部方法（${methods.length}）`)]), h('div', { key: 'tip', style: { marginBottom: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.4 } }, requirement.trim() && recommended.length ? `推荐：${recommended.map(method => method.title).join('、')}；常用三种方法始终可选。` : '默认提供三种常用方法；也可以展开全部方法。'), recentMethods.length ? h('div', { key: 'recent', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' } }, recentMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setSelectedMethodId(method.id), style: { border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '4px 7px', fontSize: '10px', fontWeight: 700 } }, `最近：${method.title}`))) : null, methodCards, structurePreview, methodFooter]),
               noticeState ? h('div', { key: 'notice', role: 'status', 'aria-live': 'polite', style: { marginTop: '10px', padding: '9px 11px', borderRadius: '8px', border: `1px solid ${noticeState.kind === 'error' ? C.red : noticeState.kind === 'warn' ? C.amberLine : C.tealLine}`, background: noticeState.kind === 'error' ? C.redTint : noticeState.kind === 'warn' ? C.amberTint : C.tealTint, color: noticeState.kind === 'error' ? C.red : noticeState.kind === 'warn' ? C.amber : C.teal, fontSize: '12px', lineHeight: 1.45 } }, noticeState.text) : null,
             ]) : null
