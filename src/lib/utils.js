@@ -99,7 +99,13 @@
     }
     // 计分制：强信号命中 1 个即判该方法，弱信号需 ≥2 个组合命中才判，
     // 避免 ‘是否’/‘选择’/‘风险’ 等常见词单独出现时误分类。
-    const STRONG_SIGNALS = new Set(['选型', '取舍', '哪个好', '对比', '决策', '全链路', '链路', '本质', '根因', '报错', '异常', '排查'])
+    // 集合覆盖：内置 4 卡的触发词（决策/审查类）+ 场景卡的核心意图词（技术方案、接口、
+    // 论文、数据分析等）。命中词只对已声明该词的方法生效；此集合决定该词计几分。
+    const STRONG_SIGNALS = new Set([
+      '选型', '取舍', '哪个好', '对比', '决策', '全链路', '链路', '本质', '根因', '报错', '异常', '排查',
+      '技术方案', '接口设计', '代码评审', '代码审查', 'code review', '接口文档', 'API 文档', '论文', '文献', '精读',
+      '数据分析', '数据挖掘', '核查', '科普', '逆向拆解', '横向', '纵向', '会诊', '跨域迁移', '人生设计', '天赋',
+    ])
 
     function buildSignatures(methods) {
       const signatures = { ...METHOD_SIGNATURES }
@@ -119,20 +125,24 @@
       return { label, reason: '任务意图已较清楚，不强行套用方法，只做最小化表达整理。', prompt: `请直接处理这项任务：${source}\n\n先给出结论或可执行方案；再说明关键依据、资源/时间/数据可得性等现实限制与下一步。若信息不足，只提出最关键的澄清问题，不要编造事实。${suffix}` }
     }
 
-    function classify(source, guidance, signatures, promptSource = source) {
+    function classify(source, guidance, signatures, promptSource = source, singleTriggerTitles = new Set()) {
       const suffix = guidance ? `\n\n额外要求：${guidance}` : ''
       const hits = []
       for (const [title, triggers] of Object.entries(signatures)) {
-        // 内置 4 方法走计分制防误判；方法库扩展方法的关键词是作者手写触发词，任一命中即判。
-        if (Object.prototype.hasOwnProperty.call(METHOD_SIGNATURES, title)) {
-          const strong = triggers.filter(token => STRONG_SIGNALS.has(token) && source.includes(token))
-          const weak = triggers.filter(token => !STRONG_SIGNALS.has(token) && source.includes(token))
-          if (strong.length >= 1 || weak.length >= 2) hits.push({ title, signals: [...strong, ...weak] })
-        } else {
-          const matched = triggers.filter(token => source.includes(token))
-          if (matched.length) hits.push({ title, signals: matched })
-        }
+        // 统一计分制（P1-2，2026-08）：内置方法与场景卡方法使用同一套强/弱信号规则，
+        // 不再"内置计分、扩展一命中即判"双轨。强命中 ≥1 或弱命中 ≥2 判定为候选；
+        // 同一方法的候选命中按强→弱排序交由上层按命中顺序取主方法。
+        const strong = triggers.filter(token => STRONG_SIGNALS.has(token) && source.includes(token))
+        const weak = triggers.filter(token => !STRONG_SIGNALS.has(token) && source.includes(token))
+        if (strong.length >= 1 || weak.length >= 2 || (singleTriggerTitles.has(title) && weak.length >= 1)) hits.push({ title, signals: [...strong, ...weak] })
       }
+      // 多个候选时：唯一强命中者优先；否则按命中信号总数降序，作为主方法候选顺序。
+      hits.sort((a, b) => {
+        const sa = STRONG_SIGNALS.has(a.signals[0] ?? '') ? 1 : 0
+        const sb = STRONG_SIGNALS.has(b.signals[0] ?? '') ? 1 : 0
+        if (sa !== sb) return sb - sa
+        return b.signals.length - a.signals.length
+      })
       const first = hits[0]
       if (!first) return { method: '', label: '', signals: [], conflicts: [], ...lightTemplate('', promptSource, suffix) }
       const conflicts = hits.slice(1).map(item => ({ title: item.title, label: TEMPLATE_LABELS[item.title] || item.title, signals: item.signals }))
@@ -143,18 +153,20 @@
       const source = String(draft || '').trim()
       const guidance = String(extra || '').trim()
       const signals = [source, String(context || '').trim()].filter(Boolean).join('\n')
+      const privateTitles = new Set(list(methods).filter(method => method?.source === 'private').map(method => method.title))
       const lang = detectLanguage(source)
       if (source && source.length < 8) return { lang, method: '', label: '', signals: [], conflicts: [], tooShort: true, reason: '输入过短，直接使用原文，不做增强。', prompt: source }
-      if (lang === 'en') return { lang, method: '', label: '', signals: [], conflicts: [], reason: '检测到英文输入，采用通用英文整理模板。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
-      if (lang === 'mixed') return { lang, method: '', label: '', signals: [], conflicts: [], reason: '检测到中英混合输入，采用双语整理模板，输出保留原语言比例。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. Keep the output language proportional to the input (mixed Chinese/English). If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
-      return { lang, ...classify(signals, guidance, buildSignatures(methods), source) }
+      const classified = classify(signals, guidance, buildSignatures(methods), source, privateTitles)
+      if (lang === 'en') return { lang, ...classified, reason: '检测到英文输入，采用英文整理模板；方法匹配仍按触发词执行。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
+      if (lang === 'mixed') return { lang, ...classified, reason: '检测到中英混合输入，保留原语言比例；方法匹配仍按触发词执行。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. Keep the output language proportional to the input (mixed Chinese/English). If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
+      return { lang, ...classified }
     }
 
     function recommendMethods(methods, requirement) {
       const text = String(requirement || '').trim()
       if (!text) return []
       const plan = planPromptEnhancement(text, '', methods)
-      if (plan.tooShort || plan.lang === 'en') return []
+      if (plan.tooShort) return []
       if (plan.method) {
         const candidates = [plan.method, ...plan.conflicts.map(item => item.title)].map(title => methodChoice(methods, title)).filter(Boolean)
         return candidates.slice(0, 2)

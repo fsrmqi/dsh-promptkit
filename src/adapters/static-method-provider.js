@@ -40,6 +40,7 @@ export class StaticMethodProvider extends MethodProvider {
 
   // 与 MC 原 prompt_studio.composePrompt() 一致：模板原样保留（【…】占位符即方法对模型的
   // 填写指令），用户输入以「本次任务输入」结构块追加在模板之后，不做正则替换。
+  // 追加的引导语对模型显式声明【…】是填写指示符（非字面文本），并把实际内容定位到结构块。
   async compose({ methodId, question, facts, constraints, options }) {
     const methods = await this.list()
     const method = methods.find(m => m.id === methodId) || methods[0]
@@ -55,7 +56,7 @@ export class StaticMethodProvider extends MethodProvider {
     ].filter(Boolean)
     const hasInput = sections.length > 1
     const full = hasInput
-      ? `${base}\n\n${sections.join('\n')}\n\n请严格遵循上方方法；信息不足时按该方法要求提问，不要编造事实。`
+      ? `${base}\n\n${sections.join('\n')}\n\n模板中出现的【…】是填写指示符，不是字面占位；请以「# 本次任务输入」中的实际内容为准；缺失的信息按该方法要求提问，不要编造事实。`
       : base
     return { prompt: full, estimated_chars: full.length, method }
   }

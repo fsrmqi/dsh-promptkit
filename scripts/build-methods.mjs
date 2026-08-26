@@ -35,6 +35,11 @@ const OVERRIDES = {
   人生设计术: { mode: 'structured', outcome: '《个人人生设计蓝图》' },
   挖掘隐藏天赋: { mode: 'guided', outcome: '《个人天赋使用说明书》' },
   苏格拉底式提问: { mode: 'guided', outcome: '通过多轮追问澄清出真正值得回答的问题' },
+  技术方案设计: { mode: 'structured', outcome: '可评审的技术方案（目标/边界/模块/关键设计/风险/步骤）' },
+  代码评审: { mode: 'structured', outcome: '按严重程度分档的代码评审报告' },
+  接口文档生成: { mode: 'structured', outcome: '含请求/响应/示例/边界的标准接口文档' },
+  论文深度拆解: { mode: 'structured', outcome: '论文拆解档案（贡献/方法/证据强度/局限/可复现性）' },
+  数据分析: { mode: 'structured', outcome: '四段式分析报告（体检/探索/结论/行动）' },
 }
 const DEFAULT_META = { mode: 'structured', outcome: '结构化输出' }
 

@@ -44,16 +44,26 @@ test('Embed Protocol v1：命名空间与版本', () => {
   assert.equal(typeof PromptKit.OpenAIEnhancer, 'function')
 })
 
-test('内置方法库：12 个方法完整可查', async () => {
+test('内置方法库：17 个方法完整可查', async () => {
   const PromptKit = loadEmbed(minimalHost())
-  assert.equal(PromptKit.builtinMethods.length, 12)
+  assert.equal(PromptKit.builtinMethods.length, 17)
   const provider = new PromptKit.StaticMethodProvider()
   const methods = await provider.list()
-  assert.equal(methods.length, 12)
+  assert.equal(methods.length, 17)
   const steelman = await provider.getById('双向钢人论证')
   assert.ok(steelman, '双向钢人论证应存在')
   assert.equal(steelman.mode, 'guided')
   assert.ok(steelman.prompt.length > 200, 'prompt 模板应为完整正文')
+  // 场景方法卡：技术开发 / 学习 / 数据分析 分类的新方法已打入
+  const byCategory = new Set(methods.map(method => method.category))
+  assert.ok(byCategory.has('技术开发'), '技术开发分类存在')
+  assert.ok(byCategory.has('数据分析'), '数据分析分类存在')
+  for (const id of ['技术方案设计', '代码评审', '接口文档生成', '论文深度拆解', '数据分析']) {
+    const method = await provider.getById(id)
+    assert.ok(method, `${id} 应存在`)
+    assert.ok(method.triggerKeywords.length > 0, `${id} 应带触发词`)
+    assert.ok(method.prompt.length > 200, `${id} prompt 应为完整模板正文`)
+  }
 })
 
 test('compose：模板 + 本次任务输入块', async () => {
