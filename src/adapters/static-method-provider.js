@@ -1,17 +1,9 @@
 import { MethodProvider } from '../core/method-provider.js'
 import { loadBuiltinMethods } from '../methods/builtin.js'
 
-// 开源默认 MethodProvider：从 builtin.json 加载完整方法（含 frontmatter 元数据 + prompt 正文）。
+// 开源默认 MethodProvider：从 builtin.json 加载完整方法（含 frontmatter 元数据 + prompt 模板）。
 // 不依赖任何后端；闭源版可替换为接 Memory Center / DSH 私有 catalog 的实现。
-
-const FAVORITES_KEY = 'promptkit.prompt-library.favorites.v1'
-const HISTORY_KEY = 'promptkit.prompt-library.history.v1'
-const HISTORY_LIMIT = 5
-
-const readStore = (key, fallback) => {
-  try { const value = JSON.parse(window.localStorage.getItem(key) || ''); return Array.isArray(value) ? value : fallback } catch { return fallback }
-}
-const writeStore = (key, value) => { try { window.localStorage.setItem(key, JSON.stringify(value)) } catch {} }
+// storagePrefix 用于宿主隔离收藏/历史数据（如 MC 用 'memory-center.' 沿用旧版 key）。
 
 let _cachedMethods
 async function getMethods() {
@@ -21,6 +13,12 @@ async function getMethods() {
 }
 
 export class StaticMethodProvider extends MethodProvider {
+  constructor({ storagePrefix = 'promptkit.' } = {}) {
+    super()
+    this.favoritesKey = `${storagePrefix}prompt-library.favorites.v1`
+    this.historyKey = `${storagePrefix}prompt-library.history.v1`
+  }
+
   async list() { return getMethods() }
 
   async search(query) {
@@ -37,17 +35,25 @@ export class StaticMethodProvider extends MethodProvider {
     )
   }
 
+  // 与 MC 原 prompt_studio.composePrompt() 一致：模板原样保留（【…】占位符即方法对模型的
+  // 填写指令），用户输入以「本次任务输入」结构块追加在模板之后，不做正则替换。
   async compose({ methodId, question, facts, constraints, options }) {
     const methods = await getMethods()
     const method = methods.find(m => m.id === methodId) || methods[0]
-    const prompt = method.prompt || ''
-    // 用用户填入的字段替换 prompt 中的占位符（如 【填写你的...】）
-    let filled = prompt
-    if (question) filled = filled.replace(/【填写你的问题】|【.*问题.*】/g, question)
-    if (facts) filled = filled.replace(/【填写相关事实】|【.*事实.*】/g, facts)
-    if (constraints) filled = filled.replace(/【填写约束】|【.*约束.*】/g, constraints)
-    if (options) filled = filled.replace(/【填写选项】|【.*选项.*】/g, options)
-    const full = filled + (question && !filled.includes(question) ? `\n\n问题：${question}` : '')
+    const base = method.prompt || ''
+    const clean = value => String(value ?? '').trim()
+    const sections = [
+      '---',
+      '# 本次任务输入',
+      clean(question) ? `问题：${clean(question)}` : '',
+      clean(facts) ? `已知事实：${clean(facts)}` : '',
+      clean(constraints) ? `现实约束：${clean(constraints)}` : '',
+      clean(options) ? `选项或备选路径：${clean(options)}` : '',
+    ].filter(Boolean)
+    const hasInput = sections.length > 1
+    const full = hasInput
+      ? `${base}\n\n${sections.join('\n')}\n\n请严格遵循上方方法；信息不足时按该方法要求提问，不要编造事实。`
+      : base
     return { prompt: full, estimated_chars: full.length, method }
   }
 
@@ -55,19 +61,21 @@ export class StaticMethodProvider extends MethodProvider {
     const methods = await getMethods()
     const m = methods.find(x => x.id === methodId)
     if (!m) return { prompt: '' }
-    // 返回完整 prompt 作为可编辑模板
     return { prompt: m.prompt || '' }
   }
 
-  async getFavorites() { return readStore(FAVORITES_KEY, []) }
+  async getFavorites() { return this._readStore(this.favoritesKey, []) }
+  async setFavorites(ids) { this._writeStore(this.favoritesKey, Array.isArray(ids) ? ids : []) }
 
-  async setFavorites(ids) { writeStore(FAVORITES_KEY, Array.isArray(ids) ? ids : []) }
-
-  async getHistory() { return readStore(HISTORY_KEY, []) }
-
+  async getHistory() { return this._readStore(this.historyKey, []) }
   async pushHistory(item) {
-    const next = [item, ...readStore(HISTORY_KEY, [])].slice(0, HISTORY_LIMIT)
-    writeStore(HISTORY_KEY, next)
+    const next = [item, ...this._readStore(this.historyKey, [])].slice(0, 20)
+    this._writeStore(this.historyKey, next)
     return next
   }
+
+  _readStore(key, fallback) {
+    try { const value = JSON.parse(window.localStorage.getItem(key) || ''); return Array.isArray(value) ? value : fallback } catch { return fallback }
+  }
+  _writeStore(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)) } catch {} }
 }

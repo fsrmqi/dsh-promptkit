@@ -150,7 +150,7 @@ const messages = conversationMessages(useSession(value => value))
 
 ### 方法库来源
 
-12 个方法从 Memory Center 的 `prompts/` 目录迁移而来（Markdown 格式，带 frontmatter 元数据：场景、用途、标签、触发词）。每个方法包含完整的 prompt 正文，用户填入问题/事实/约束后可直接替换占位符生成最终 Prompt。
+12 个方法从 Memory Center 的 `prompts/` 目录迁移而来（Markdown 格式，带 frontmatter 元数据：场景、用途、标签、触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（对齐 MC 原版行为，剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留，作为方法对模型的填写指令，不做正则替换。
 
 新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:methods` 重新生成 `methods/builtin.json`（`scripts/build-methods.mjs` 解析 frontmatter + 正文；`mode`/`outcome` 在脚本内 `OVERRIDES` 表维护），再 `npm run build:ui` 把新方法内联到 `ui/client.js`。直接 `npm run build` 一条命令完成全部三步。
 

@@ -4,7 +4,9 @@
  *
  * Markdown 约定：
  *   - frontmatter（--- 包裹）：场景 / 用途 / 标签: [a, b] / 触发词: 逗号分隔（可选）
- *   - 正文：首行 H1（与文件名一致，解析时丢弃），其余为 prompt 模板
+ *   - 正文：首行 H1（与文件名一致）+ 叙述性说明 + 「## Prompt」代码块（真正的模板）
+ *     prompt 字段优先提取「## Prompt」代码块（对齐 MC 原 prompt_studio.template()），
+ *     无代码块时回退为完整正文（剥掉 frontmatter 与 H1）。
  *
  * mode/outcome 源文件 frontmatter 中不存在，由下方 OVERRIDES 显式声明：
  *   - guided：方法会先追问、依赖多轮对话（UI 显示「会逐步追问」）
@@ -52,6 +54,11 @@ const parseFrontmatter = (raw) => {
   return fm
 }
 
+// 与 MC 原 prompt_studio.template() 一致：提取「## Prompt」下的代码块作为干净模板，
+// 剥离文章引言等叙述性内容；无代码块时回退为完整正文。
+const extractTemplate = (raw) =>
+  raw.match(/## Prompt\s*\n+```(?:\w+)?\n([\s\S]*?)```/)?.[1]?.trim() ?? ''
+
 const categories = readdirSync(METHODS_DIR, { withFileTypes: true })
   .filter(d => d.isDirectory())
   .map(d => d.name)
@@ -67,6 +74,7 @@ for (const category of categories) {
     const raw = readFileSync(join(METHODS_DIR, category, file), 'utf8')
     const fm = parseFrontmatter(raw)
     const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, '').replace(/^\s*#\s[^\n]*\n/, '').trim()
+    const prompt = extractTemplate(raw) || body
     if (!fm['场景'] || !fm['用途']) throw new Error(`${category}/${file} 缺少 场景/用途 字段`)
     methods.push({
       id: title,
@@ -75,7 +83,7 @@ for (const category of categories) {
       purpose: fm['用途'].trim(),
       tags: parseList(fm['标签'] || ''),
       triggerKeywords: parseList(fm['触发词'] || ''),
-      prompt: body,
+      prompt,
       ...DEFAULT_META,
       ...(OVERRIDES[title] || {}),
     })

@@ -108,14 +108,22 @@ function buildMc(mcRepo) {
   const mcClient = resolve(mcRepo, 'ui/client.js')
   const source = readFileSync(mcClient, 'utf8')
   const adapters = readFileSync(resolve(mcRepo, 'ui/promptkit-adapters.js'), 'utf8')
+  const builtinJson = JSON.parse(readFileSync(resolve(ROOT, 'methods/builtin.json'), 'utf8'))
 
   const block =
     `      ${BEGIN}\n` +
     concat([
       ['src/core/composer.js', 'dsh-promptkit core: Composer / withPrefix（组件依赖）'],
+      ['src/core/method-provider.js', 'dsh-promptkit core: MethodProvider（组件依赖）'],
+      ['src/methods/builtin.js', 'dsh-promptkit 内置方法库（12 个方法，构建时内联 JSON，MC 唯一数据源）'],
+      ['src/adapters/static-method-provider.js', 'dsh-promptkit adapter: StaticMethodProvider（本地方法源，零后端）'],
       ['src/ui/studio.js', 'dsh-promptkit 组件: PromptStudio（方法工坊，唯一代码源）'],
       ['src/ui/quick-enhancer.js', 'dsh-promptkit 组件: QuickEnhancer（快捷助手，唯一代码源）'],
-    ]) +
+    ], {
+      customStrip: {
+        'src/methods/builtin.js': (code) => stripBuiltinJs(code, builtinJson),
+      }
+    }) +
     SEP('Memory Center 私有运行时 → dsh-promptkit 三接口桥接（唯一允许引用 fetchView 的地方）') +
     strip(adapters).trim().split('\n').map(l => (l ? '      ' + l : l)).join('\n') + '\n' +
     `      ${END}\n`
