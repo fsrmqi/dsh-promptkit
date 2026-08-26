@@ -1,11 +1,55 @@
 # PromptKit
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![DSH Plugin](https://img.shields.io/badge/DSH-Plugin-blue.svg)](https://github.com/topics/dsh-plugin)
+[![Node: >=18](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
+
 > npm 包名 / 仓库名：**`dsh-promptkit`**
 
 开源的 Prompt 构建与增强工具包，包含两个独立可用的能力：
 
 - **`PromptStudio`（方法工坊）**：选择思考方法，用问题 / 事实 / 约束生成可编辑 Prompt。内置 12 个完整 Markdown 方法（带 frontmatter 元数据 + 完整 prompt 正文）。
 - **`QuickEnhancer`（对话快捷增强器）**：悬浮在对话旁的按钮（⌘K），把当前输入框提示词做轻量 / 语义增强，或从方法库填充、改造。
+
+## 安装
+
+### 方式一：npm（推荐，免编译权限）
+
+```bash
+dsh plugin --profile web add dsh-promptkit
+```
+
+### 方式二：GitHub（可钉 commit 实现可复现安装）
+
+```bash
+# 最新版
+dsh plugin --profile web add github:fsrmqi/dsh-promptkit
+
+# 钉 commit（推荐生产环境）
+dsh plugin --profile web add github:fsrmqi/dsh-promptkit#<commit-sha>
+```
+
+> **注意**：pnpm ≥ 10 安装 GitHub 依赖时会拒绝运行 `prepare` 脚本，需在 profile 的 `pnpm-workspace.yaml` 中 allowlist：
+> ```yaml
+> allowBuilds:
+>   dsh-promptkit: true
+> ```
+> 本仓库已将构建产物（`ui/client.js`、`ui/embed.js`）提交到 Git，Git 安装可直接使用无需构建；allowlist 仅在新增 `prepare` 脚本时需要。
+
+### 方式三：tarball（离线 / 审计场景）
+
+```bash
+npm pack                    # 产出 dsh-promptkit-0.1.0.tgz
+dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
+```
+
+### 作为 npm 库使用
+
+```bash
+npm install dsh-promptkit
+```
+
+安装后重启 harness 即可在 DSH Web UI 中看到「方法工坊」和「快捷助手」。
 
 ## 设计原则：单一代码源，双消费
 
@@ -103,21 +147,14 @@ dsh-promptkit/
 └── package.json     # 含 dsh.client manifest（DSH Loader 发现用）
 ```
 
-## 作为 DSH 插件直接安装
+## DSH 插件架构
 
-本仓库自带 DSH 浏览器插件形态，无需写任何代码即可在 DSH 中使用：
+本仓库 `package.json` 声明 `dsh.client`（浏览器端插件 manifest），DSH Web App 的 ModuleLoader 自动发现并加载 `ui/client.js`：
 
-```bash
-# 1. 构建独立浏览器视图（生成 ui/client.js，零依赖拼接，无打包器）
-npm run build:ui
-
-# 2. 把本包放入 DSH 插件目录（结构对齐 memory-center-dsh-plugin-ui 模式：
-#    package.json 的 dsh.client manifest + ui/client.js，DSH Loader 自动发现）
-```
-
-- 插件形态使用**内置 12 个 Markdown 方法**（`StaticMethodProvider`，全本地、零后端，prompt 正文随包内联）；
-- 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right`），「发送到当前会话」走 DSH 会话 API；
-- 可选开启语义增强（模型改写草稿）：配置 `window.DSH_PROMPTKIT_CONFIG = { baseUrl, apiKey, model }` 或 localStorage `dsh-promptkit.config.v1`（任意 OpenAI 兼容端点）；未配置时自动降级为轻量增强（零 Token）。
+- **内置 12 个 Markdown 方法**（`StaticMethodProvider`，全本地、零后端，prompt 正文随包内联）；
+- **方法工坊**挂 `conversation.view` 插槽（DSH 顶部标签页），**快捷助手**挂 `conversation.input.right` 插槽（输入框右侧悬浮按钮）；
+- 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right` 注入的 `inputActions`），「发送到当前会话」走 DSH 会话 API；
+- **可选语义增强**（模型改写草稿）：配置 `window.DSH_PROMPTKIT_CONFIG = { baseUrl, apiKey, model }` 或 localStorage `dsh-promptkit.config.v1`（任意 OpenAI 兼容端点）；未配置时自动降级为轻量增强（零 Token）。
 
 构建产物 `ui/client.js` 为单文件 lazy-CJS 工厂（`window.__ModuleLoader__.load`），由 `scripts/build-client.mjs` 从 `src/` 剥离 ESM 语法拼接生成——**组件代码只有一份源码**，npm 库形态与 DSH 插件形态共用。
 
@@ -166,6 +203,34 @@ const messages = PromptKit.utils.conversationMessages(useSession(value => value)
 12 个方法从 Memory Center 的 `prompts/` 目录迁移而来（Markdown 格式，带 frontmatter 元数据：场景、用途、标签、触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（对齐 MC 原版行为，剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留，作为方法对模型的填写指令，不做正则替换。
 
 新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:methods` 重新生成 `methods/builtin.json`（`scripts/build-methods.mjs` 解析 frontmatter + 正文；`mode`/`outcome` 在脚本内 `OVERRIDES` 表维护），再 `npm run build:ui` 把新方法内联到 `ui/client.js`。直接 `npm run build` 一条命令完成全部三步。
+
+## 权限与隐私
+
+| 访问项 | 用途 | 可关闭 |
+| --- | --- | --- |
+| `window.localStorage` | 收藏 / 历史持久化、可选的语义增强配置（`dsh-promptkit.*` 前缀，与其他插件隔离） | 清除 localStorage 即清空，无服务端持久化 |
+| DSH 会话输入框（`inputActions.setDraft`） | 「写入输入框」按钮把生成的 Prompt 填入当前对话草稿 | 不点按钮不触发 |
+| DSH 会话 API（`session.prompt`） | 「发送到当前会话」按钮把 Prompt 作为消息发出 | 不点按钮不触发 |
+| `fetch`（可选） | 仅在用户主动配置语义增强端点时发起请求，调用用户指定的 OpenAI 兼容 API | 不配置则不发起任何网络请求 |
+
+**零遥测**：本插件不收集任何使用数据，不向任何第三方服务发送信息。所有数据存储在用户本地 localStorage，可随时清除。
+
+## 支持环境与兼容性
+
+| 环境 | 要求 |
+| --- | --- |
+| DeepSeek Harness | Developer Preview（建议 `@deepseek-ai/dsh` 0.1.0-rc.x 及以上） |
+| Node.js | ≥ 18（构建脚本使用 `node --test`） |
+| 浏览器 | Chrome 90+ / Firefox 88+ / Safari 14+（需支持 ES Modules + `AbortController`） |
+| React | ≥ 17（peer dependency，DSH Web App 内置） |
+
+> **兼容性声明**（2026-08-26）：DeepSeek Harness 处于 Developer Preview 阶段，接口可能不兼容变更。本插件基于 `dsh.client` manifest（`platform: "web"`）和 `conversation.view` / `conversation.input.right` 插槽开发，DSH 版本更新后请以 `dsh --dump-config` 实际输出为准。
+
+## 贡献
+
+欢迎提交 Issue 和 PR。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+新增思考方法只需在 `methods/` 下新建 Markdown 文件，然后 `npm run build` 重新生成——详见 [方法库来源](#方法库来源) 章节。
 
 ## License
 

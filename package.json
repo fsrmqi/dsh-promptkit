@@ -17,18 +17,35 @@
     "docs",
     "examples",
     "methods",
+    "test",
     "README.md",
-    "LICENSE",
-    "test"
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "license": "MIT",
+  "author": "cuijiaqi <cjqzazj@gmail.com>",
+  "homepage": "https://github.com/fsrmqi/dsh-promptkit",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fsrmqi/dsh-promptkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fsrmqi/dsh-promptkit/issues"
+  },
   "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
     "prompt",
     "prompt-engineering",
     "llm",
     "ui",
     "react"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "peerDependencies": {
     "react": ">=17"
   },
@@ -37,8 +54,8 @@
     "build:ui": "node scripts/build-client.mjs",
     "build": "npm run check && npm run build:methods && npm run build:ui",
     "build:methods": "node scripts/build-methods.mjs",
-    "test": "node --test",
-    "build:embed": "node scripts/build-client.mjs --embed"
+    "build:embed": "node scripts/build-client.mjs --embed",
+    "test": "node --test"
   },
   "dsh": {
     "client": {
