@@ -20,6 +20,10 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const KATEX_JS = readFileSync(resolve(ROOT, 'node_modules/katex/dist/katex.min.js'), 'utf8')
+// CSS 的字体 URL 在宿主中可能不可解析，但 MathML 与系统数学字体仍可正确回退显示。
+const KATEX_CSS = readFileSync(resolve(ROOT, 'node_modules/katex/dist/katex.min.css'), 'utf8')
+const KATEX_RUNTIME = `${KATEX_JS}\n;if (typeof document !== 'undefined' && document.getElementById && document.createElement && document.head && !document.getElementById('pk-katex-css')) { const style = document.createElement('style'); style.id = 'pk-katex-css'; style.textContent = ${JSON.stringify(KATEX_CSS)}; document.head.appendChild(style) }\n`
 
 /** 剥离 ESM 模块语法：删 import 行、去 export 前缀、删 re-export 行。 */
 function strip(code) {
@@ -82,11 +86,11 @@ const MODULES = [
 // ---------- 产物一：独立 DSH 浏览器视图 ui/client.js ----------
 function buildStandalone() {
   const builtinJson = JSON.parse(readFileSync(resolve(ROOT, 'methods/builtin.json'), 'utf8'))
-  const body = concat(MODULES, {
+  const body = (SEP('KaTeX runtime（内联，离线公式渲染）') + KATEX_RUNTIME + concat(MODULES, {
     customStrip: {
       'src/methods/builtin.js': (code) => stripBuiltinJs(code, builtinJson),
     }
-  })
+  }))
     .split('\n').map(l => (l ? '      ' + l : l)).join('\n')
   const glue = strip(readFileSync(resolve(ROOT, 'dsh/standalone-glue.js'), 'utf8')).trim()
     .split('\n').map(l => (l ? '      ' + l : l)).join('\n')
@@ -109,7 +113,7 @@ ${SEP('独立插件 glue：DSH 插槽注册 + 默认 adapter 装配')}${glue}
 // ---------- 产物二：标准嵌入产物 ui/embed.js（Embed Protocol v1） ----------
 function buildEmbed() {
   const builtinJson = JSON.parse(readFileSync(resolve(ROOT, 'methods/builtin.json'), 'utf8'))
-  const body = concat(MODULES, {
+  const body = SEP('KaTeX runtime（内联，离线公式渲染）') + KATEX_RUNTIME + concat(MODULES, {
     customStrip: {
       'src/methods/builtin.js': (code) => stripBuiltinJs(code, builtinJson),
     }

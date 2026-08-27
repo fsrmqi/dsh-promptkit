@@ -65,5 +65,8 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "dependencies": {
+    "katex": "0.16.22"
   }
 }

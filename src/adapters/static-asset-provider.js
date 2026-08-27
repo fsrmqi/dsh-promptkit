@@ -43,7 +43,7 @@ export class StaticAssetProvider extends AssetProvider {
       } : previous?.verification,
       provenance: input?.provenance && typeof input.provenance === 'object' ? input.provenance : previous?.provenance,
       favorite: Boolean(input?.favorite ?? previous?.favorite),
-      createdAt: Number(previous?.createdAt || now), updatedAt: now, lastUsedAt: previous?.lastUsedAt,
+      createdAt: Number(previous?.createdAt || now), updatedAt: now, lastUsedAt: previous?.lastUsedAt, useCount: Number(previous?.useCount || 0),
     }
     this._write([asset, ...current.filter(item => item.id !== id)])
     return asset
@@ -62,7 +62,7 @@ export class StaticAssetProvider extends AssetProvider {
     let changed = null
     this._write(this._read().map(item => {
       if (item.id !== id) return item
-      changed = { ...item, lastUsedAt: Date.now() }
+      changed = { ...item, lastUsedAt: Date.now(), useCount: Number(item.useCount || 0) + 1 }
       return changed
     }))
     return changed
