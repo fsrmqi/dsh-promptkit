@@ -26,10 +26,11 @@
 <script type="module">
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { PromptStudio, QuickEnhancer, StaticMethodProvider, TextareaComposer, OpenAIEnhancer } from 'dsh-promptkit'
+import { PromptStudio, QuickEnhancer, StaticMethodProvider, StaticAssetProvider, TextareaComposer, OpenAIEnhancer } from 'dsh-promptkit'
 
 const target = document.getElementById('target')
 const methodProvider = new StaticMethodProvider()
+const assetProvider = new StaticAssetProvider()
 const composer = new TextareaComposer(target)
 
 // 可选：接入任意 OpenAI 兼容端点后，快捷助手会多出「语义 · 模型」增强档位
@@ -44,8 +45,8 @@ const messages = [
 
 function App() {
   return React.createElement(React.Fragment, null,
-    React.createElement(PromptStudio, { methodProvider, composer, messages }),
-    React.createElement(QuickEnhancer, { methodProvider, composer, messages }),
+    React.createElement(PromptStudio, { methodProvider, assetProvider, composer, messages }),
+    React.createElement(QuickEnhancer, { methodProvider, assetProvider, composer, messages }),
   )
 }
 

@@ -4,6 +4,7 @@
 // 语义增强经 node 半区复用当前会话的模型路由；浏览器端不保存 API Key 或模型配置。
 
 const promptkitMethodProvider = new StaticMethodProvider()
+const promptkitAssetProvider = new StaticAssetProvider()
 
 async function promptkitSearchMemory(sessionId, query) {
   const url = new URL('/memory-center/context-search', window.location.origin)
@@ -67,12 +68,12 @@ function PromptkitQuickActionHost({ sessionId, useSession, inputActions, input }
   const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
   const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
   React.useEffect(() => { composer.notify(input?.draft ?? '') }, [input?.draft, composer])
-  return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages, searchMemory })
+  return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory })
 }
 
 // 方法工坊宿主：conversation.view 视图，onSend 走当前会话
 function PromptkitStudioHost({ sessionId, onSend }) {
-  return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend })
+  return h(PromptStudio, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, onSend })
 }
 
 const promptkitApply = ctx => {

@@ -7,14 +7,21 @@ let _builtin
 
 export async function loadBuiltinMethods() {
   if (_builtin) return _builtin
+  // 浏览器中直接取静态构建产物；避免不同浏览器对 JSON import assertions 的兼容差异。
+  if (typeof window !== 'undefined') {
+    const res = await fetch(new URL('../../methods/builtin.json', import.meta.url))
+    if (!res.ok) throw new Error(`无法读取内置方法库（${res.status}）`)
+    _builtin = await res.json()
+    return _builtin
+  }
   try {
     // Node 22 / ESM 环境：import assert
-    const mod = await import('../methods/builtin.json', { assert: { type: 'json' } })
+    const mod = await import('../../methods/builtin.json', { assert: { type: 'json' } })
     _builtin = mod.default || mod
     return _builtin
   } catch {
-    // 浏览器 fallback：fetch 同目录 JSON
-    const res = await fetch(new URL('../methods/builtin.json', import.meta.url))
+    // 非浏览器环境 fallback。
+    const res = await fetch('/methods/builtin.json')
     _builtin = await res.json()
     return _builtin
   }

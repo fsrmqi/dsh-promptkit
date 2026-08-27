@@ -67,10 +67,12 @@ const MODULES = [
   ['src/ui/foundation.js', 'dsh-promptkit foundation（C / GlobalStyle / Icon / S / workbenchStyle，pk-* 视觉命名空间）'],
   ['src/lib/utils.js', 'dsh-promptkit utils（纯函数 + 分类链 + DSH 快照转换）'],
   ['src/core/method-provider.js', 'dsh-promptkit core: MethodProvider'],
+  ['src/core/asset-provider.js', 'dsh-promptkit core: AssetProvider'],
   ['src/core/composer.js', 'dsh-promptkit core: Composer / withPrefix'],
   ['src/core/enhancer.js', 'dsh-promptkit core: Enhancer'],
   ['src/methods/builtin.js', 'dsh-promptkit 内置方法库（12 个完整 Markdown 方法，构建时内联 JSON）'],
   ['src/adapters/static-method-provider.js', 'dsh-promptkit adapter: StaticMethodProvider'],
+  ['src/adapters/static-asset-provider.js', 'dsh-promptkit adapter: StaticAssetProvider'],
   ['src/adapters/textarea-composer.js', 'dsh-promptkit adapter: TextareaComposer'],
   ['src/adapters/openai-enhancer.js', 'dsh-promptkit adapter: OpenAIEnhancer'],
   ['src/ui/studio.js', 'dsh-promptkit 组件: PromptStudio（方法工坊）'],
@@ -123,9 +125,9 @@ ${body}
     PromptStudio,            // 方法工坊（conversation.view 视图）
     QuickEnhancer: ConversationQuickAction,  // 对话快捷增强器（conversation.input.right 挂载）
     // 数据源 adapter
-    StaticMethodProvider,    // 内置 12 方法（storagePrefix 可配，默认 'promptkit.'）
+    StaticMethodProvider, StaticAssetProvider,
     // 基类与通用 adapter
-    MethodProvider, Composer, Enhancer, TextareaComposer, OpenAIEnhancer,
+    MethodProvider, AssetProvider, Composer, Enhancer, TextareaComposer, OpenAIEnhancer,
     // 宿主 glue 可复用的纯函数与推荐信号表
     utils: {
       safeText, conversationDraft, conversationMessages, list, obj, fileMentions,

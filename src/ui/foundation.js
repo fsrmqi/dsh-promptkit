@@ -1,6 +1,22 @@
 import React from 'react'
 
 const h = React.createElement
+
+// 优先复用宿主已加载的 KaTeX；未提供时保留可复制的 LaTex 源码，避免为核心包引入运行时依赖。
+function LatexText({ text, block = false }) {
+  const source = String(text || '')
+  const parts = source.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g)
+  const renderFormula = (raw, index) => {
+    const display = raw.startsWith('$$')
+    const latex = raw.slice(display ? 2 : 1, display ? -2 : -1)
+    try {
+      const katex = typeof window !== 'undefined' ? window.katex : null
+      if (katex?.renderToString) return h('span', { key: index, className: 'pk-latex', style: { display: display ? 'block' : 'inline-block', margin: display ? '5px 0' : '0 2px' }, dangerouslySetInnerHTML: { __html: katex.renderToString(latex, { displayMode: display, throwOnError: false, trust: false }) } })
+    } catch {}
+    return h('code', { key: index, className: 'pk-mono', title: 'LaTeX 源码（宿主未提供 KaTeX 渲染器）', style: { display: display ? 'block' : 'inline', padding: '1px 4px', borderRadius: '4px', background: 'var(--pk-paper-warm)', color: 'var(--pk-teal)' } }, raw)
+  }
+  return h(block ? 'div' : 'span', { style: block ? { whiteSpace: 'pre-wrap' } : undefined }, parts.map((part, index) => /^\$\$[\s\S]+\$\$$|^\$[^$\n]+\$$/.test(part) ? renderFormula(part, index) : h('span', { key: index }, part)))
+}
     const C = {
       ink: 'var(--pk-ink)', muted: 'var(--pk-muted)', line: 'var(--pk-line)', canvas: 'var(--pk-canvas)', surface: 'var(--pk-surface)',
       paper: 'var(--pk-paper)', paperWarm: 'var(--pk-paper-warm)',
@@ -188,4 +204,4 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
       input: { ...workbenchStyle.input, flex: 1, minWidth: 0, padding: '11px 12px', borderRadius: '8px', background: C.surface },
     })
 
-export { h, C, GLOBAL_CSS, GlobalStyle, Spinner, ICON_PATHS, Icon, S, workbenchStyle, Panel }
+export { h, C, GLOBAL_CSS, GlobalStyle, Spinner, ICON_PATHS, Icon, LatexText, S, workbenchStyle, Panel }

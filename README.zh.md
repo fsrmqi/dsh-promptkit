@@ -12,6 +12,7 @@
 
 - **`QuickEnhancer`（对话快捷增强器）**：可悬浮或内嵌，用于轻量/语义草稿增强、方法建议与方法库操作。
 - **`PromptStudio`（方法工坊）**：高级手动工作台，用问题 / 事实 / 约束生成可编辑 Prompt；内置 21 个完整 Markdown 方法。
+- **灵感库（PromptKit Vault）**：在快捷增强器中本地保存当前草稿、选中片段和方法工坊成品；支持标签搜索、收藏、填充/追加/复制及 JSON 备份恢复。
 
 轻量增强完全本地、零 Token；独立 DSH 插件的语义增强复用当前会话模型且只回填草稿。两档都不会自动发送消息。
 
@@ -62,6 +63,7 @@ PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，�
 | `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 同步历史 | `StaticMethodProvider`（内置 21 法 + 本地私有方法，localStorage 持久化，`storagePrefix` 可配） |
 | `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） |
 | `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） |
+| `AssetProvider` | 灵感资产的保存、搜索、收藏与备份 | `StaticAssetProvider`（localStorage 持久化，`storagePrefix` 可配） |
 
 这样 **npm 库形态和宿主嵌入形态，共用同一份核心代码**——差别只在注入什么 adapter，绝不分叉成两份维护。PromptKit 对宿主零感知（Embed Protocol，见下文）。
 
@@ -89,21 +91,24 @@ PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，�
 | `enhancer` | | `Enhancer` 实例；未注入时仅保留「轻量 · 零 Token」档位 |
 | `messages` | | 当前对话数组，供「加对话」参考与消息选择 |
 | `searchMemory` | | `(query) => Promise<string>`，提供「加项目记忆」上下文档位 |
+| `assetProvider` | | `AssetProvider` 实例；启用本地灵感库、快速收藏与右侧管理抽屉 |
 
 ## 用法
 
 ```js
 import {
   PromptStudio, QuickEnhancer,
-  StaticMethodProvider, TextareaComposer, OpenAIEnhancer,
+  StaticMethodProvider, StaticAssetProvider, TextareaComposer, OpenAIEnhancer,
 } from 'dsh-promptkit'
 
 const methodProvider = new StaticMethodProvider()
+const assetProvider = new StaticAssetProvider()
 const composer = new TextareaComposer(document.querySelector('textarea'))
 
-<PromptStudio methodProvider={methodProvider} composer={composer} />
+<PromptStudio methodProvider={methodProvider} assetProvider={assetProvider} composer={composer} />
 <QuickEnhancer
   methodProvider={methodProvider}
+  assetProvider={assetProvider}
   composer={composer}
   enhancer={new OpenAIEnhancer({ endpoint, apiKey, model })}
   messages={messages}
@@ -160,6 +165,8 @@ dsh-promptkit/
 - 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right` 注入的 `inputActions`），「发送到当前会话」走 DSH 会话 API；
 - **语义增强**（模型改写草稿）：复用当前 DSH 会话已经选定的模型路由，由插件 Node 半区调用 Harness 的 LLM 服务；无需填写 API Key 或 endpoint，结果仅回填输入框、不自动发送。当前会话尚未建立模型路由时，先正常发送一次消息即可。
 - **上下文 adapter**：`@文件` 引用会被保留但不会由 PromptKit 读取文件内容；项目记忆由可选 `searchMemory` adapter 提供。
+- **灵感库**：默认动作是「收藏当前草稿」，完整搜索、项目筛选、派生与备份位于右侧抽屉；资产仅保存在浏览器 localStorage。
+- **快捷调用**：使用 `/pk 关键词` 或 `/pk:关键词` 打开灵感候选，`↑↓` 选择、Enter 插入、Esc 关闭。只处理 `/pk` 命名空间，绝不抢占 DSH 的原生命令。
 
 构建产物 `ui/client.js` 为单文件 lazy-CJS 工厂（`window.__ModuleLoader__.load`），由 `scripts/build-client.mjs` 从 `src/` 剥离 ESM 语法拼接生成——**组件代码只有一份源码**，npm 库形态与 DSH 插件形态共用。
 
@@ -213,11 +220,21 @@ const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
 
 在快捷增强器的「高级设置」中，可直接粘贴一张 Obsidian 风格 Markdown Prompt 卡片。它会从 frontmatter / 标题 / `## Prompt` 代码块提取方法并仅保存在当前浏览器的 localStorage；不会读取、扫描或上传 Obsidian 笔记库。私有方法可导出为 JSON，并以追加方式恢复备份；它们会和 21 个开源方法一起参与搜索与自动匹配，但不会写入仓库或发布包。
 
+### 灵感库与快捷调用
+
+高频路径是「收藏当前草稿 → 下次 `/pk 关键词` 调用 → 插入后再编辑」。收藏会立即落到本地灵感库；需要管理资产时再打开右侧抽屉。资产可编辑标题、标签、项目和正文；「派生」会创建关联父版本的新资产，并可在抽屉内查看正文对比。`/pk` 是 PromptKit 专用命名空间，例如 `/pk 接口评审` 或 `/pk:接口评审`，不会影响 DSH 的 `/ces` 等原生命令。候选菜单中使用 `↑↓` 选择、Enter 插入到草稿、Esc 取消；插入不会自动发送消息。
+
+灵感资产也可以是一张“思考卡”：用「问题、目标、事实、假设、决策、方法、结论、行动、辩证卡」描述它是什么；以「已证实、推断、待核实、个人偏好」说明认识状态；再补充“为什么重要”和“下一步行动”。辩证卡可保存观点、反观点与当前综合；资产可显式关联，抽屉中的“关系”视图会展示父版本与关联资产。
+
+需要让思考卡影响模型时，在灵感库中选中最多 3 张「用于增强」。快捷增强器会列出待注入卡片和认识状态；只有用户选择「语义 · 模型」后才把它们组成可见上下文包注入。保存结果时会记录本次使用的思考卡来源。
+
+待核实的假设可记录验证状态（待验证、已证实、已被推翻、暂无结论）、证据和验证时间。语义增强会明确看到这些状态，尤其不会把已被推翻的前提当作事实。
+
 ## 权限与隐私
 
 | 访问项 | 用途 | 可关闭 |
 | --- | --- | --- |
-| `window.localStorage` | 收藏、同步方法历史、私有方法和可选本地使用信号 | 清除 localStorage 即清空，无服务端持久化 |
+| `window.localStorage` | 收藏、同步方法历史、私有方法、灵感资产和可选本地使用信号 | 清除 localStorage 即清空，无服务端持久化 |
 | 目标输入框（Composer） | 「写入输入框」按钮把生成的 Prompt 填入当前草稿 | 不点按钮不触发 |
 | 当前会话（onSend） | 「发送到当前会话」按钮把 Prompt 作为消息发出 | 不点按钮不触发 |
 | `fetch` | 用户点击语义增强时调用本地插件桥接；Node 半区复用当前会话模型 | 不点击则不发起请求 |

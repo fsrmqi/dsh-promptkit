@@ -8,10 +8,12 @@ export { QuickEnhancer } from './ui/quick-enhancer.js'
 export * from './core/method-provider.js'
 export * from './core/composer.js'
 export * from './core/enhancer.js'
+export * from './core/asset-provider.js'
 
 export { BUILTIN_METHODS } from './methods/builtin.js'
 export { StaticMethodProvider } from './adapters/static-method-provider.js'
 export { TextareaComposer } from './adapters/textarea-composer.js'
 export { OpenAIEnhancer } from './adapters/openai-enhancer.js'
+export { StaticAssetProvider } from './adapters/static-asset-provider.js'
 
 export * from './lib/utils.js'

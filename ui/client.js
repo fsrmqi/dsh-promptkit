@@ -7,6 +7,22 @@ window.__ModuleLoader__.load({
 
       /* ================= dsh-promptkit foundation（C / GlobalStyle / Icon / S / workbenchStyle，pk-* 视觉命名空间） ================= */
       const h = React.createElement
+
+      // 优先复用宿主已加载的 KaTeX；未提供时保留可复制的 LaTex 源码，避免为核心包引入运行时依赖。
+      function LatexText({ text, block = false }) {
+        const source = String(text || '')
+        const parts = source.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g)
+        const renderFormula = (raw, index) => {
+          const display = raw.startsWith('$$')
+          const latex = raw.slice(display ? 2 : 1, display ? -2 : -1)
+          try {
+            const katex = typeof window !== 'undefined' ? window.katex : null
+            if (katex?.renderToString) return h('span', { key: index, className: 'pk-latex', style: { display: display ? 'block' : 'inline-block', margin: display ? '5px 0' : '0 2px' }, dangerouslySetInnerHTML: { __html: katex.renderToString(latex, { displayMode: display, throwOnError: false, trust: false }) } })
+          } catch {}
+          return h('code', { key: index, className: 'pk-mono', title: 'LaTeX 源码（宿主未提供 KaTeX 渲染器）', style: { display: display ? 'block' : 'inline', padding: '1px 4px', borderRadius: '4px', background: 'var(--pk-paper-warm)', color: 'var(--pk-teal)' } }, raw)
+        }
+        return h(block ? 'div' : 'span', { style: block ? { whiteSpace: 'pre-wrap' } : undefined }, parts.map((part, index) => /^\$\$[\s\S]+\$\$$|^\$[^$\n]+\$$/.test(part) ? renderFormula(part, index) : h('span', { key: index }, part)))
+      }
           const C = {
             ink: 'var(--pk-ink)', muted: 'var(--pk-muted)', line: 'var(--pk-line)', canvas: 'var(--pk-canvas)', surface: 'var(--pk-surface)',
             paper: 'var(--pk-paper)', paperWarm: 'var(--pk-paper-warm)',
@@ -447,6 +463,28 @@ window.__ModuleLoader__.load({
         onHistoryChange(callback) { return () => {} }
       }
 
+      /* ================= dsh-promptkit core: AssetProvider ================= */
+      // AssetProvider：可复用提示词、片段与结论的资产库抽象。
+      // 它与 MethodProvider 并列，避免把方法定义、运行历史和用户沉淀混为一种数据。
+
+      class AssetProvider {
+        /** @returns {Promise<Array<{id:string,type:string,title:string,body:string,tags:string[],project?:string,parentId?:string,note?:string,createdAt:number,updatedAt:number,lastUsedAt?:number,favorite?:boolean,provenance?:object}>>} */
+        async list() { throw new Error('AssetProvider.list() 未实现') }
+        async getById(id) { return (await this.list()).find(item => item.id === id) || null }
+        async search(query) {
+          const q = String(query || '').trim().toLowerCase()
+          const rows = await this.list()
+          return !q ? rows : rows.filter(item => [item.title, item.body, item.note, ...(item.tags || [])].join('\n').toLowerCase().includes(q))
+        }
+        async save(asset) { throw new Error('AssetProvider.save() 未实现') }
+        async remove(id) {}
+        async toggleFavorite(id) { return null }
+        async markUsed(id) { return null }
+        async export() { return JSON.stringify({ version: 1, assets: await this.list() }, null, 2) }
+        async import(raw) { throw new Error('AssetProvider.import() 未实现') }
+        onChange(callback) { return () => {} }
+      }
+
       /* ================= dsh-promptkit core: Composer / withPrefix ================= */
       // Composer：写入目标输入框的抽象。
       // 开源版可接任意 <textarea>，闭源版（DSH 插件）接消息框 inputActions。
@@ -665,6 +703,92 @@ window.__ModuleLoader__.load({
         _writeStore(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)) } catch {} }
       }
 
+      /* ================= dsh-promptkit adapter: StaticAssetProvider ================= */
+      const TYPES = new Set(['prompt', 'snippet', 'insight'])
+      const THINKING_KINDS = new Set(['question', 'goal', 'fact', 'assumption', 'decision', 'method', 'conclusion', 'action', 'dialectic'])
+      const EPISTEMIC_STATUSES = new Set(['verified', 'inferred', 'to_verify', 'preference'])
+
+      /** 完全本地的灵感库实现；数据可用 JSON 导出并以增量方式恢复。 */
+      class StaticAssetProvider extends AssetProvider {
+        constructor({ storagePrefix = 'promptkit.' } = {}) {
+          super()
+          this.key = `${storagePrefix}vault.assets.v1`
+          this.event = `${storagePrefix}vault.changed.v1`
+          this.listeners = new Set()
+        }
+        async list() { return this._read().sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)) }
+        async save(input) {
+          const body = String(input?.body || '').trim()
+          if (!body) throw new Error('灵感内容不能为空。')
+          const now = Date.now()
+          const current = this._read()
+          const id = String(input?.id || `asset:${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
+          const previous = current.find(item => item.id === id)
+          const asset = {
+            id,
+            type: TYPES.has(input?.type) ? input.type : 'prompt',
+            title: String(input?.title || '').trim() || body.split('\n').find(Boolean)?.slice(0, 48) || '未命名灵感',
+            body,
+            tags: [...new Set((Array.isArray(input?.tags) ? input.tags : String(input?.tags || '').split(/[，,]/)).map(tag => String(tag).trim().replace(/^#/, '')).filter(Boolean))],
+            note: String(input?.note || '').trim(),
+            project: String(input?.project || previous?.project || '').trim(),
+            parentId: String(input?.parentId || previous?.parentId || '').trim(),
+            thinkingKind: THINKING_KINDS.has(input?.thinkingKind) ? input.thinkingKind : (previous?.thinkingKind || 'conclusion'),
+            epistemicStatus: EPISTEMIC_STATUSES.has(input?.epistemicStatus) ? input.epistemicStatus : (previous?.epistemicStatus || 'inferred'),
+            rationale: String(input?.rationale ?? previous?.rationale ?? '').trim(),
+            nextAction: String(input?.nextAction ?? previous?.nextAction ?? '').trim(),
+            relatedIds: [...new Set((Array.isArray(input?.relatedIds) ? input.relatedIds : previous?.relatedIds || []).map(String).filter(relatedId => relatedId && relatedId !== id))],
+            dialectic: input?.dialectic && typeof input.dialectic === 'object' ? {
+              thesis: String(input.dialectic.thesis || '').trim(), antithesis: String(input.dialectic.antithesis || '').trim(), synthesis: String(input.dialectic.synthesis || '').trim(),
+            } : previous?.dialectic,
+            verification: input?.verification && typeof input.verification === 'object' ? {
+              status: ['pending', 'confirmed', 'refuted', 'inconclusive'].includes(input.verification.status) ? input.verification.status : 'pending',
+              evidence: String(input.verification.evidence || '').trim(), checkedAt: Number(input.verification.checkedAt || 0) || undefined,
+            } : previous?.verification,
+            provenance: input?.provenance && typeof input.provenance === 'object' ? input.provenance : previous?.provenance,
+            favorite: Boolean(input?.favorite ?? previous?.favorite),
+            createdAt: Number(previous?.createdAt || now), updatedAt: now, lastUsedAt: previous?.lastUsedAt,
+          }
+          this._write([asset, ...current.filter(item => item.id !== id)])
+          return asset
+        }
+        async remove(id) { this._write(this._read().filter(item => item.id !== id)) }
+        async toggleFavorite(id) {
+          let changed = null
+          this._write(this._read().map(item => {
+            if (item.id !== id) return item
+            changed = { ...item, favorite: !item.favorite, updatedAt: Date.now() }
+            return changed
+          }))
+          return changed
+        }
+        async markUsed(id) {
+          let changed = null
+          this._write(this._read().map(item => {
+            if (item.id !== id) return item
+            changed = { ...item, lastUsedAt: Date.now() }
+            return changed
+          }))
+          return changed
+        }
+        async import(raw) {
+          let parsed
+          try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { throw new Error('灵感库备份不是有效 JSON。') }
+          const incoming = Array.isArray(parsed?.assets) ? parsed.assets : []
+          const valid = incoming.filter(item => item && typeof item.body === 'string' && item.body.trim()).map(item => ({
+            ...item, id: `asset:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+            type: TYPES.has(item.type) ? item.type : 'prompt', title: String(item.title || '未命名灵感'),
+            tags: Array.isArray(item.tags) ? item.tags.map(String) : [], createdAt: Date.now(), updatedAt: Date.now(),
+          }))
+          if (!valid.length) throw new Error('备份中没有可导入的灵感资产。')
+          this._write([...valid, ...this._read()])
+          return valid
+        }
+        onChange(callback) { this.listeners.add(callback); return () => this.listeners.delete(callback) }
+        _read() { try { const rows = JSON.parse(window.localStorage.getItem(this.key) || '[]'); return Array.isArray(rows) ? rows.filter(item => item && item.id && item.body) : [] } catch { return [] } }
+        _write(rows) { try { window.localStorage.setItem(this.key, JSON.stringify(rows)) } catch {} ; this.listeners.forEach(listener => { try { listener(rows) } catch {} }); try { window.dispatchEvent?.(new CustomEvent(this.event)) } catch {} }
+      }
+
       /* ================= dsh-promptkit adapter: TextareaComposer ================= */
       // 示例 Composer：写入任意 <textarea> 元素，并对用户输入保持响应（input 事件订阅）。
       // 闭源版（DSH 插件）可继承 Composer 并桥接到 inputActions.setDraft。
@@ -764,10 +888,11 @@ window.__ModuleLoader__.load({
       //   methodProvider    (必填) MethodProvider：方法源 + compose + 收藏/历史持久化
       //   messages          (可选) [{ id, role:'user'|'assistant', text }]：当前对话，用于「从当前对话提取」
       //   onSend            (可选) (text) => Promise：直接发送生成的 Prompt（如发送到当前会话）
+      //   assetProvider     (可选) AssetProvider：保存成品 Prompt 到本地灵感库
       //   composer          (可选) Composer 实例：把生成的 Prompt 写入目标输入框
       //   getRecentSessions (可选) () => Promise<Array<{ intent?, summary? }>>：追加最近会话摘要
       //   searchMemory      (可选) (query) => Promise<string>：按自然语言检索项目记忆
-      function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSessions, searchMemory }) {
+      function PromptStudio({ methodProvider, assetProvider, messages, onSend, composer, getRecentSessions, searchMemory }) {
         const [methods, setMethods] = React.useState([])
         const [loadingMethods, setLoadingMethods] = React.useState(true)
         const [methodId, setMethodId] = React.useState('')
@@ -848,12 +973,23 @@ window.__ModuleLoader__.load({
           try { await navigator.clipboard?.writeText(preview.prompt); setMessage('Prompt 已复制到剪贴板。') }
           catch { setMessage('复制失败，请手动选择预览文本复制。') }
         }
+        const savePreview = async () => {
+          if (!assetProvider || !preview?.prompt) return
+          try {
+            const item = await assetProvider.save({
+              type: 'prompt', title: preview.method?.title || method?.title || '方法工坊成品 Prompt', body: preview.prompt,
+              tags: [preview.method?.category, '方法工坊'].filter(Boolean), provenance: { kind: 'prompt-studio', methodId: preview.method?.id || methodId },
+            })
+            setMessage(`已保存「${item.title}」到灵感库。`)
+          } catch (error) { setMessage(String(error?.message || error)) }
+        }
         const previewPanel = preview ? h(Panel, { key: 'preview', title: '发送前预览', hint: `${preview.estimated_chars} 字符` }, h('div', { style: { padding: '16px' } }, [
           h('pre', { key: 'text', style: { margin: 0, whiteSpace: 'pre-wrap', fontSize: '12px', lineHeight: 1.6, color: C.slate, maxHeight: '300px', overflow: 'auto', background: C.paper, padding: '12px', borderRadius: '6px', border: `1px solid ${C.divide}` } }, preview.prompt),
           h('div', { key: 'actions', style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '14px' } }, [
             onSend ? h('button', { key: 'send', className: 'pk-action-primary', onClick: () => onSend(preview.prompt).then(() => setMessage('已发送。')).catch(error => setMessage(String(error?.message || error))), style: workbenchStyle.actionPrimary }, '发送到当前会话') : null,
             composer ? h('button', { key: 'write', onClick: writePreview, style: { ...workbenchStyle.action, background: C.surface, color: C.ink } }, '写入输入框') : null,
             h('button', { key: 'copy', onClick: copyPreview, style: { ...workbenchStyle.action, background: C.surface, color: C.muted } }, '复制 Prompt'),
+            assetProvider ? h('button', { key: 'save', onClick: savePreview, style: { ...workbenchStyle.action, background: C.tealTint, color: C.teal } }, '保存至灵感库') : null,
           ]),
         ])) : null
         // 紧凑左栏单行列表渲染
@@ -1042,11 +1178,12 @@ window.__ModuleLoader__.load({
       // ConversationQuickAction（对话快捷增强器 / QuickEnhancer）：开源核心组件，零宿主依赖。
       // 所有外部能力经 props 注入；未注入的可选能力对应 UI 自动隐藏或降级：
       //   methodProvider (必填) MethodProvider：方法源 + compose + getTemplate + 收藏/历史
+      //   assetProvider  (可选) AssetProvider：本地灵感库；未注入时隐藏入口
       //   composer       (必填) Composer：写入目标输入框（读写草稿均经此接口）
       //   enhancer       (可选) Enhancer：语义增强模型；未注入时仅保留「轻量 · 零 Token」档位
       //   messages       (可选) [{ id, role:'user'|'assistant', text }]：当前对话，供「加对话」参考
       //   searchMemory   (可选) (query) => Promise<string>：项目记忆检索，供「加项目记忆」档位
-      function ConversationQuickAction({ methodProvider, composer, enhancer, messages, searchMemory, storagePrefix = 'promptkit.' }) {
+      function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, storagePrefix = 'promptkit.' }) {
         const storageKey = name => `${storagePrefix}quick-action.${name}`
         const msgs = list(messages)
         const [draft, setDraft] = React.useState(() => composer?.getDraft?.() || '')
@@ -1078,6 +1215,33 @@ window.__ModuleLoader__.load({
         const [librarySearch, setLibrarySearch] = React.useState('')
         const [libraryFavorites, setLibraryFavorites] = React.useState([])
         const [libraryHistory, setLibraryHistory] = React.useState([])
+        const [vaultOpen, setVaultOpen] = React.useState(false)
+        const [vaultItems, setVaultItems] = React.useState([])
+        const [vaultSearch, setVaultSearch] = React.useState('')
+        const [vaultTitle, setVaultTitle] = React.useState('')
+        const [vaultTags, setVaultTags] = React.useState('')
+        const [vaultNote, setVaultNote] = React.useState('')
+        const [vaultBody, setVaultBody] = React.useState('')
+        const [vaultProject, setVaultProject] = React.useState('')
+        const [vaultProjectFilter, setVaultProjectFilter] = React.useState('')
+        const [vaultParentId, setVaultParentId] = React.useState('')
+        const [vaultEditingId, setVaultEditingId] = React.useState('')
+        const [vaultFormOpen, setVaultFormOpen] = React.useState(false)
+        const [vaultCompareId, setVaultCompareId] = React.useState('')
+        const [vaultThinkingKind, setVaultThinkingKind] = React.useState('conclusion')
+        const [vaultEpistemicStatus, setVaultEpistemicStatus] = React.useState('inferred')
+        const [vaultRationale, setVaultRationale] = React.useState('')
+        const [vaultNextAction, setVaultNextAction] = React.useState('')
+        const [vaultRelatedIds, setVaultRelatedIds] = React.useState([])
+        const [vaultDialectic, setVaultDialectic] = React.useState({ thesis: '', antithesis: '', synthesis: '' })
+        const [vaultVerification, setVaultVerification] = React.useState({ status: 'pending', evidence: '', checkedAt: 0 })
+        const [vaultGraphFocusId, setVaultGraphFocusId] = React.useState('')
+        const [assetContextIds, setAssetContextIds] = React.useState([])
+        const [assetContextReceipt, setAssetContextReceipt] = React.useState(null)
+        const [slashOpen, setSlashOpen] = React.useState(false)
+        const [slashActiveIndex, setSlashActiveIndex] = React.useState(0)
+        const [vaultType, setVaultType] = React.useState('prompt')
+        const [vaultBackup, setVaultBackup] = React.useState('')
         const [enhancementMethodId, setEnhancementMethodId] = React.useState('')
         const [privateMarkdown, setPrivateMarkdown] = React.useState('')
         const [privateNotice, setPrivateNotice] = React.useState('')
@@ -1091,6 +1255,7 @@ window.__ModuleLoader__.load({
         const [confirmClearMetrics, setConfirmClearMetrics] = React.useState(false)
         const [settingsOpen, setSettingsOpen] = React.useState(false)
         const [activeSettingsPanel, setActiveSettingsPanel] = React.useState(null) // null | 'import' | 'backup' | 'manage'
+        const slashMatches = vaultItems.filter(item => !vaultSearch.trim() || `${item.title} ${(item.tags || []).join(' ')}`.toLowerCase().includes(vaultSearch.trim().toLowerCase())).slice(0, 5)
         React.useEffect(() => {
           if (!settingsOpen) return undefined
           const handleMouseDown = event => {
@@ -1126,6 +1291,20 @@ window.__ModuleLoader__.load({
           const offHistory = methodProvider.onHistoryChange?.(value => { if (alive) setLibraryHistory(list(value)) })
           return () => { alive = false; offHistory?.() }
         }, [methodProvider])
+        React.useEffect(() => {
+          if (!assetProvider) return undefined
+          let alive = true
+          const refresh = () => assetProvider.list().then(rows => { if (alive) setVaultItems(list(rows)) }).catch(() => {})
+          refresh()
+          const off = assetProvider.onChange?.(refresh)
+          return () => { alive = false; off?.() }
+        }, [assetProvider])
+        // 命名空间调用：只处理 /pk 关键词 或 /pk:关键词，绝不抢占 DSH 原生命令。
+        React.useEffect(() => {
+          const match = String(draft || '').match(/^\/pk(?:\s+(.*)|:(.*))?$/i)
+          if (!assetProvider || !match) { setSlashOpen(false); return }
+          setVaultSearch(String(match[1] ?? match[2] ?? '').trim()); setSlashActiveIndex(0); setSlashOpen(true)
+        }, [draft, assetProvider])
         React.useEffect(() => {
           if (!open || methods.length) return
           setLoading(true)
@@ -1163,6 +1342,20 @@ window.__ModuleLoader__.load({
           window.addEventListener('pointerdown', onPointerDown)
           return () => window.removeEventListener('pointerdown', onPointerDown)
         }, [open])
+        React.useEffect(() => {
+          if (!slashOpen) return undefined
+          const onKeydown = event => {
+            // DSH 会把 Enter 解释为发送。斜杠菜单打开时必须在 window 捕获阶段吞掉按键，
+            // 否则“插入”与“发送”会在同一次 keydown 中同时发生。
+            const consume = () => { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.() }
+            if (event.key === 'Escape') { consume(); setSlashOpen(false); return }
+            if (event.key === 'ArrowDown') { consume(); setSlashActiveIndex(index => Math.min(slashMatches.length - 1, index + 1)); return }
+            if (event.key === 'ArrowUp') { consume(); setSlashActiveIndex(index => Math.max(0, index - 1)); return }
+            if (event.key === 'Enter' && slashMatches[slashActiveIndex]) { consume(); void useVaultItem(slashMatches[slashActiveIndex], 'replace') }
+          }
+          window.addEventListener('keydown', onKeydown, true)
+          return () => window.removeEventListener('keydown', onKeydown, true)
+        }, [slashOpen, slashActiveIndex, slashMatches])
         React.useEffect(() => {
           const move = event => {
             if (!drag.current) return
@@ -1222,6 +1415,64 @@ window.__ModuleLoader__.load({
             setNotice(`已导入「${method.title}」到我的私有方法，可立即用于增强。`)
             return true
           } catch (error) { setError(String(error?.message || error)); return false }
+        }
+        const saveToVault = async (body, provenance = {}) => {
+          if (!assetProvider) { setWarn('当前宿主未连接灵感库。'); return }
+          try {
+            const item = await assetProvider.save({ id: vaultEditingId || undefined, title: vaultTitle, body, tags: vaultTags, note: vaultNote, type: vaultType, project: vaultProject, parentId: vaultParentId, thinkingKind: vaultThinkingKind, epistemicStatus: vaultEpistemicStatus, rationale: vaultRationale, nextAction: vaultNextAction, relatedIds: vaultRelatedIds, dialectic: vaultThinkingKind === 'dialectic' ? vaultDialectic : undefined, verification: vaultThinkingKind === 'assumption' || vaultEpistemicStatus === 'to_verify' ? vaultVerification : undefined, provenance: { ...provenance, ...(assetContextReceipt ? { contextAssetIds: assetContextReceipt.ids } : {}) } })
+            const action = vaultEditingId ? '已更新' : '已保存'
+            setVaultTitle(''); setVaultTags(''); setVaultNote(''); setVaultBody(''); setVaultParentId(''); setVaultEditingId(''); setVaultFormOpen(false); setVaultThinkingKind('conclusion'); setVaultEpistemicStatus('inferred'); setVaultRationale(''); setVaultNextAction(''); setVaultRelatedIds([]); setVaultDialectic({ thesis: '', antithesis: '', synthesis: '' }); setVaultVerification({ status: 'pending', evidence: '', checkedAt: 0 })
+            setNotice(`${action}「${item.title}」。`)
+          } catch (error) { setError(String(error?.message || error)) }
+        }
+        const useVaultItem = async (item, mode = 'append') => {
+          if (!item?.body) return
+          const current = composer?.getDraft?.() || ''
+          const slashInvocation = current.match(/^\/pk(?:\s+.*|:.*)?$/i)
+          const next = slashInvocation ? item.body : mode === 'replace' ? item.body : withPrefix(current, item.body)
+          composer?.write(next)
+          await assetProvider?.markUsed?.(item.id)
+          setUndoDraft({ before: draft, after: next })
+          setNotice(`已${slashInvocation || mode === 'replace' ? '插入' : '追加'}「${item.title}」到消息框，可编辑后发送。`)
+          setSlashOpen(false); setOpen(false)
+        }
+        const selectedMessageBody = () => activeMessages.map(item => `${item.role === 'user' ? '用户' : '助手'}：${cleanContext(item.text)}`).join('\n\n')
+        const saveSelectedMessages = () => saveToVault(selectedMessageBody(), { kind: 'conversation-selection', messageIds: activeMessages.map(item => item.id) })
+        const quoteSelectedMessages = () => {
+          if (!activeMessages.length) return
+          const quoted = selectedMessageBody().split('\n').map(line => `> ${line}`).join('\n')
+          const next = withPrefix(composer?.getDraft?.() || '', quoted)
+          composer?.write(next)
+          setUndoDraft({ before: draft, after: next })
+          setNotice(`已引用 ${activeMessages.length} 条对话到消息框，可继续追问或改写。`)
+          setOpen(false)
+        }
+        const deriveVaultItem = item => {
+          setVaultTitle(`${item.title} · 变体`); setVaultBody(item.body); setVaultTags((item.tags || []).join(', ')); setVaultType(item.type || 'prompt'); setVaultProject(item.project || ''); setVaultParentId(item.id); setVaultEditingId(''); setVaultFormOpen(true); setVaultThinkingKind(item.thinkingKind || 'conclusion'); setVaultEpistemicStatus(item.epistemicStatus || 'inferred'); setVaultRationale(item.rationale || ''); setVaultNextAction(item.nextAction || ''); setVaultRelatedIds(item.relatedIds || []); setVaultDialectic(item.dialectic || { thesis: '', antithesis: '', synthesis: '' }); setVaultVerification(item.verification || { status: 'pending', evidence: '', checkedAt: 0 })
+          setNotice(`已载入「${item.title}」作为派生版本；编辑后保存即可保留来源关系。`)
+        }
+        const editVaultItem = item => {
+          setVaultEditingId(item.id); setVaultTitle(item.title); setVaultBody(item.body); setVaultTags((item.tags || []).join(', ')); setVaultNote(item.note || ''); setVaultType(item.type || 'prompt'); setVaultProject(item.project || ''); setVaultParentId(item.parentId || ''); setVaultFormOpen(true); setVaultThinkingKind(item.thinkingKind || 'conclusion'); setVaultEpistemicStatus(item.epistemicStatus || 'inferred'); setVaultRationale(item.rationale || ''); setVaultNextAction(item.nextAction || ''); setVaultRelatedIds(item.relatedIds || []); setVaultDialectic(item.dialectic || { thesis: '', antithesis: '', synthesis: '' }); setVaultVerification(item.verification || { status: 'pending', evidence: '', checkedAt: 0 })
+          setNotice(`正在编辑「${item.title}」。`)
+        }
+        const copyVaultItem = async item => {
+          try { await navigator.clipboard?.writeText(item.body); await assetProvider?.markUsed?.(item.id); setNotice(`已复制「${item.title}」。`) }
+          catch { setWarn('复制失败，请手动选择内容复制。') }
+        }
+        const exportVault = async () => {
+          try {
+            const contents = await assetProvider?.export?.()
+            const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }))
+            const link = document.createElement('a')
+            link.href = url; link.download = 'dsh-promptkit-vault.json'; link.click(); URL.revokeObjectURL(url)
+            setNotice('已导出灵感库备份。')
+          } catch (error) { setError(String(error?.message || error)) }
+        }
+        const importVault = async () => {
+          try {
+            const items = await assetProvider?.import?.(vaultBackup)
+            setVaultBackup(''); setNotice(`已追加恢复 ${items?.length || 0} 条灵感资产。`)
+          } catch (error) { setError(String(error?.message || error)) }
         }
         const importPrivateMethod = async () => {
           try {
@@ -1401,7 +1652,9 @@ window.__ModuleLoader__.load({
             if (!enhancer) { setNotice('未注入语义增强模型（enhancer），仅支持轻量增强。'); return }
             setLoading(true)
             try {
-              let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', referencedFiles.length ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。` : ''].filter(Boolean).join('\n\n')
+              const contextAssets = vaultItems.filter(item => assetContextIds.includes(item.id))
+              const assetContextText = contextAssets.length ? ['思考卡上下文（请区分事实、推断和待验证假设；不要把待核实或已被推翻的内容表述为事实或结论）：', ...contextAssets.map((item, index) => [`[${index + 1}] ${item.title}`, `类型：${item.thinkingKind || 'conclusion'}；认识状态：${item.epistemicStatus || 'inferred'}${item.verification ? `；验证结果：${item.verification.status}` : ''}`, item.verification?.evidence ? `验证证据：${item.verification.evidence}` : '', item.rationale ? `为什么重要：${item.rationale}` : '', item.nextAction ? `下一步：${item.nextAction}` : '', `内容：${item.body}`].filter(Boolean).join('\n'))].join('\n\n') : ''
+              let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', assetContextText, referencedFiles.length ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。` : ''].filter(Boolean).join('\n\n')
               let remembered = ''
               if (useMemoryContext && searchMemory) {
                 remembered = memoryPreview.status === 'ready' && memoryPreview.query === original ? memoryPreview.text : await loadMemory(original)
@@ -1415,6 +1668,7 @@ window.__ModuleLoader__.load({
               recordUsage({ kind: 'semantic', method: matchedMethod?.title })
               setLastEnhancement({ kind: 'semantic', method: matchedMethod?.title })
               setMemoryReceipt(useMemoryContext ? { used: Boolean(remembered), text: remembered, sources: memoryPreview.query === original ? memoryPreview.sources : [] } : null)
+              setAssetContextReceipt(contextAssets.length ? { ids: contextAssets.map(item => item.id), titles: contextAssets.map(item => item.title) } : null)
               setOutcomePending({ kind: 'semantic', method: matchedMethod?.title })
               setNotice(`语义增强完成${body.model ? `（${body.model}）` : ''}；${selection?.text ? '选中片段' : '草稿'}已替换，可在此撤销或对比原稿。`)
             } catch (error) {
@@ -1439,6 +1693,85 @@ window.__ModuleLoader__.load({
         const recommended = autoMethods
         const recentMethods = recentMethodIds.map(id => methods.find(method => method.id === id)).filter(Boolean)
         const libraryMatches = methods.filter(method => !librarySearch.trim() || `${method.title} ${method.purpose} ${method.tags}`.toLowerCase().includes(librarySearch.trim().toLowerCase()))
+        const vaultProjects = [...new Set(vaultItems.map(item => item.project).filter(Boolean))].sort()
+        const vaultMatches = vaultItems.filter(item => (!vaultProjectFilter || item.project === vaultProjectFilter) && (!vaultSearch.trim() || `${item.title} ${item.body} ${item.note || ''} ${(item.tags || []).join(' ')}`.toLowerCase().includes(vaultSearch.trim().toLowerCase())))
+        const vaultCaptureBody = vaultBody.trim() || draft.trim()
+        const thinkingLabel = { question: '问题', goal: '目标', fact: '事实', assumption: '假设', decision: '决策', method: '方法', conclusion: '结论', action: '行动', dialectic: '辩证卡' }
+        const epistemicLabel = { verified: '已证实', inferred: '推断', to_verify: '待核实', preference: '个人偏好' }
+        const runNextAction = item => {
+          if (!item.nextAction) return
+          const next = withPrefix(composer?.getDraft?.() || '', item.nextAction)
+          composer?.write(next); setNotice(`已将「${item.title}」的下一步写入草稿。`); setVaultOpen(false)
+        }
+        const toggleAssetContext = id => setAssetContextIds(ids => ids.includes(id) ? ids.filter(itemId => itemId !== id) : ids.length >= 3 ? ids : [...ids, id])
+        const graphPanel = (() => {
+          const focus = vaultItems.find(item => item.id === vaultGraphFocusId)
+          if (!focus) return null
+          const related = vaultItems.filter(item => focus.relatedIds?.includes(item.id) || item.relatedIds?.includes(focus.id) || item.parentId === focus.id || focus.parentId === item.id)
+          return h('div', { style: { padding: '9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, fontSize: '11px' } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between' } }, [h('strong', { key: 'title' }, `关系视图：${focus.title}`), h('button', { key: 'close', onClick: () => setVaultGraphFocusId(''), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer' } }, '关闭')]), h('div', { key: 'nodes', style: { marginTop: '6px', color: C.slate, lineHeight: 1.5 } }, related.length ? related.map(item => `↔ ${item.title}`).join('\n') : '暂无关联资产；编辑时可在“关联”列表中建立关系。')])
+        })()
+        const versionDiff = item => {
+          const parent = item.parentId ? vaultItems.find(candidate => candidate.id === item.parentId) : null
+          return h('div', { style: { marginTop: '7px', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surfaceAlt, fontSize: '10px', lineHeight: 1.45 } }, parent ? [h('strong', { key: 'title', style: { color: C.teal } }, `与「${parent.title}」对比`), h('div', { key: 'grid', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', marginTop: '5px' } }, [h('div', { key: 'old', style: { whiteSpace: 'pre-wrap', color: C.muted, maxHeight: '96px', overflow: 'auto' } }, parent.body), h('div', { key: 'new', style: { whiteSpace: 'pre-wrap', color: C.ink, maxHeight: '96px', overflow: 'auto' } }, item.body)])] : '此资产没有可比较的父版本。')
+        }
+        const vaultPanel = assetProvider ? h('aside', { key: 'vault-panel', role: 'dialog', 'aria-label': '灵感库', style: { position: 'fixed', top: 0, right: 0, width: 'min(390px, calc(100vw - 24px))', height: '100vh', overflowY: 'auto', padding: '18px', boxSizing: 'border-box', borderLeft: `1px solid ${C.tealLine}`, background: C.surface, boxShadow: '-16px 0 38px var(--pk-shadow-lg)', zIndex: 60, display: 'grid', alignContent: 'start', gap: '10px' } }, [
+          h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [h('strong', { style: { fontSize: '16px' } }, '灵感库'), h('button', { onClick: () => { setVaultOpen(false); setMode('enhance') }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '13px', fontWeight: 800 } }, '关闭 ×')]),
+          h('details', { key: 'capture-details', open: vaultFormOpen, onToggle: event => setVaultFormOpen(event.currentTarget.open), style: { border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [h('summary', { style: { padding: '10px 11px', color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, vaultEditingId ? '编辑灵感资产' : vaultParentId ? '保存派生版本' : '新建或整理灵感（低频）'),
+          h('div', { key: 'capture', style: { padding: '0 11px 11px' } }, [
+            h('strong', { key: 'title', style: { fontSize: '13px', color: C.ink } }, '捕获当前灵感'),
+            h('div', { key: 'hint', style: { marginTop: '3px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, `填写正文即可保存；也可留空直接保存 DSH 主输入框草稿（当前 ${draft.trim().length} 字）。数据仅存于本地浏览器。`),
+            h('div', { key: 'fields', style: { display: 'grid', gridTemplateColumns: '1fr 86px', gap: '6px', marginTop: '8px' } }, [
+              h('input', { key: 'name', value: vaultTitle, onChange: e => setVaultTitle(e.target.value), placeholder: '备注名（可选）', style: { ...workbenchStyle.input, padding: '7px 8px', fontSize: '11px' } }),
+              h('select', { key: 'type', value: vaultType, onChange: e => setVaultType(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [h('option', { value: 'prompt' }, '成品 Prompt'), h('option', { value: 'snippet' }, '对话片段'), h('option', { value: 'insight' }, '结论卡')]),
+            ]),
+            h('input', { key: 'tags', value: vaultTags, onChange: e => setVaultTags(e.target.value), placeholder: '标签，逗号分隔（如：代码, 评审）', style: { ...workbenchStyle.input, marginTop: '6px', padding: '7px 8px', fontSize: '11px' } }),
+            h('input', { key: 'project', value: vaultProject, onChange: e => setVaultProject(e.target.value), placeholder: '项目集合（可选，例如：PromptKit 发布）', style: { ...workbenchStyle.input, marginTop: '6px', padding: '7px 8px', fontSize: '11px' } }),
+            h('div', { key: 'thinking', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' } }, [
+              h('select', { value: vaultThinkingKind, onChange: e => setVaultThinkingKind(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [['question','问题'],['goal','目标'],['fact','事实'],['assumption','假设'],['decision','决策'],['method','方法'],['conclusion','结论'],['action','行动'],['dialectic','辩证卡']].map(([value,label]) => h('option', { key: value, value }, label))),
+              h('select', { value: vaultEpistemicStatus, onChange: e => setVaultEpistemicStatus(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [['verified','已证实'],['inferred','推断'],['to_verify','待核实'],['preference','个人偏好']].map(([value,label]) => h('option', { key: value, value }, label))),
+            ]),
+            h('textarea', { value: vaultRationale, onChange: e => setVaultRationale(e.target.value), placeholder: '为什么重要 / 我的解释（可选）', style: { ...workbenchStyle.input, width: '100%', minHeight: '42px', marginTop: '6px', resize: 'vertical', fontSize: '11px' } }),
+            h('textarea', { value: vaultNextAction, onChange: e => setVaultNextAction(e.target.value), placeholder: '下一步行动（可选，例如：验证 Controller 映射）', style: { ...workbenchStyle.input, width: '100%', minHeight: '42px', marginTop: '6px', resize: 'vertical', fontSize: '11px' } }),
+            (vaultThinkingKind === 'assumption' || vaultEpistemicStatus === 'to_verify') ? h('div', { key: 'verification', style: { display: 'grid', gap: '6px', marginTop: '6px', padding: '7px', border: `1px dashed ${C.tealLine}`, borderRadius: '8px' } }, [h('select', { value: vaultVerification.status, onChange: e => setVaultVerification(value => ({ ...value, status: e.target.value, checkedAt: e.target.value === 'pending' ? 0 : Date.now() })), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [['pending','待验证'],['confirmed','已证实'],['refuted','已被推翻'],['inconclusive','暂无结论']].map(([value,label]) => h('option', { key: value, value }, label))), h('textarea', { value: vaultVerification.evidence, onChange: e => setVaultVerification(value => ({ ...value, evidence: e.target.value })), placeholder: '验证证据或结果（可选）', style: { ...workbenchStyle.input, width: '100%', minHeight: '42px', resize: 'vertical', fontSize: '11px' } })]) : null,
+            vaultThinkingKind === 'dialectic' ? h('div', { key: 'dialectic', style: { display: 'grid', gap: '5px', marginTop: '6px' } }, [
+              h('textarea', { key: 'thesis', value: vaultDialectic.thesis || '', onChange: e => setVaultDialectic(value => ({ ...value, thesis: e.target.value })), placeholder: '观点', style: { ...workbenchStyle.input, width: '100%', minHeight: '38px', resize: 'vertical', fontSize: '11px' } }),
+              h('textarea', { key: 'antithesis', value: vaultDialectic.antithesis || '', onChange: e => setVaultDialectic(value => ({ ...value, antithesis: e.target.value })), placeholder: '反观点', style: { ...workbenchStyle.input, width: '100%', minHeight: '38px', resize: 'vertical', fontSize: '11px' } }),
+              h('textarea', { key: 'synthesis', value: vaultDialectic.synthesis || '', onChange: e => setVaultDialectic(value => ({ ...value, synthesis: e.target.value })), placeholder: '当前综合', style: { ...workbenchStyle.input, width: '100%', minHeight: '38px', resize: 'vertical', fontSize: '11px' } }),
+            ]) : null,
+            vaultItems.length ? h('select', { multiple: true, value: vaultRelatedIds, onChange: e => setVaultRelatedIds([...e.target.selectedOptions].map(option => option.value)), style: { width: '100%', minHeight: '54px', marginTop: '6px', border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '10px' } }, vaultItems.filter(item => item.id !== vaultEditingId).map(item => h('option', { key: item.id, value: item.id }, `关联：${item.title}`))) : null,
+            h('textarea', { key: 'body', value: vaultBody, onChange: e => setVaultBody(e.target.value), placeholder: '灵感正文（支持 $...$ 或 $$...$$ LaTeX；留空时保存 DSH 主输入框草稿）', style: { ...workbenchStyle.input, width: '100%', minHeight: '66px', marginTop: '6px', resize: 'vertical', fontSize: '11px', lineHeight: 1.45 } }),
+            h('div', { key: 'actions', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '7px' } }, [
+              h('button', { key: 'selection', className: 'pk-btn', disabled: !composer?.getSelection?.()?.text, onClick: () => saveToVault(composer.getSelection().text, { kind: 'composer-selection' }), style: { ...workbenchStyle.action, opacity: composer?.getSelection?.()?.text ? 1 : .5 } }, '保存选中片段'),
+              h('button', { key: 'draft', className: 'pk-btn', disabled: !vaultCaptureBody, onClick: () => saveToVault(vaultCaptureBody, { kind: vaultBody.trim() ? 'vault-manual-body' : 'composer-draft' }), style: { ...workbenchStyle.actionPrimary, opacity: vaultCaptureBody ? 1 : .5 } }, vaultEditingId ? '保存修改' : vaultParentId ? '保存派生版本' : vaultBody.trim() ? '保存填写内容' : '保存当前草稿'),
+            ]),
+            activeMessages.length ? h('div', { key: 'conversation-actions', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' } }, [
+              h('button', { key: 'save-conversation', onClick: saveSelectedMessages, style: { ...workbenchStyle.action, fontSize: '11px' } }, `保存已选对话（${activeMessages.length}）`),
+              h('button', { key: 'quote-conversation', onClick: quoteSelectedMessages, style: { ...workbenchStyle.action, fontSize: '11px' } }, `引用已选对话（${activeMessages.length}）`),
+            ]) : h('div', { key: 'conversation-hint', style: { marginTop: '6px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, '需要保存或引用对话时，先在「智能增强 → 加对话」中勾选消息。'),
+            noticeState ? h('div', { key: 'result', role: 'status', style: { marginTop: '7px', color: noticeState.kind === 'error' ? C.red : C.teal, fontSize: '11px', lineHeight: 1.4 } }, noticeState.text) : null,
+          ])]),
+          h('div', { key: 'filters', style: { display: 'grid', gridTemplateColumns: vaultProjects.length ? '1fr 120px' : '1fr', gap: '6px' } }, [
+            h('input', { key: 'search', value: vaultSearch, onChange: e => setVaultSearch(e.target.value), placeholder: '搜索标题、标签、正文或备注', style: { ...workbenchStyle.input, padding: '8px 9px', fontSize: '12px' } }),
+            vaultProjects.length ? h('select', { key: 'project-filter', value: vaultProjectFilter, onChange: e => setVaultProjectFilter(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [h('option', { value: '' }, '全部项目'), ...vaultProjects.map(project => h('option', { key: project, value: project }, project))]) : null,
+          ]),
+          graphPanel,
+          h('details', { key: 'backup', style: { padding: '8px 9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface, fontSize: '11px' } }, [
+            h('summary', { style: { color: C.teal, cursor: 'pointer', fontWeight: 800 } }, '备份或恢复灵感库'),
+            h('button', { key: 'export', onClick: exportVault, style: { ...workbenchStyle.action, marginTop: '7px', fontSize: '11px' } }, '导出 JSON 备份'),
+            h('textarea', { key: 'import-text', value: vaultBackup, onChange: e => setVaultBackup(e.target.value), placeholder: '粘贴此前导出的 JSON；恢复只追加，不会覆盖现有资产。', style: { ...workbenchStyle.input, width: '100%', minHeight: '55px', marginTop: '7px', resize: 'vertical', fontSize: '10px' } }),
+            h('button', { key: 'import', disabled: !vaultBackup.trim(), onClick: importVault, style: { ...workbenchStyle.action, marginTop: '5px', fontSize: '11px', opacity: vaultBackup.trim() ? 1 : .5 } }, '恢复备份'),
+          ]),
+          h('div', { key: 'items', style: { display: 'grid', gap: '6px', maxHeight: '290px', overflowY: 'auto' } }, vaultMatches.length ? vaultMatches.map(item => h('div', { key: item.id, style: { padding: '9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface } }, [
+            h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } }, [h('strong', { key: 'title', style: { fontSize: '12px', color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `${item.favorite ? '★ ' : ''}${item.title}`), h('button', { key: 'fav', onClick: () => assetProvider.toggleFavorite(item.id), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '12px' }, title: '收藏/取消收藏' }, item.favorite ? '取消收藏' : '收藏')]),
+            h('div', { key: 'meta', style: { marginTop: '3px', color: C.muted, fontSize: '10px' } }, `${thinkingLabel[item.thinkingKind] || '结论'} · ${epistemicLabel[item.epistemicStatus] || '推断'}${item.project ? ` · ${item.project}` : ''}${item.parentId ? ' · 派生版本' : ''}${item.tags?.length ? ` · #${item.tags.join(' #')}` : ''}`),
+            item.rationale ? h('div', { key: 'rationale', style: { marginTop: '4px', color: C.slate, fontSize: '10px', lineHeight: 1.4 } }, `为什么重要：${item.rationale}`) : null,
+            item.verification ? h('div', { key: 'verification', style: { marginTop: '4px', color: item.verification.status === 'refuted' ? C.red : C.slate, fontSize: '10px', lineHeight: 1.4 } }, `验证：${({ pending: '待验证', confirmed: '已证实', refuted: '已被推翻', inconclusive: '暂无结论' })[item.verification.status] || '待验证'}${item.verification.evidence ? ` · ${item.verification.evidence}` : ''}`) : null,
+            item.dialectic ? h('div', { key: 'dialectic', style: { marginTop: '4px', color: C.slate, fontSize: '10px', lineHeight: 1.4 } }, `观点：${item.dialectic.thesis || '—'} · 反观点：${item.dialectic.antithesis || '—'} · 综合：${item.dialectic.synthesis || '—'}`) : null,
+            h('div', { key: 'body', style: { marginTop: '5px', color: C.slate, fontSize: '11px', lineHeight: 1.45, maxHeight: '72px', overflow: 'auto' } }, h(LatexText, { text: item.body, block: true })),
+            h('div', { key: 'actions', style: { display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '7px' } }, [h('button', { key: 'append', onClick: () => useVaultItem(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '追加'), h('button', { key: 'context', disabled: !assetContextIds.includes(item.id) && assetContextIds.length >= 3, onClick: () => toggleAssetContext(item.id), style: { border: 0, background: 'transparent', color: assetContextIds.includes(item.id) ? C.teal : C.slate, cursor: !assetContextIds.includes(item.id) && assetContextIds.length >= 3 ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 800 } }, assetContextIds.includes(item.id) ? '✓ 用于增强' : '用于增强'), item.nextAction ? h('button', { key: 'next', onClick: () => runNextAction(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '执行下一步') : null, h('button', { key: 'replace', onClick: () => useVaultItem(item, 'replace'), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '填充'), h('button', { key: 'edit', onClick: () => editVaultItem(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '编辑'), h('button', { key: 'derive', onClick: () => deriveVaultItem(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '派生'), h('button', { key: 'relations', onClick: () => setVaultGraphFocusId(item.id), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '关系'), item.parentId ? h('button', { key: 'compare', onClick: () => setVaultCompareId(value => value === item.id ? '' : item.id), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, vaultCompareId === item.id ? '收起对比' : '版本对比') : null, h('button', { key: 'copy', onClick: () => copyVaultItem(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '复制'), h('button', { key: 'delete', onClick: () => assetProvider.remove(item.id), style: { marginLeft: 'auto', border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px' } }, '删除')]),
+            vaultCompareId === item.id ? versionDiff(item) : null,
+          ])) : h('div', { key: 'empty', style: { ...S.empty, padding: '22px 12px', fontSize: '12px' } }, '还没有灵感资产。保存一条草稿或选中片段开始积累。')),
+        ]) : null
         const rankedCommon = [...common].sort((a, b) => Number(methodUsage[b.id] || 0) - Number(methodUsage[a.id] || 0))
         const panelAbove = position.y > 370
         const panelMaxHeight = Math.max(250, Math.min(640, panelAbove ? position.y - 82 : window.innerHeight - position.y - 82))
@@ -1471,11 +1804,12 @@ window.__ModuleLoader__.load({
         const enhancementKinds = enhancer ? [['light', '轻量 · 零 Token'], ['semantic', '语义 · 模型']] : [['light', '轻量 · 零 Token']]
         const enhancerKindSection = h('div', { key: 'enhancer-kind-section', style: { marginTop: '10px' } }, [h('div', { key: 'kind', style: { display: 'grid', gridTemplateColumns: `repeat(${enhancementKinds.length},minmax(0,1fr))`, gap: '6px' } }, enhancementKinds.map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => setEnhancementKind(id), style: { padding: '7px', border: `1px solid ${enhancementKind === id ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: enhancementKind === id ? C.tealTintDeep : C.surface, color: enhancementKind === id ? C.teal : C.slate, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, label))), h('div', { key: 'description', style: { marginTop: '7px', color: C.slate, fontSize: '12px', lineHeight: 1.5 } }, enhancementKind === 'semantic' ? `模型会改写草稿${useConversationContext ? '，并引用已选对话' : ''}${useMemoryContext ? '，并检索项目记忆' : ''}。` : useMemoryContext ? '项目记忆已准备，但轻量档不会读取；切换到语义档后可预览并注入。' : '本地保守增强，最多采用一种合适方法，不产生额外模型调用。')])
         const memorySourceLabels = sources => sources?.length ? h('div', { style: { marginTop: '6px', display: 'grid', gap: '3px', color: C.muted } }, sources.map((source, index) => h('div', { key: `${source.kind}:${index}` }, `来源：${source.label}`))) : null
+        const assetContextNode = assetContextIds.length ? h('div', { style: { marginTop: '9px', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', lineHeight: 1.45 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } }, [h('strong', { key: 'title', style: { color: C.teal } }, `思考卡上下文（${assetContextIds.length}/3）`), h('button', { key: 'clear', onClick: () => setAssetContextIds([]), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '10px' } }, '清除')]), h('div', { key: 'items', style: { marginTop: '4px', color: C.slate } }, vaultItems.filter(item => assetContextIds.includes(item.id)).map(item => `• ${item.title}（${epistemicLabel[item.epistemicStatus] || '推断'}）`).join('\n')), h('div', { key: 'hint', style: { marginTop: '4px', color: C.muted } }, '仅在“语义 · 模型”增强时注入；发送前可随时移除。')]) : null
         const enhancerPanel = h('div', { key: 'enhancer', style: { marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [h('strong', { key: 'title', style: { fontSize: '13px', color: C.ink } }, '决策摘要'), useMemoryContext && enhancementKind === 'semantic' ? h('div', { key: 'memory-preview', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [h('strong', { key: 'label', style: { color: C.teal } }, '项目记忆预览'), h('button', { key: 'preview', className: 'pk-btn', disabled: memoryPreview.status === 'loading' || draft.trim().length < 8, onClick: () => loadMemory(draft).catch(() => {}), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, memoryPreview.status === 'loading' ? '检索中…' : '检索')]), memoryPreview.status === 'ready' ? h('div', { key: 'text', style: { marginTop: '6px', whiteSpace: 'pre-wrap' } }, [memoryPreview.text, memorySourceLabels(memoryPreview.sources)]) : memoryPreview.status === 'empty' ? h('div', { key: 'empty', style: { marginTop: '6px', color: C.muted } }, '未命中可用项目记忆。') : memoryPreview.status === 'error' ? h('div', { key: 'error', style: { marginTop: '6px', color: C.red } }, memoryPreview.text) : h('div', { key: 'hint', style: { marginTop: '6px', color: C.muted } }, draft.trim().length < 8 ? '草稿至少 8 个字符后可检索。' : '先预览命中的摘要，再决定是否交给模型。')]) : null, memoryReceipt ? h('div', { key: 'memory-receipt', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${memoryReceipt.used ? C.tealLine : C.amberLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, memoryReceipt.used ? [h('div', { key: 'text' }, `本次已注入项目记忆摘要：${memoryReceipt.text}`), memorySourceLabels(memoryReceipt.sources)] : '本次未注入项目记忆：未命中可用摘要。') : null, enhancementKind === 'light' ? h('div', { key: 'summary', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [methodSummaryNode, diffPreview, costNode, signalsNode]) : h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode), h('button', { key: 'enhance', className: 'pk-btn', disabled: !draft.trim() || (loading && enhancementKind !== 'semantic'), onClick: loading && enhancementKind === 'semantic' ? cancelEnhance : enhanceIntoInput, style: { width: '100%', marginTop: '10px', padding: '11px 14px', border: 0, borderRadius: '9px', background: draft.trim() && !loading ? C.actionBg : loading && enhancementKind === 'semantic' ? C.amber : C.tealLine, color: draft.trim() && !loading ? C.actionFg : loading && enhancementKind === 'semantic' ? C.onInk : C.muted, cursor: (draft.trim() && !loading) || (loading && enhancementKind === 'semantic') ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' } }, loading && enhancementKind === 'semantic' ? h(Spinner, { key: 'spin', text: '取消增强' }) : loading ? h(Spinner, { key: 'spin', text: '正在增强…' }) : '应用增强到消息框')])
         const vw = typeof window !== 'undefined' ? window.innerWidth : 1024
         const wide = vw >= 620
         const panelW = Math.min(wide ? 640 : 440, vw - 32)
-        const enhanceBody = h('div', { key: 'enhance-body', style: { display: 'grid', gridTemplateColumns: wide ? 'minmax(0,.8fr) minmax(0,1.2fr)' : 'minmax(0,1fr)', gap: '10px', alignItems: 'start', animation: 'pk-fade .2s ease' } }, [h('div', { key: 'config', style: { minWidth: 0 } }, [enhancerKindSection, draftStatusNode, requirementNode, contextLevelNode, contextNode]), h('div', { key: 'preview', style: { minWidth: 0 } }, [enhancerPanel])])
+        const enhanceBody = h('div', { key: 'enhance-body', style: { display: 'grid', gridTemplateColumns: wide ? 'minmax(0,.8fr) minmax(0,1.2fr)' : 'minmax(0,1fr)', gap: '10px', alignItems: 'start', animation: 'pk-fade .2s ease' } }, [h('div', { key: 'config', style: { minWidth: 0 } }, [enhancerKindSection, draftStatusNode, requirementNode, contextLevelNode, contextNode, assetContextNode]), h('div', { key: 'preview', style: { minWidth: 0 } }, [enhancerPanel])])
         const targetLeft = Math.max(8, Math.min(position.x + 52 - panelW, vw - 8 - panelW))
         const panelLeft = targetLeft - position.x
         const settingsSection = settingsOpen ? h('div', { key: 'settings-dropdown', 'data-settings-dropdown': 'true', style: { position: 'absolute', top: '52px', right: '14px', zIndex: 10, width: '320px', maxWidth: 'calc(100% - 28px)', padding: '11px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.surfaceAlt, boxShadow: C.shadowLg } },
@@ -1531,9 +1865,11 @@ window.__ModuleLoader__.load({
         ) : null
         const panel = open ? h('section', { className: 'pk-scroll', role: 'dialog', 'aria-label': '对话增强器', style: { position: 'absolute', left: panelLeft, ...(panelAbove ? { bottom: '66px' } : { top: '66px' }), width: `${panelW}px`, maxHeight: `${panelMaxHeight}px`, overflowY: 'auto', overscrollBehavior: 'contain', padding: '14px', border: `1px solid ${C.tealLine}`, borderRadius: '15px', background: C.surface, boxShadow: '0 20px 50px var(--pk-shadow-lg)', color: C.ink, zIndex: 30, animation: 'pk-pop .2s ease' } }, [
               h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'start' } }, [h('div', { key: 'copy' }, [h('strong', { key: 'title', style: { fontSize: '14px' } }, '对话增强器'), h('div', { key: 'sub', style: { marginTop: '3px', color: C.muted, fontSize: '12px', lineHeight: 1.45 } }, libraryOpen ? '从提示词库选择模板：可直接填入消息框，或基于当前草稿调用模型按该方法改造。' : mode === 'enhance' ? '把当前输入框提示词做增强或改写，只填入消息框，不会自动发送。' : '写问题即可直接处理；也可选择对话消息作为额外参考。生成内容只填入消息框，不会自动发送。')]), h('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 } }, [h('button', { key: 'gear', 'data-gear-button': 'true', onClick: () => { setSettingsOpen(value => !value); if (settingsOpen) setActiveSettingsPanel(null) }, style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: settingsOpen ? C.tealTint : 'transparent', color: C.teal, cursor: 'pointer' }, 'aria-label': '设置' }, h(Icon, { key: 'ic', name: 'settings', size: 16 })), h('button', { key: 'close', onClick: () => setOpen(false), style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: 'transparent', color: C.muted, cursor: 'pointer' }, 'aria-label': '关闭' }, h(Icon, { key: 'ic', name: 'close', size: 16 }))])]),
-              libraryOpen || mode === 'enhance' ? null : h('div', { key: 'summary', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', margin: '12px 0 5px', padding: '10px 11px', borderRadius: '10px', background: selectedChars > 1600 ? C.amberTint : C.tealTint, color: selectedChars > 1600 ? C.amber : C.teal, fontSize: '12px', fontWeight: 700 } }, [h('span', { key: 'count' }, activeMessages.length ? `已选 ${activeMessages.length} 条 · 约 ${selectedChars} 字符${selectedChars > 1600 ? ' · 建议精简' : ''}` : '未选择对话 · 可直接写问题'), msgs.length ? h('button', { key: 'recent', onClick: () => setSelected(msgs.slice(0, 4).map(item => item.id)), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 700 } }, '选择最近 4 条') : null]),
+              libraryOpen || vaultOpen || mode === 'enhance' ? null : h('div', { key: 'summary', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', margin: '12px 0 5px', padding: '10px 11px', borderRadius: '10px', background: selectedChars > 1600 ? C.amberTint : C.tealTint, color: selectedChars > 1600 ? C.amber : C.teal, fontSize: '12px', fontWeight: 700 } }, [h('span', { key: 'count' }, activeMessages.length ? `已选 ${activeMessages.length} 条 · 约 ${selectedChars} 字符${selectedChars > 1600 ? ' · 建议精简' : ''}` : '未选择对话 · 可直接写问题'), msgs.length ? h('button', { key: 'recent', onClick: () => setSelected(msgs.slice(0, 4).map(item => item.id)), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 700 } }, '选择最近 4 条') : null]),
               undoDraft ? h('div', { key: 'undo-area', style: { marginTop: '5px' } }, [h('button', { key: 'undo', onClick: () => { if (draft !== undoDraft.after) { setUndoDraft(null); setNotice('消息框内容已变化，无法撤销到之前状态。'); return } clearOutcomeAt('undo'); composer?.write(undoDraft.before); setUndoDraft(null); setNotice('已撤销上一次填入。') }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '撤销上一次填入'), h('details', { key: 'orig', style: { marginTop: '4px' } }, [h('summary', { style: { color: C.muted, fontSize: '11px', cursor: 'pointer', fontWeight: 700 } }, '查看原稿'), h('div', { style: { marginTop: '4px', padding: '8px', border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5, whiteSpace: 'pre-wrap', maxHeight: '120px', overflow: 'auto' } }, undoDraft.before || '（原稿为空）')])]) : null,
-              h('div', { key: 'mode', style: { display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '6px', marginTop: '12px' } }, [['enhance', '智能增强'], ['method', '手动选方法']].map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => { setMode(id); setLibraryOpen(false) }, style: { padding: '8px', border: `1px solid ${mode === id && !libraryOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: mode === id && !libraryOpen ? C.tealTintDeep : C.surface, color: mode === id && !libraryOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, label)).concat(h('button', { key: 'library', className: 'pk-btn', onClick: () => { const next = !libraryOpen; setMode(next ? 'library' : 'method'); setLibraryOpen(next) }, style: { padding: '8px', border: `1px solid ${libraryOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: libraryOpen ? C.tealTintDeep : C.surface, color: libraryOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, '方法库'))),
+              assetProvider ? h('div', { key: 'vault-quick', style: { display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px', marginTop: '10px' } }, [h('button', { key: 'save', disabled: !draft.trim(), onClick: () => saveToVault(draft, { kind: 'quick-capture' }), style: { padding: '8px', border: 0, borderRadius: '8px', background: draft.trim() ? C.actionBg : C.tealLine, color: draft.trim() ? C.actionFg : C.muted, cursor: draft.trim() ? 'pointer' : 'not-allowed', fontSize: '12px', fontWeight: 800 } }, '收藏当前草稿'), h('button', { key: 'manage', onClick: () => { setVaultOpen(true); setLibraryOpen(false) }, style: { padding: '8px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, '管理灵感库')]) : null,
+              h('div', { key: 'mode', style: { display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '6px', marginTop: '12px' } }, [['enhance', '智能增强'], ['method', '手动选方法']].map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => { setMode(id); setLibraryOpen(false); setVaultOpen(false) }, style: { padding: '8px', border: `1px solid ${mode === id && !libraryOpen && !vaultOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: mode === id && !libraryOpen && !vaultOpen ? C.tealTintDeep : C.surface, color: mode === id && !libraryOpen && !vaultOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, label)).concat(h('button', { key: 'library', className: 'pk-btn', onClick: () => { const next = !libraryOpen; setMode(next ? 'library' : 'method'); setLibraryOpen(next); setVaultOpen(false) }, style: { padding: '8px', border: `1px solid ${libraryOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: libraryOpen ? C.tealTintDeep : C.surface, color: libraryOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, '方法库'))),
+              vaultOpen ? vaultPanel : null,
               mode === 'enhance' && !libraryOpen ? stepperNode : null,
               settingsOpen ? settingsSection : null,
               libraryOpen ? h('div', { key: 'library-panel', style: { marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint, animation: 'pk-fade .2s ease' } }, [h('input', { key: 'search', value: librarySearch, onChange: event => setLibrarySearch(event.target.value), placeholder: '搜索方法、用途或标签', style: { ...workbenchStyle.input, padding: '8px 9px', fontSize: '12px' } }), libraryFavorites.length ? h('div', { key: 'favorites', style: { marginTop: '8px', color: C.slate, fontSize: '11px' } }, [h('strong', { key: 'label', style: { color: C.teal, fontSize: '13px', fontWeight: 800 } }, '我的收藏：'), ' ', libraryFavorites.map(id => methods.find(method => method.id === id)).filter(Boolean).map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => { setSelectedMethodId(method.id); setMode('method'); setLibraryOpen(false) }, style: { margin: '3px', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '3px 6px', fontSize: '10px' } }, method.title))]) : null, libraryHistory.length ? h('div', { key: 'history', style: { marginTop: '7px', color: C.slate, fontSize: '11px' } }, [h('strong', { key: 'label', style: { color: C.teal, fontSize: '13px', fontWeight: 800 } }, '最近生成：'), ' ', libraryHistory.slice(0, 3).map(item => h('button', { key: `${item.id}:${item.at}`, className: 'pk-btn', onClick: () => { setSelectedMethodId(item.id); setMode('method'); if (item.question) setRequirement(item.question); setLibraryOpen(false) }, style: { margin: '3px', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '3px 6px', fontSize: '10px' } }, item.title || '未命名方法'))]) : null, h('div', { key: 'matches', style: { display: 'grid', gap: '5px', maxHeight: '180px', overflowY: 'auto', marginTop: '8px' } }, libraryMatches.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => { setSelectedMethodId(method.id); setMode('method'); setLibraryOpen(false) }, style: { padding: '10px 11px', border: `1px solid ${method.id === selectedMethodId ? C.tealLineActive : C.tealLine}`, borderRadius: '10px', background: method.id === selectedMethodId ? C.tealTintDeep : C.surface, textAlign: 'left', color: C.ink, cursor: 'pointer', fontSize: '12px' } }, [h('strong', { key: 'title', style: { fontSize: '12px', fontWeight: 800 } }, method.title), h('span', { key: 'meta', style: { marginLeft: '6px', color: C.muted, fontSize: '11px' } }, method.purpose || method.category)])))] ) : null,
@@ -1541,10 +1877,16 @@ window.__ModuleLoader__.load({
               mode === 'enhance' ? enhanceBody : null,
               mode === 'method' ? h('div', { key: 'method-config', style: { animation: 'pk-fade .2s ease' } }, [draftStatusNode, requirementNode, contextLevelNode, contextNode]) : null,
               lastEnhancement ? h('div', { key: 'feedback', style: { marginTop: '12px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint, color: C.slate, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' } }, [h(Icon, { key: 'ck', name: 'check', size: 14, style: { color: C.teal } }), h('span', { key: 'label', style: { flex: 1 } }, '增强完成，可在此撤销或反馈'), h('button', { key: 'up', onClick: () => saveFeedback('up'), title: '有用', 'aria-label': '有用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-u', name: 'thumbsUp', size: 15 })), h('button', { key: 'down', onClick: () => saveFeedback('down'), title: '没用', 'aria-label': '没用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-d', name: 'thumbsDown', size: 15 }))]) : null,
-              h('div', { key: 'methods', style: { display: mode === 'method' ? 'block' : 'none', marginTop: '12px', paddingTop: '10px', borderTop: `1px solid ${C.divide}` } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '4px' } }, [h('div', { key: 'label', style: { color: C.muted, fontSize: '13px', fontWeight: 800 } }, showAllMethods ? '全部思考方法' : '常用思考方法'), h('button', { key: 'toggle', disabled: loading, onClick: () => setShowAllMethods(value => !value), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '13px', fontWeight: 800 } }, showAllMethods ? '返回常用 3 个' : `全部方法（${methods.length}）`)]), h('div', { key: 'tip', style: { marginBottom: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.4 } }, requirement.trim() && recommended.length ? `推荐：${recommended.map(method => method.title).join('、')}；常用三种方法始终可选。` : '默认提供三种常用方法；也可以展开全部方法。'), recentMethods.length ? h('div', { key: 'recent', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' } }, recentMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setSelectedMethodId(method.id), style: { border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '4px 7px', fontSize: '10px', fontWeight: 700 } }, `最近：${method.title}`))) : null, methodCards, structurePreview, methodFooter]),
+              h('div', { key: 'methods', style: { display: mode === 'method' ? 'block' : 'none', marginTop: '12px', paddingTop: '10px', borderTop: `1px solid ${C.divide}` } }, [
+                h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '4px' } }, [h('div', { key: 'label', style: { color: C.muted, fontSize: '13px', fontWeight: 800 } }, showAllMethods ? '全部思考方法' : '常用思考方法'), h('button', { key: 'toggle', disabled: loading, onClick: () => setShowAllMethods(value => !value), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '13px', fontWeight: 800 } }, showAllMethods ? '返回常用 3 个' : `全部方法（${methods.length}）`)]),
+                h('div', { key: 'tip', style: { marginBottom: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.4 } }, requirement.trim() && recommended.length ? `推荐：${recommended.map(method => method.title).join('、')}；常用三种方法始终可选。` : '默认提供三种常用方法；也可以展开全部方法。'),
+                recentMethods.length ? h('div', { key: 'recent', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' } }, recentMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setSelectedMethodId(method.id), style: { border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '4px 7px', fontSize: '10px', fontWeight: 700 } }, `最近：${method.title}`))) : null,
+                methodCards, structurePreview, methodFooter,
+              ]),
               noticeState ? h('div', { key: 'notice', role: 'status', 'aria-live': 'polite', style: { marginTop: '10px', padding: '9px 11px', borderRadius: '8px', border: `1px solid ${noticeState.kind === 'error' ? C.red : noticeState.kind === 'warn' ? C.amberLine : C.tealLine}`, background: noticeState.kind === 'error' ? C.redTint : noticeState.kind === 'warn' ? C.amberTint : C.tealTint, color: noticeState.kind === 'error' ? C.red : noticeState.kind === 'warn' ? C.amber : C.teal, fontSize: '12px', lineHeight: 1.45 } }, noticeState.text) : null,
             ]) : null
-        return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 30 } }, [h(GlobalStyle, { key: 'gcss' }), h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: event => { suppressClick.current = false; drag.current = { dx: event.clientX - position.x, dy: event.clientY - position.y, moved: false } }, onClick: () => { if (suppressClick.current) { suppressClick.current = false; return } setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
+        const slashMenu = slashOpen ? h('div', { key: 'slash-menu', role: 'listbox', style: { position: 'fixed', right: '76px', bottom: '86px', width: 'min(360px, calc(100vw - 32px))', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 61 } }, [h('div', { key: 'label', style: { padding: '4px 6px 7px', color: C.muted, fontSize: '11px' } }, `灵感库 · /pk ${vaultSearch} · ↑↓ 选择，Enter 插入`), ...(slashMatches.length ? slashMatches.map((item, index) => h('button', { key: item.id, role: 'option', 'aria-selected': index === slashActiveIndex, onClick: () => useVaultItem(item, 'replace'), style: { width: '100%', padding: '8px', border: 0, borderRadius: '7px', background: index === slashActiveIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer' } }, [h('strong', { key: 'title', style: { fontSize: '12px' } }, item.title), h('div', { key: 'meta', style: { marginTop: '2px', color: C.muted, fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, item.tags?.length ? `#${item.tags.join(' #')}` : item.type)])) : [h('div', { key: 'empty', style: { padding: '10px 6px', color: C.muted, fontSize: '11px' } }, '未找到匹配灵感；继续输入关键词或按 Esc。')])]) : null
+        return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 30 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: event => { suppressClick.current = false; drag.current = { dx: event.clientX - position.x, dy: event.clientY - position.y, moved: false } }, onClick: () => { if (suppressClick.current) { suppressClick.current = false; return } setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
       }
 
 
@@ -1555,6 +1897,7 @@ window.__ModuleLoader__.load({
       // 语义增强经 node 半区复用当前会话的模型路由；浏览器端不保存 API Key 或模型配置。
 
       const promptkitMethodProvider = new StaticMethodProvider()
+      const promptkitAssetProvider = new StaticAssetProvider()
 
       async function promptkitSearchMemory(sessionId, query) {
         const url = new URL('/memory-center/context-search', window.location.origin)
@@ -1618,12 +1961,12 @@ window.__ModuleLoader__.load({
         const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
         const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
         React.useEffect(() => { composer.notify(input?.draft ?? '') }, [input?.draft, composer])
-        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, composer, enhancer, messages, searchMemory })
+        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory })
       }
 
       // 方法工坊宿主：conversation.view 视图，onSend 走当前会话
       function PromptkitStudioHost({ sessionId, onSend }) {
-        return h(PromptStudio, { methodProvider: promptkitMethodProvider, onSend })
+        return h(PromptStudio, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, onSend })
       }
 
       const promptkitApply = ctx => {

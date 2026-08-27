@@ -8,10 +8,11 @@ import { withPrefix } from '../core/composer.js'
 //   methodProvider    (必填) MethodProvider：方法源 + compose + 收藏/历史持久化
 //   messages          (可选) [{ id, role:'user'|'assistant', text }]：当前对话，用于「从当前对话提取」
 //   onSend            (可选) (text) => Promise：直接发送生成的 Prompt（如发送到当前会话）
+//   assetProvider     (可选) AssetProvider：保存成品 Prompt 到本地灵感库
 //   composer          (可选) Composer 实例：把生成的 Prompt 写入目标输入框
 //   getRecentSessions (可选) () => Promise<Array<{ intent?, summary? }>>：追加最近会话摘要
 //   searchMemory      (可选) (query) => Promise<string>：按自然语言检索项目记忆
-function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSessions, searchMemory }) {
+function PromptStudio({ methodProvider, assetProvider, messages, onSend, composer, getRecentSessions, searchMemory }) {
   const [methods, setMethods] = React.useState([])
   const [loadingMethods, setLoadingMethods] = React.useState(true)
   const [methodId, setMethodId] = React.useState('')
@@ -92,12 +93,23 @@ function PromptStudio({ methodProvider, messages, onSend, composer, getRecentSes
     try { await navigator.clipboard?.writeText(preview.prompt); setMessage('Prompt 已复制到剪贴板。') }
     catch { setMessage('复制失败，请手动选择预览文本复制。') }
   }
+  const savePreview = async () => {
+    if (!assetProvider || !preview?.prompt) return
+    try {
+      const item = await assetProvider.save({
+        type: 'prompt', title: preview.method?.title || method?.title || '方法工坊成品 Prompt', body: preview.prompt,
+        tags: [preview.method?.category, '方法工坊'].filter(Boolean), provenance: { kind: 'prompt-studio', methodId: preview.method?.id || methodId },
+      })
+      setMessage(`已保存「${item.title}」到灵感库。`)
+    } catch (error) { setMessage(String(error?.message || error)) }
+  }
   const previewPanel = preview ? h(Panel, { key: 'preview', title: '发送前预览', hint: `${preview.estimated_chars} 字符` }, h('div', { style: { padding: '16px' } }, [
     h('pre', { key: 'text', style: { margin: 0, whiteSpace: 'pre-wrap', fontSize: '12px', lineHeight: 1.6, color: C.slate, maxHeight: '300px', overflow: 'auto', background: C.paper, padding: '12px', borderRadius: '6px', border: `1px solid ${C.divide}` } }, preview.prompt),
     h('div', { key: 'actions', style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '14px' } }, [
       onSend ? h('button', { key: 'send', className: 'pk-action-primary', onClick: () => onSend(preview.prompt).then(() => setMessage('已发送。')).catch(error => setMessage(String(error?.message || error))), style: workbenchStyle.actionPrimary }, '发送到当前会话') : null,
       composer ? h('button', { key: 'write', onClick: writePreview, style: { ...workbenchStyle.action, background: C.surface, color: C.ink } }, '写入输入框') : null,
       h('button', { key: 'copy', onClick: copyPreview, style: { ...workbenchStyle.action, background: C.surface, color: C.muted } }, '复制 Prompt'),
+      assetProvider ? h('button', { key: 'save', onClick: savePreview, style: { ...workbenchStyle.action, background: C.tealTint, color: C.teal } }, '保存至灵感库') : null,
     ]),
   ])) : null
   // 紧凑左栏单行列表渲染
