@@ -4,7 +4,8 @@ import { planPromptEnhancement, detectLanguage, methodChoice, recommendMethods, 
 import { withPrefix } from '../core/composer.js'
 import { useQuickEnhancerVaultState } from './quick-enhancer-vault-state.js'
 import { useFloatingLauncher } from './use-floating-launcher.js'
-import { mountNudgeMetrics, isNudgeKitEnabled, setNudgeKitEnabled } from './nudge-metrics.js'
+import { mountNudgeMetrics, getNudgeMetrics, isNudgeKitEnabled, setNudgeKitEnabled } from './nudge-metrics.js'
+import { nudgeEventName, studioBridgeEventName, studioBridgeStorageKey } from './promptkit-events.js'
 
 // ConversationQuickAction（对话快捷增强器 / QuickEnhancer）：开源核心组件，零宿主依赖。
 // 所有外部能力经 props 注入；未注入的可选能力对应 UI 自动隐藏或降级：
@@ -145,6 +146,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   // 宿主级 feature flag：prop nudgeEnabled 与 localStorage 开关取「与」，任一关闭即停发全部引导卡。
   const [nudgeKitOn, setNudgeKitOn] = React.useState(() => isNudgeKitEnabled(storageKey('nudge.enabled.v1')))
   const [confirmResetNudgeStats, setConfirmResetNudgeStats] = React.useState(false)
+  const [savingNudge, setSavingNudge] = React.useState(false)
   const nudgeOptoutKey = type => storageKey(`nudge.optout.${type}`)
   const isNudgeOptedOut = type => { try { const raw = JSON.parse(window.localStorage.getItem(nudgeOptoutKey(type)) || 'null'); return !!raw && typeof raw.until === 'number' && raw.until > Date.now() } catch { return false } }
   const setNudgeOptout = type => { try { window.localStorage.setItem(nudgeOptoutKey(type), JSON.stringify({ until: Date.now() + NUDGE_OPTOUT_DAYS * 864e5 })) } catch {} }
@@ -294,7 +296,8 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       const action = vaultEditingId ? '已更新' : '已保存'
       setVaultTitle(''); setVaultTags(''); setVaultNote(''); setVaultBody(''); setVaultParentId(''); setVaultEditingId(''); setVaultFormOpen(false); setVaultThinkingKind('conclusion'); setVaultEpistemicStatus('inferred'); setVaultRationale(''); setVaultNextAction(''); setVaultRelatedIds([]); setVaultDialectic({ thesis: '', antithesis: '', synthesis: '' }); setVaultVerification({ status: 'pending', evidence: '', checkedAt: 0 })
       setNotice(`${action}「${item.title}」。`)
-    } catch (error) { setError(String(error?.message || error)) }
+      return item
+    } catch (error) { setError(String(error?.message || error)); return null }
   }
   const useVaultItem = async (item, mode = 'append') => {
     if (!item?.body) return
@@ -494,7 +497,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   React.useEffect(() => { mountNudgeMetrics(storagePrefix) }, [storagePrefix])
   React.useEffect(() => { if (activeNudge) trackNudge(activeNudge.type, 'impress', { method_id: activeNudge.methodId }) }, [activeNudge])
   const trackNudge = (type, action, detail = {}) => {
-    try { window.dispatchEvent(new CustomEvent('promptkit.nudge', { detail: { type, action, ts: Date.now(), ...detail } })) } catch {}
+    try { window.dispatchEvent(new CustomEvent(nudgeEventName(storagePrefix), { detail: { type, action, ts: Date.now(), ...detail } })) } catch {}
   }
   const deriveVaultTitle = (src, method) => {
     const head = (src || '').trim().replace(/\s+/g, ' ').slice(0, 18)
@@ -530,19 +533,23 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     advanceNudge()
   }
   const onAcceptVault = async nudge => {
+    if (savingNudge) return
+    setSavingNudge(true)
+    const saved = await saveToVault(nudge.body, { kind: 'nudge-quick-save', method: nudge.methodTitle }, nudge.draftTitle)
+    setSavingNudge(false)
+    if (!saved) return
     trackNudge('vault', 'accept', { method_id: nudge.methodId })
     shownNudgeKeys.current.add('vault')
-    await saveToVault(nudge.body, { kind: 'nudge-quick-save', method: nudge.methodTitle }, nudge.draftTitle)
     advanceNudge()
   }
   // 草稿桥：把当前输入框内容一键带进方法工坊（Studio），零重填。
   // 经 window CustomEvent + sessionStorage 双通道：事件即时送达已挂载的 Studio，
   // sessionStorage 兜底 Studio 尚未挂载（视图未打开）的场景，挂载时再取。
-  const BRIDGE_KEY = 'promptkit.studio.pending-draft.v1'
+  const bridgeKey = studioBridgeStorageKey(storagePrefix)
   const openStudioWithDraft = (methodId = '') => {
     const payload = { draft, methodId: methodId || '' }
-    try { window.sessionStorage.setItem(BRIDGE_KEY, JSON.stringify(payload)) } catch {}
-    try { window.dispatchEvent(new CustomEvent('promptkit.studio.open-with-draft.v1', { detail: { ...payload, ts: Date.now() } })) } catch {}
+    try { window.sessionStorage.setItem(bridgeKey, JSON.stringify(payload)) } catch {}
+    try { window.dispatchEvent(new CustomEvent(studioBridgeEventName(storagePrefix), { detail: { ...payload, ts: Date.now() } })) } catch {}
     setNotice('草稿已带到方法工坊：切换到「高级方法工坊」即可看到已预填的问题，无需重写。')
   }
   // 用户级开关：写入 localStorage（宿主级持久关闭同一把钥匙），关闭时清空队列与当前卡。
@@ -751,7 +758,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   })) : h('div', { key: 'graph-empty', style: { color: C.muted, fontSize: '11px' } }, '暂无资产，保存后即可在图谱中查看关系。')
   const graphTab = h('div', { key: 'graph-tab', style: { display: 'grid', gap: '10px' } }, [
     h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' } }, [
-      h('div', null, [h('strong', { style: { fontSize: '13px' } }, '关系图谱 · 全貌'), h('div', { style: { marginTop: '2px', color: C.muted, fontSize: '10px' } }, '点击节点查看关联；异常已高亮（红=被推翻 / 黄=待验证 / 灰虚线=久未更新）。')]),
+      h('div', { key: 'copy' }, [h('strong', { key: 'title', style: { fontSize: '13px' } }, '关系图谱 · 全貌'), h('div', { key: 'hint', style: { marginTop: '2px', color: C.muted, fontSize: '10px' } }, '点击节点查看关联；异常已高亮（红=被推翻 / 黄=待验证 / 灰虚线=久未更新）。')]),
       vaultGraphFocusId ? h('button', { key: 'back', onClick: () => setVaultGraphFocusId(''), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800, flexShrink: 0 } }, '返回全貌') : null,
     ]),
     vaultGraphFocusId ? graphPanel : graphOverview,
@@ -763,29 +770,29 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   }
   const vaultPanel = assetProvider ? h('aside', { key: 'vault-panel', ref: panelRef, role: 'dialog', 'aria-label': '灵感库', style: { position: 'fixed', top: 0, right: 0, width: 'min(390px, calc(100vw - 24px))', height: '100vh', overflowY: 'auto', padding: '18px', boxSizing: 'border-box', borderLeft: `1px solid ${C.tealLine}`, background: C.surface, boxShadow: '-16px 0 38px var(--pk-shadow-lg)', zIndex: 20002, display: 'grid', alignContent: 'start', gap: '10px' } }, [
     h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', position: 'relative', zIndex: 1 } }, [
-      h('strong', { style: { fontSize: '16px' } }, '灵感库'),
-      h('button', { ref: closeBtnRef, onClick: () => { setVaultOpen(false) }, title: '关闭灵感库', style: { position: 'relative', zIndex: 2, flexShrink: 0, whiteSpace: 'nowrap', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', fontSize: '13px', fontWeight: 800, padding: '3px 11px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' } }, '关闭 ×'),
+      h('strong', { key: 'title', style: { fontSize: '16px' } }, '灵感库'),
+      h('button', { key: 'close', ref: closeBtnRef, onClick: () => { setVaultOpen(false) }, title: '关闭灵感库', style: { position: 'relative', zIndex: 2, flexShrink: 0, whiteSpace: 'nowrap', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', fontSize: '13px', fontWeight: 800, padding: '3px 11px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' } }, '关闭 ×'),
     ]),
     tabBar,
     vaultTab === 'vault' ? h('div', { key: 'vault-wrap', style: { display: 'grid', gap: '10px' } }, [
-    h('details', { key: 'capture-details', open: vaultFormOpen, onToggle: event => setVaultFormOpen(event.currentTarget.open), style: { border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [h('summary', { style: { padding: '10px 11px', color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, vaultEditingId ? '编辑灵感资产' : vaultParentId ? '保存派生版本' : '+ 新建灵感'),
+    h('details', { key: 'capture-details', open: vaultFormOpen, onToggle: event => setVaultFormOpen(event.currentTarget.open), style: { border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [h('summary', { key: 'summary', style: { padding: '10px 11px', color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, vaultEditingId ? '编辑灵感资产' : vaultParentId ? '保存派生版本' : '+ 新建灵感'),
     h('div', { key: 'capture', style: { padding: '0 11px 11px' } }, [
       h('strong', { key: 'title', style: { fontSize: '13px', color: C.ink } }, '捕获当前灵感'),
       h('div', { key: 'hint', style: { marginTop: '3px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, `填写正文即可保存；也可留空直接保存 DSH 主输入框草稿（当前 ${draft.trim().length} 字）。数据仅存于本地浏览器。`),
       h('div', { key: 'fields', style: { display: 'grid', gridTemplateColumns: '1fr 86px', gap: '6px', marginTop: '8px' } }, [
         h('input', { key: 'name', value: vaultTitle, onChange: e => setVaultTitle(e.target.value), placeholder: '备注名（可选）', style: { ...workbenchStyle.input, padding: '7px 8px', fontSize: '11px' } }),
-        h('select', { key: 'type', value: vaultType, onChange: e => setVaultType(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [h('option', { value: 'prompt' }, '成品 Prompt'), h('option', { value: 'snippet' }, '对话片段'), h('option', { value: 'insight' }, '结论卡')]),
+        h('select', { key: 'type', value: vaultType, onChange: e => setVaultType(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [h('option', { key: 'prompt', value: 'prompt' }, '成品 Prompt'), h('option', { key: 'snippet', value: 'snippet' }, '对话片段'), h('option', { key: 'insight', value: 'insight' }, '结论卡')]),
       ]),
       h('input', { key: 'tags', value: vaultTags, onChange: e => setVaultTags(e.target.value), placeholder: '标签，逗号分隔（如：代码, 评审）', style: { ...workbenchStyle.input, marginTop: '6px', padding: '7px 8px', fontSize: '11px' } }),
       h('input', { key: 'project', value: vaultProject, onChange: e => setVaultProject(e.target.value), placeholder: '项目集合（可选，例如：PromptKit 发布）', style: { ...workbenchStyle.input, marginTop: '6px', padding: '7px 8px', fontSize: '11px' } }),
       h('div', { key: 'thinking', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' } }, [
-        h('select', { value: vaultThinkingKind, onChange: e => setVaultThinkingKind(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [['question','问题'],['goal','目标'],['fact','事实'],['assumption','假设'],['decision','决策'],['method','方法'],['conclusion','结论'],['action','行动'],['dialectic','辩证卡']].map(([value,label]) => h('option', { key: value, value }, label))),
-        h('select', { value: vaultEpistemicStatus, onChange: e => setVaultEpistemicStatus(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [['verified','已证实'],['inferred','推断'],['to_verify','待核实'],['preference','个人偏好']].map(([value,label]) => h('option', { key: value, value }, label))),
+        h('select', { key: 'thinking-kind', value: vaultThinkingKind, onChange: e => setVaultThinkingKind(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [['question','问题'],['goal','目标'],['fact','事实'],['assumption','假设'],['decision','决策'],['method','方法'],['conclusion','结论'],['action','行动'],['dialectic','辩证卡']].map(([value,label]) => h('option', { key: value, value }, label))),
+        h('select', { key: 'epistemic-status', value: vaultEpistemicStatus, onChange: e => setVaultEpistemicStatus(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [['verified','已证实'],['inferred','推断'],['to_verify','待核实'],['preference','个人偏好']].map(([value,label]) => h('option', { key: value, value }, label))),
       ]),
       h('button', { key: 'suggest', onClick: () => { const suggestion = suggestThinkingCard(vaultBody || draft); setVaultThinkingKind(suggestion.kind); setVaultEpistemicStatus(suggestion.epistemic); setNotice('已给出本地分类建议，请自行确认后保存。') }, style: { ...workbenchStyle.action, marginTop: '6px', fontSize: '11px' } }, '按内容建议分类（本地）'),
-      h('textarea', { value: vaultRationale, onChange: e => setVaultRationale(e.target.value), placeholder: '为什么重要 / 我的解释（可选）', style: { ...workbenchStyle.input, width: '100%', minHeight: '42px', marginTop: '6px', resize: 'vertical', fontSize: '11px' } }),
-      h('textarea', { value: vaultNextAction, onChange: e => setVaultNextAction(e.target.value), placeholder: '下一步行动（可选，例如：验证 Controller 映射）', style: { ...workbenchStyle.input, width: '100%', minHeight: '42px', marginTop: '6px', resize: 'vertical', fontSize: '11px' } }),
-      (vaultThinkingKind === 'assumption' || vaultEpistemicStatus === 'to_verify') ? h('div', { key: 'verification', style: { display: 'grid', gap: '6px', marginTop: '6px', padding: '7px', border: `1px dashed ${C.tealLine}`, borderRadius: '8px' } }, [h('select', { value: vaultVerification.status, onChange: e => setVaultVerification(value => ({ ...value, status: e.target.value, checkedAt: e.target.value === 'pending' ? 0 : Date.now() })), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [['pending','待验证'],['confirmed','已证实'],['refuted','已被推翻'],['inconclusive','暂无结论']].map(([value,label]) => h('option', { key: value, value }, label))), h('textarea', { value: vaultVerification.evidence, onChange: e => setVaultVerification(value => ({ ...value, evidence: e.target.value })), placeholder: '验证证据或结果（可选）', style: { ...workbenchStyle.input, width: '100%', minHeight: '42px', resize: 'vertical', fontSize: '11px' } })]) : null,
+      h('textarea', { key: 'rationale', value: vaultRationale, onChange: e => setVaultRationale(e.target.value), placeholder: '为什么重要 / 我的解释（可选）', style: { ...workbenchStyle.input, width: '100%', minHeight: '42px', marginTop: '6px', resize: 'vertical', fontSize: '11px' } }),
+      h('textarea', { key: 'next-action', value: vaultNextAction, onChange: e => setVaultNextAction(e.target.value), placeholder: '下一步行动（可选，例如：验证 Controller 映射）', style: { ...workbenchStyle.input, width: '100%', minHeight: '42px', marginTop: '6px', resize: 'vertical', fontSize: '11px' } }),
+      (vaultThinkingKind === 'assumption' || vaultEpistemicStatus === 'to_verify') ? h('div', { key: 'verification', style: { display: 'grid', gap: '6px', marginTop: '6px', padding: '7px', border: `1px dashed ${C.tealLine}`, borderRadius: '8px' } }, [h('select', { key: 'status', value: vaultVerification.status, onChange: e => setVaultVerification(value => ({ ...value, status: e.target.value, checkedAt: e.target.value === 'pending' ? 0 : Date.now() })), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [['pending','待验证'],['confirmed','已证实'],['refuted','已被推翻'],['inconclusive','暂无结论']].map(([value,label]) => h('option', { key: value, value }, label))), h('textarea', { key: 'evidence', value: vaultVerification.evidence, onChange: e => setVaultVerification(value => ({ ...value, evidence: e.target.value })), placeholder: '验证证据或结果（可选）', style: { ...workbenchStyle.input, width: '100%', minHeight: '42px', resize: 'vertical', fontSize: '11px' } })]) : null,
       vaultThinkingKind === 'dialectic' ? h('div', { key: 'dialectic', style: { display: 'grid', gap: '5px', marginTop: '6px' } }, [
         h('textarea', { key: 'thesis', value: vaultDialectic.thesis || '', onChange: e => setVaultDialectic(value => ({ ...value, thesis: e.target.value })), placeholder: '观点', style: { ...workbenchStyle.input, width: '100%', minHeight: '38px', resize: 'vertical', fontSize: '11px' } }),
         h('textarea', { key: 'antithesis', value: vaultDialectic.antithesis || '', onChange: e => setVaultDialectic(value => ({ ...value, antithesis: e.target.value })), placeholder: '反观点', style: { ...workbenchStyle.input, width: '100%', minHeight: '38px', resize: 'vertical', fontSize: '11px' } }),
@@ -809,9 +816,9 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       h('input', { key: 'search', value: vaultSearch, onChange: e => setVaultSearch(e.target.value), placeholder: '搜索标题、标签、正文或备注', style: { ...workbenchStyle.input, padding: '8px 9px', fontSize: '12px' } }),
       vaultProjects.length ? h('select', { key: 'project-filter', value: vaultProjectFilter, onChange: e => setVaultProjectFilter(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [h('option', { value: '' }, '全部项目'), ...vaultProjects.map(project => h('option', { key: project, value: project }, project))]) : null,
     ]),
-    h('div', { key: 'project-actions', style: { display: 'flex', gap: '8px' } }, [h('button', { onClick: exportProjectMarkdown, style: { ...workbenchStyle.action, fontSize: '11px' } }, '导出项目复盘 Markdown'), h('button', { onClick: organizeVault, style: { ...workbenchStyle.action, fontSize: '11px' } }, '本地整理建议')]),
+    h('div', { key: 'project-actions', style: { display: 'flex', gap: '8px' } }, [h('button', { key: 'export', onClick: exportProjectMarkdown, style: { ...workbenchStyle.action, fontSize: '11px' } }, '导出项目复盘 Markdown'), h('button', { key: 'organize', onClick: organizeVault, style: { ...workbenchStyle.action, fontSize: '11px' } }, '本地整理建议')]),
     h('details', { key: 'backup', style: { padding: '8px 9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface, fontSize: '11px' } }, [
-      h('summary', { style: { color: C.teal, cursor: 'pointer', fontWeight: 800 } }, '备份或恢复灵感库'),
+      h('summary', { key: 'summary', style: { color: C.teal, cursor: 'pointer', fontWeight: 800 } }, '备份或恢复灵感库'),
       h('button', { key: 'export', onClick: exportVault, style: { ...workbenchStyle.action, marginTop: '7px', fontSize: '11px' } }, '导出 JSON 备份'),
       h('textarea', { key: 'import-text', value: vaultBackup, onChange: e => setVaultBackup(e.target.value), placeholder: '粘贴此前导出的 JSON；恢复只追加，不会覆盖现有资产。', style: { ...workbenchStyle.input, width: '100%', minHeight: '55px', marginTop: '7px', resize: 'vertical', fontSize: '10px' } }),
       h('button', { key: 'import', disabled: !vaultBackup.trim(), onClick: importVault, style: { ...workbenchStyle.action, marginTop: '5px', fontSize: '11px', opacity: vaultBackup.trim() ? 1 : .5 } }, '恢复备份'),
@@ -849,9 +856,9 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const buttonStyle = { width: '44px', height: '44px', padding: 0, border: 0, borderRadius: '50%', background: C.actionBg, color: C.actionFg, cursor: 'grab', fontSize: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', transition: 'transform .16s ease, box-shadow .16s ease' }
   const fan = common.map((method, index) => h('button', { key: method.id, title: `选择：${method.title}`, disabled: loading, onClick: () => { setSelectedMethodId(method.id); setMode('method'); setOpen(true) }, style: { position: 'absolute', right: `${-8 + index * 48}px`, bottom: panelAbove ? `${62 + Math.abs(index - 1) * 25}px` : 'auto', top: panelAbove ? 'auto' : `${62 + Math.abs(index - 1) * 25}px`, width: '42px', height: '42px', overflow: 'hidden', border: `1px solid ${selectedMethodId === method.id ? C.teal : C.tealLine}`, borderRadius: '50%', background: selectedMethodId === method.id ? C.tealTint : C.surface, boxShadow: '0 6px 16px var(--pk-shadow-faint)', color: C.teal, cursor: 'pointer', fontSize: '10px', fontWeight: 800, lineHeight: 1.15, animation: 'pk-fan-in .22s ease both', animationDelay: `${index * 35}ms` } }, method.title.slice(0, 4)))
   const methodItems = showAllMethods ? methods : rankedCommon
-  const methodCards = h('div', { style: { display: 'grid', gap: '7px' } }, methodItems.map(method => h('button', { key: method.id, className: 'pk-btn', disabled: loading, onClick: () => setSelectedMethodId(method.id), style: { width: '100%', padding: '10px 11px', border: `1px solid ${selectedMethodId === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '10px', background: selectedMethodId === method.id ? C.tealTintDeep : C.surface, textAlign: 'left', color: C.ink, cursor: 'pointer' } }, [h('div', { key: 'title', style: { display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '12px', fontWeight: 800 } }, [h('span', { key: 'name' }, method.title), selectedMethodId === method.id ? h('span', { key: 'picked', style: { color: C.teal } }, '已选择') : recommended.includes(method) ? h('span', { key: 'recommended', style: { color: C.teal } }, '推荐') : null]), h('div', { key: 'purpose', style: { marginTop: '3px', color: C.slate, fontSize: '11px', lineHeight: 1.4 } }, method.purpose || '按该方法组织分析。')])) )
-  const structurePreview = selectedMethod ? h('div', { style: { marginTop: '9px', padding: '9px 10px', border: `1px dashed ${C.tealLine}`, borderRadius: '9px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, `组装预览：草稿${useConversationContext ? ` + 已选对话 ${activeMessages.length} 条` : ''}${useMemoryContext ? ' + 项目记忆' : ''} · ${selectedMethod.title} 的分析结构`) : null
-  const methodFooter = h('div', { style: { position: 'sticky', bottom: '-14px', margin: '10px -14px -14px', padding: '11px 14px 14px', borderTop: `1px solid ${C.tealLine}`, background: C.surface } }, [selectedMethod ? h('div', { key: 'outcome', style: { marginBottom: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, fontSize: '12px', lineHeight: 1.5 } }, [h('strong', { key: 'title', style: { color: C.teal } }, `将使用「${selectedMethod.title}」`), h('div', { key: 'body', style: { marginTop: '3px', color: C.slate } }, selectedMethod.outcome || (selectedMethod.mode === 'guided' ? '先通过追问澄清问题，再推进下一步。' : '生成结构化分析、风险与下一步行动。'))]) : null, h('button', { key: 'generate', className: 'pk-btn', disabled: loading || !canCompose || !selectedMethod, onClick: () => composeIntoInput(selectedMethod), style: { width: '100%', padding: '11px 14px', border: 0, borderRadius: '9px', background: loading || !canCompose || !selectedMethod ? C.tealLine : C.teal, color: loading || !canCompose || !selectedMethod ? C.muted : C.surface, cursor: loading || !canCompose || !selectedMethod ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' } }, loading ? h(Spinner, { key: 'spin', text: '正在组装…' }) : selectedMethod ? '生成并填入消息框' : '请选择一种方法')])
+  const methodCards = h('div', { key: 'cards', style: { display: 'grid', gap: '7px' } }, methodItems.map(method => h('button', { key: method.id, className: 'pk-btn', disabled: loading, onClick: () => setSelectedMethodId(method.id), style: { width: '100%', padding: '10px 11px', border: `1px solid ${selectedMethodId === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '10px', background: selectedMethodId === method.id ? C.tealTintDeep : C.surface, textAlign: 'left', color: C.ink, cursor: 'pointer' } }, [h('div', { key: 'title', style: { display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '12px', fontWeight: 800 } }, [h('span', { key: 'name' }, method.title), selectedMethodId === method.id ? h('span', { key: 'picked', style: { color: C.teal } }, '已选择') : recommended.includes(method) ? h('span', { key: 'recommended', style: { color: C.teal } }, '推荐') : null]), h('div', { key: 'purpose', style: { marginTop: '3px', color: C.slate, fontSize: '11px', lineHeight: 1.4 } }, method.purpose || '按该方法组织分析。')])) )
+  const structurePreview = selectedMethod ? h('div', { key: 'structure-preview', style: { marginTop: '9px', padding: '9px 10px', border: `1px dashed ${C.tealLine}`, borderRadius: '9px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, `组装预览：草稿${useConversationContext ? ` + 已选对话 ${activeMessages.length} 条` : ''}${useMemoryContext ? ' + 项目记忆' : ''} · ${selectedMethod.title} 的分析结构`) : null
+  const methodFooter = h('div', { key: 'footer', style: { position: 'sticky', bottom: '-14px', margin: '10px -14px -14px', padding: '11px 14px 14px', borderTop: `1px solid ${C.tealLine}`, background: C.surface } }, [selectedMethod ? h('div', { key: 'outcome', style: { marginBottom: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, fontSize: '12px', lineHeight: 1.5 } }, [h('strong', { key: 'title', style: { color: C.teal } }, `将使用「${selectedMethod.title}」`), h('div', { key: 'body', style: { marginTop: '3px', color: C.slate } }, selectedMethod.outcome || (selectedMethod.mode === 'guided' ? '先通过追问澄清问题，再推进下一步。' : '生成结构化分析、风险与下一步行动。'))]) : null, h('button', { key: 'generate', className: 'pk-btn', disabled: loading || !canCompose || !selectedMethod, onClick: () => composeIntoInput(selectedMethod), style: { width: '100%', padding: '11px 14px', border: 0, borderRadius: '9px', background: loading || !canCompose || !selectedMethod ? C.tealLine : C.teal, color: loading || !canCompose || !selectedMethod ? C.muted : C.surface, cursor: loading || !canCompose || !selectedMethod ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' } }, loading ? h(Spinner, { key: 'spin', text: '正在组装…' }) : selectedMethod ? '生成并填入消息框' : '请选择一种方法')])
   const autoPlan = planPromptEnhancement(draft, requirement, methods, selectedContextText)
   const enhancementPlan = matchedMethod && !autoPlan.tooShort
     ? { ...autoPlan, method: matchedMethod.title, label: matchedMethod.title, ...lightTemplate(matchedMethod.title, draft, requirement ? `\n\n额外要求：${requirement}` : '') }
@@ -937,7 +944,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     h('div', { key: 'cnt', style: { color: C.muted, fontSize: '10px' } }, usedMethodCount ? `累计用过 ${usageSum} 次 · ${usedMethodCount} 个方法；常用方法先用起来，慢慢扩大版图。` : '还没用过命名方法——下次增强时留意自动匹配的方法，或到「方法库」手动选一个。')
   ])
   // 助推效果看板：直接读 NudgeMetrics 单例的聚合结果（面板打开时随渲染刷新）。
-  const nudgeSummary = (typeof window !== 'undefined' && window.__promptkitNudgeMetrics?.getSummary) ? window.__promptkitNudgeMetrics.getSummary() : null
+  const nudgeSummary = getNudgeMetrics(storagePrefix)?.getSummary?.() || null
   const settingsSection = settingsOpen ? h('div', { key: 'settings-dropdown', 'data-settings-dropdown': 'true', style: { position: 'absolute', top: '52px', right: '14px', zIndex: 10, width: '320px', maxWidth: 'calc(100% - 28px)', padding: '11px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.surfaceAlt, boxShadow: C.shadowLg } },
     activeSettingsPanel === null
       ? [
@@ -988,8 +995,8 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
             h('div', { key: 'desc', style: { marginTop: '4px', color: C.muted, fontSize: '10px', lineHeight: 1.5 } }, '零遥测，计数只存本浏览器。深度会话 = 本次浏览器会话中接受过任一引导，或经草稿桥进入方法工坊（DMSR 本地近似口径）。'),
             nudgeSummary ? [
               h('div', { key: 'kpi', style: { marginTop: '8px', padding: '8px 9px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', color: C.slate } }, [
-                h('div', { key: 'rate', style: { display: 'flex', justifyContent: 'space-between' } }, [h('span', null, '深度会话率（近似 DMSR）'), h('strong', { style: { color: C.teal } }, `${Math.round((nudgeSummary.deepRate || 0) * 100)}%`)]),
-                h('div', { key: 'sess', style: { marginTop: '4px', display: 'flex', justifyContent: 'space-between', color: C.muted, fontSize: '10px' } }, [h('span', null, `深度 ${nudgeSummary.deepSessions} / 共 ${nudgeSummary.sessions} 次会话`), h('span', null, `活跃 ${nudgeSummary.activeDays} 天 · 深度 ${nudgeSummary.deepDays} 天`)]),
+                h('div', { key: 'rate', style: { display: 'flex', justifyContent: 'space-between' } }, [h('span', { key: 'label' }, '深度会话率（近似 DMSR）'), h('strong', { key: 'value', style: { color: C.teal } }, `${Math.round((nudgeSummary.deepRate || 0) * 100)}%`)]),
+                h('div', { key: 'sess', style: { marginTop: '4px', display: 'flex', justifyContent: 'space-between', color: C.muted, fontSize: '10px' } }, [h('span', { key: 'sessions' }, `深度 ${nudgeSummary.deepSessions} / 共 ${nudgeSummary.sessions} 次会话`), h('span', { key: 'days' }, `活跃 ${nudgeSummary.activeDays} 天 · 深度 ${nudgeSummary.deepDays} 天`)]),
               ]),
               h('div', { key: 'totals', style: { marginTop: '7px', color: C.slate, fontSize: '11px', lineHeight: 1.7 } }, [
                 h('div', { key: 'row', style: { fontWeight: 800, color: C.ink } }, '动作计数'),
@@ -997,7 +1004,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
                 h('div', { key: 'row2', style: { marginTop: '4px', fontWeight: 800, color: C.ink } }, '分类型'),
                 ...Object.entries(nudgeSummary.byType || {}).map(([type, actions]) => h('div', { key: type, style: { color: C.muted, fontSize: '10px' } }, `${type === 'awaken' ? '方法觉醒' : type === 'vault' ? '灵感库一键存' : type}：${Object.entries(actions).map(([action, count]) => `${action} ${count}`).join(' · ')}`)),
               ]),
-              h('button', { key: 'reset', className: 'pk-btn', onClick: () => { if (!confirmResetNudgeStats) { setConfirmResetNudgeStats(true); return } window.__promptkitNudgeMetrics?.reset?.(); setConfirmResetNudgeStats(false); setSettingsOpen(true) }, style: { ...workbenchStyle.action, marginTop: '8px', color: confirmResetNudgeStats ? C.red : undefined } }, confirmResetNudgeStats ? '再次点击清除本地统计' : '清除本地统计'),
+              h('button', { key: 'reset', className: 'pk-btn', onClick: () => { if (!confirmResetNudgeStats) { setConfirmResetNudgeStats(true); return } getNudgeMetrics(storagePrefix)?.reset?.(); setConfirmResetNudgeStats(false); setSettingsOpen(true) }, style: { ...workbenchStyle.action, marginTop: '8px', color: confirmResetNudgeStats ? C.red : undefined } }, confirmResetNudgeStats ? '再次点击清除本地统计' : '清除本地统计'),
             ] : h('div', { key: 'empty', style: { marginTop: '8px', color: C.muted, fontSize: '11px' } }, '暂无数据——发生第一次增强或草稿桥使用后这里会出现统计。'),
           ]) : h(Card, { key: 'panel-manage' }, [
             h('strong', { key: 't', style: { fontSize: '12px' } }, '管理我的私有方法'),
@@ -1011,7 +1018,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
           ])
         ]
   ) : null
-  const panel = open ? h('section', { className: 'pk-scroll', role: 'dialog', 'aria-label': '对话增强器', style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', ...(panelAbove ? { bottom: '66px' } : { top: '66px' }), width: `${panelW}px`, maxHeight: `${panelMaxHeight}px`, overflowY: 'auto', overscrollBehavior: 'contain', padding: '14px', border: `1px solid ${C.tealLine}`, borderRadius: '15px', background: C.surface, boxShadow: '0 20px 50px var(--pk-shadow-lg)', color: C.ink, zIndex: 30, animation: 'pk-pop .2s ease' } }, [
+  const panel = open ? h('section', { key: 'panel', className: 'pk-scroll', role: 'dialog', 'aria-label': '对话增强器', style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', ...(panelAbove ? { bottom: '66px' } : { top: '66px' }), width: `${panelW}px`, maxHeight: `${panelMaxHeight}px`, overflowY: 'auto', overscrollBehavior: 'contain', padding: '14px', border: `1px solid ${C.tealLine}`, borderRadius: '15px', background: C.surface, boxShadow: '0 20px 50px var(--pk-shadow-lg)', color: C.ink, zIndex: 30, animation: 'pk-pop .2s ease' } }, [
         h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'start' } }, [h('div', { key: 'copy' }, [h('strong', { key: 'title', style: { fontSize: '14px' } }, '对话增强器'), h('div', { key: 'sub', style: { marginTop: '3px', color: C.muted, fontSize: '12px', lineHeight: 1.45 } }, libraryOpen ? '从提示词库选择模板：可直接填入消息框，或基于当前草稿调用模型按该方法改造。' : mode === 'enhance' ? '把当前输入框提示词做增强或改写，只填入消息框，不会自动发送。' : '写问题即可直接处理；也可选择对话消息作为额外参考。生成内容只填入消息框，不会自动发送。')]), h('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 } }, [h('button', { key: 'gear', 'data-gear-button': 'true', onClick: () => { setSettingsOpen(value => !value); if (settingsOpen) setActiveSettingsPanel(null) }, style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: settingsOpen ? C.tealTint : 'transparent', color: C.teal, cursor: 'pointer' }, 'aria-label': '设置' }, h(Icon, { key: 'ic', name: 'settings', size: 16 })), h('button', { key: 'close', onClick: () => setOpen(false), style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: 'transparent', color: C.muted, cursor: 'pointer' }, 'aria-label': '关闭' }, h(Icon, { key: 'ic', name: 'close', size: 16 }))])]),
         libraryOpen || vaultOpen || mode === 'enhance' ? null : h('div', { key: 'summary', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', margin: '12px 0 5px', padding: '10px 11px', borderRadius: '10px', background: selectedChars > 1600 ? C.amberTint : C.tealTint, color: selectedChars > 1600 ? C.amber : C.teal, fontSize: '12px', fontWeight: 700 } }, [h('span', { key: 'count' }, activeMessages.length ? `已选 ${activeMessages.length} 条 · 约 ${selectedChars} 字符${selectedChars > 1600 ? ' · 建议精简' : ''}` : '未选择对话 · 可直接写问题'), msgs.length ? h('button', { key: 'recent', onClick: () => setSelected(msgs.slice(0, 4).map(item => item.id)), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 700 } }, '选择最近 4 条') : null]),
         undoDraft ? h('div', { key: 'undo-area', style: { marginTop: '5px' } }, [h('button', { key: 'undo', onClick: () => { if (draft !== undoDraft.after) { setUndoDraft(null); setNotice('消息框内容已变化，无法撤销到之前状态。'); return } clearOutcomeAt('undo'); composer?.write(undoDraft.before); setUndoDraft(null); setNotice('已撤销上一次填入。') }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '撤销上一次填入'), h('details', { key: 'orig', style: { marginTop: '4px' } }, [h('summary', { style: { color: C.muted, fontSize: '11px', cursor: 'pointer', fontWeight: 700 } }, '查看原稿'), h('div', { style: { marginTop: '4px', padding: '8px', border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5, whiteSpace: 'pre-wrap', maxHeight: '120px', overflow: 'auto' } }, undoDraft.before || '（原稿为空）')])]) : null,
@@ -1026,7 +1033,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
           h('strong', { key: 't', style: { color: C.teal, fontSize: '12px' } }, '这个 Prompt 不错，存进灵感库？'),
           h('div', { key: 'd', style: { marginTop: '3px', color: C.slate, fontSize: '11px' } }, `标题已帮你填好：「${activeNudge.draftTitle || '未命名'}」`),
           h('div', { key: 'a', style: { display: 'flex', gap: '8px', marginTop: '8px' } }, [
-            h('button', { key: 'save', onClick: () => onAcceptVault(activeNudge), style: { border: 0, background: C.teal, color: '#fff', borderRadius: '7px', padding: '6px 11px', cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '一键存'),
+            h('button', { key: 'save', disabled: savingNudge, onClick: () => onAcceptVault(activeNudge), style: { border: 0, background: C.teal, color: '#fff', borderRadius: '7px', padding: '6px 11px', cursor: savingNudge ? 'wait' : 'pointer', opacity: savingNudge ? .7 : 1, fontSize: '11px', fontWeight: 800 } }, savingNudge ? '保存中…' : '一键存'),
             h('button', { key: 'no', onClick: () => dismissNudge(activeNudge, 'dismiss'), style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px' } }, '不用')
           ])
         ]) : null,

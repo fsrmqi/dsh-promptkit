@@ -159,8 +159,18 @@
       return [methodChoice(methods, '苏格拉底式提问'), methodChoice(methods, '第一性原理')].filter(Boolean)
     }
 
+// 宿主快照兼容层：旧宿主传 `{ nodes: [] }`，DSH 0.1.2+ 传
+// `{ order: [], nodes: MapLike }`。公共 utils 不能因宿主升级而静默丢失会话。
+function snapshotNodes(snapshot) {
+  const rawNodes = snapshot?.nodes
+  if (Array.isArray(snapshot?.order) && typeof rawNodes?.get === 'function') {
+    return snapshot.order.map(key => rawNodes.get(key)).filter(Boolean)
+  }
+  return list(rawNodes)
+}
+
 function conversationDraft(snapshot) {
-  const nodes = list(snapshot?.nodes)
+  const nodes = snapshotNodes(snapshot)
   const users = nodes.filter(node => node?.kind === 'user')
   const assistants = nodes.filter(node => node?.kind === 'assistant')
   const userText = users.map(node => list(node.content).filter(block => block?.type === 'text').map(block => block.text).join(' ')).filter(Boolean)
@@ -179,12 +189,7 @@ function conversationDraft(snapshot) {
   }
 }
 function conversationMessages(snapshot, limit = 12) {
-  // DSH Chat target 的键控快照：`{ order, nodes: MapLike }`。
-  // PromptKit 对组件仍只输出标准 messages 数组。
-  const rawNodes = snapshot?.nodes
-  const nodes = Array.isArray(snapshot?.order) && typeof rawNodes?.get === 'function'
-    ? snapshot.order.map(key => rawNodes.get(key)).filter(Boolean)
-    : []
+  const nodes = snapshotNodes(snapshot)
   const messages = []
   // The launcher only ever renders a small recent window. Scan backwards
   // and stop once it is full so a long-lived DSH session stays responsive.
@@ -200,4 +205,4 @@ function conversationMessages(snapshot, limit = 12) {
   return messages
 }
 
-export { safeText, conversationDraft, conversationMessages, list, obj, cleanSummary, cleanContext, cleanConversationText, fileMentions, selectedConversationDraft, methodChoice, detectLanguage, TEMPLATE_LABELS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }
+export { safeText, snapshotNodes, conversationDraft, conversationMessages, list, obj, cleanSummary, cleanContext, cleanConversationText, fileMentions, selectedConversationDraft, methodChoice, detectLanguage, TEMPLATE_LABELS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }

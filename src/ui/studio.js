@@ -2,6 +2,7 @@ import React from 'react'
 import { h, C, S, workbenchStyle, GlobalStyle, Spinner, Icon, Panel } from './foundation.js'
 import { list, cleanSummary, cleanContext, selectedConversationDraft } from '../lib/utils.js'
 import { withPrefix } from '../core/composer.js'
+import { studioBridgeEventName, studioBridgeStorageKey } from './promptkit-events.js'
 
 // PromptStudio（方法工坊）：开源核心组件，零宿主依赖。
 // 所有外部能力经 props 注入；未注入的可选能力对应 UI 区块自动隐藏，组件始终可用：
@@ -12,7 +13,7 @@ import { withPrefix } from '../core/composer.js'
 //   composer          (可选) Composer 实例：把生成的 Prompt 写入目标输入框
 //   getRecentSessions (可选) () => Promise<Array<{ intent?, summary? }>>：追加最近会话摘要
 //   searchMemory      (可选) (query) => Promise<string>：按自然语言检索项目记忆
-function PromptStudio({ methodProvider, assetProvider, messages, onSend, composer, getRecentSessions, searchMemory }) {
+function PromptStudio({ methodProvider, assetProvider, messages, onSend, composer, getRecentSessions, searchMemory, storagePrefix = 'promptkit.' }) {
   const [methods, setMethods] = React.useState([])
   const [loadingMethods, setLoadingMethods] = React.useState(true)
   const [methodId, setMethodId] = React.useState('')
@@ -45,7 +46,8 @@ function PromptStudio({ methodProvider, assetProvider, messages, onSend, compose
   // 预填 question 字段；若组件晚于事件挂载，从 sessionStorage 兜底取回。
   // 语义是「取一次、用掉、删掉」：pending 草稿消费后立即清除，避免 effect 因
   // methods 变化重跑时把陈旧草稿覆盖到用户已编辑的 question 上。
-  const BRIDGE_KEY = 'promptkit.studio.pending-draft.v1'
+  const bridgeKey = studioBridgeStorageKey(storagePrefix)
+  const bridgeEvent = studioBridgeEventName(storagePrefix)
   React.useEffect(() => {
     let alive = true
     const takeDraft = payload => {
@@ -64,20 +66,20 @@ function PromptStudio({ methodProvider, assetProvider, messages, onSend, compose
     }
     const consumePending = () => {
       try {
-        const stored = window.sessionStorage.getItem(BRIDGE_KEY)
+        const stored = window.sessionStorage.getItem(bridgeKey)
         if (stored == null) return
-        window.sessionStorage.removeItem(BRIDGE_KEY)
+        window.sessionStorage.removeItem(bridgeKey)
         takeDraft(stored)
       } catch {}
     }
     const onOpen = event => {
-      try { window.sessionStorage.removeItem(BRIDGE_KEY) } catch {}
+      try { window.sessionStorage.removeItem(bridgeKey) } catch {}
       takeDraft(event?.detail)
     }
-    window.addEventListener('promptkit.studio.open-with-draft.v1', onOpen)
+    window.addEventListener(bridgeEvent, onOpen)
     consumePending()
-    return () => { alive = false; window.removeEventListener('promptkit.studio.open-with-draft.v1', onOpen) }
-  }, [methods])
+    return () => { alive = false; window.removeEventListener(bridgeEvent, onOpen) }
+  }, [methods, bridgeEvent, bridgeKey])
   const categories = ['全部', ...Array.from(new Set(methods.map(item => item.category))).filter(Boolean)]
   const pinnedSet = new Set(['苏格拉底式提问', '第一性原理', '双向钢人论证'])
   const visibleMethods = (category === '全部' ? methods : methods.filter(item => item.category === category)).filter(item => !search.trim() || `${item.title} ${item.purpose} ${item.tags}`.toLowerCase().includes(search.trim().toLowerCase()))
@@ -280,12 +282,12 @@ function PromptStudio({ methodProvider, assetProvider, messages, onSend, compose
         ]) : null,
         method ? h('div', { key: 'guide', style: { padding: '10px 14px', borderRadius: '6px', background: C.paperWarm, color: C.slate, fontSize: '12px', lineHeight: 1.55 } }, [
           h('strong', { key: 'label', style: { color: C.ink, marginRight: '6px', fontWeight: 500 } }, '你会得到'),
-          h('span', null, method.outcome || (method.mode === 'guided' ? 'AI 会逐步追问,直到问题足够清楚。' : '一份结构化分析、风险和下一步行动。'))
+          h('span', { key: 'outcome' }, method.outcome || (method.mode === 'guided' ? 'AI 会逐步追问,直到问题足够清楚。' : '一份结构化分析、风险和下一步行动。'))
         ]) : null,
         h('div', { key: 'steps', style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [stepPill(question, '问题'), stepPill(facts, '事实'), stepPill(constraints, '约束'), stepPill(options, '方案')]),
         h('div', { key: 'q', className: 'pk-field' }, [
-          h('label', { className: 'pk-label', htmlFor: 'pk-question' }, '问题'),
-          h('textarea', { id: 'pk-question', value: question, onChange: e => setQuestion(e.target.value), placeholder: '输入你想解决的问题', style: { ...workbenchStyle.input, minHeight: '84px', resize: 'vertical', width: '100%' } })
+          h('label', { key: 'label', className: 'pk-label', htmlFor: 'pk-question' }, '问题'),
+          h('textarea', { key: 'input', id: 'pk-question', value: question, onChange: e => setQuestion(e.target.value), placeholder: '输入你想解决的问题', style: { ...workbenchStyle.input, minHeight: '84px', resize: 'vertical', width: '100%' } })
         ]),
         showOptional || facts || constraints || options ? h('div', { key: 'supporting', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '12px' } }, [
           h('div', { key: 'f', className: 'pk-field' }, [h('label', { className: 'pk-label' }, '已知事实 (可选)'), h('textarea', { value: facts, onChange: e => setFacts(e.target.value), placeholder: '输入已知的事实', style: { ...workbenchStyle.input, minHeight: '54px', resize: 'vertical', width: '100%' } })]),

@@ -124,12 +124,12 @@ body[data-ds-dark-theme] {
   --pk-red: var(--pk-d-red); --pk-red-tint: var(--pk-d-red-tint); --pk-slate: var(--pk-d-slate);
   --pk-status-verified: var(--pk-d-status-verified); --pk-status-inferred: var(--pk-d-status-inferred); --pk-status-toverify: var(--pk-d-status-toverify); --pk-status-preference: var(--pk-d-status-preference); --pk-status-refuted: var(--pk-d-status-refuted);
   --pk-divide: var(--pk-d-divide); --pk-surface-alt: var(--pk-d-surface-alt); --pk-track: var(--pk-d-track);
-  .pk-spinner { border-color: rgba(61,189,180,.22) }
-  .pk-scroll::-webkit-scrollbar-thumb { background: #4a4f59 }
-  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline-color: rgba(61,189,180,.45) }
-  .pk-card:hover { box-shadow: 0 10px 26px rgba(0,0,0,.22) }
-  .pk-fab:hover { box-shadow: 0 6px 18px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.35) }
 }
+body[data-ds-dark-theme] .pk-spinner { border-color: rgba(61,189,180,.22) }
+body[data-ds-dark-theme] .pk-scroll::-webkit-scrollbar-thumb { background: #4a4f59 }
+body[data-ds-dark-theme] button:focus-visible, body[data-ds-dark-theme] input:focus-visible, body[data-ds-dark-theme] textarea:focus-visible, body[data-ds-dark-theme] select:focus-visible { outline-color: rgba(61,189,180,.45) }
+body[data-ds-dark-theme] .pk-card:hover { box-shadow: 0 10px 26px rgba(0,0,0,.22) }
+body[data-ds-dark-theme] .pk-fab:hover { box-shadow: 0 6px 18px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.35) }
 @keyframes pk-pop { from { opacity: 0; transform: translateY(6px) scale(.985) } to { opacity: 1; transform: none } }
 @keyframes pk-fade { from { opacity: 0 } to { opacity: 1 } }
 @keyframes pk-spin { to { transform: rotate(360deg) } }

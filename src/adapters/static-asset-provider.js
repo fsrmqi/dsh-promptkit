@@ -11,8 +11,9 @@ export class StaticAssetProvider extends AssetProvider {
     this.key = `${storagePrefix}vault.assets.v1`
     this.event = `${storagePrefix}vault.changed.v1`
     this.listeners = new Set()
+    this.source = `asset-provider:${Math.random().toString(36).slice(2)}`
     this._onStorage = event => { if (event?.key === this.key) this._notify(this._read()) }
-    this._onLocalChange = event => { if (event?.detail?.key === this.key) this._notify(this._read()) }
+    this._onLocalChange = event => { if (event?.detail?.key === this.key && event.detail.source !== this.source) this._notify(this._read()) }
     this._listening = false
   }
   async list() { return this._read().sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)) }
@@ -141,6 +142,6 @@ export class StaticAssetProvider extends AssetProvider {
       throw Object.assign(new Error('灵感库写入失败：浏览器未允许本地存储或空间已满。'), { cause: error })
     }
     this._notify(rows)
-    try { window.dispatchEvent?.(new CustomEvent(this.event, { detail: { key: this.key } })) } catch {}
+    try { window.dispatchEvent?.(new CustomEvent(this.event, { detail: { key: this.key, source: this.source } })) } catch {}
   }
 }

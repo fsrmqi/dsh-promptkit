@@ -4,7 +4,7 @@
 // window CustomEvent 'promptkit.nudge'（detail: { type, action, ts, method_id }）；
 // 草稿桥则派发 'promptkit.studio.open-with-draft.v1'。本模块负责消费并聚合：
 //
-//   mountNudgeMetrics(prefix) —— 幂等挂载（window.__promptkitNudgeMetrics 单例）：
+//   mountNudgeMetrics(prefix) —— 按 storagePrefix 幂等挂载：
 //     totals / byType / byDay  按「助推类型 × 动作」计数，按天分桶（保留最近 30 天）
 //     sessions / deepSessions  浏览器会话计数；任一 accept 或草稿桥使用记为深度会话
 //     deepRate ≈ DMSR（方法深度会话率）的本地近似口径
@@ -12,8 +12,9 @@
 //
 //   isNudgeKitEnabled / setNudgeKitEnabled —— 宿主级 feature flag（localStorage，
 //     默认开启）。与组件 prop nudgeEnabled 是「与」关系：任一关闭即停发全部引导卡。
-//     Embed 宿主经 PromptKit.nudges.* 取用；亦可直接写
-//     localStorage['promptkit.quick-action.nudge.enabled.v1'] = 'false'。
+//     Embed 宿主经 PromptKit.nudges.* 取用；每个 prefix 的统计互不串扰。
+
+import { nudgeEventName, studioBridgeEventName } from './promptkit-events.js'
 
 function isNudgeKitEnabled(key = 'promptkit.quick-action.nudge.enabled.v1') {
   try { return window.localStorage.getItem(key) !== 'false' } catch { return true }
@@ -25,7 +26,8 @@ function setNudgeKitEnabled(enabled, key = 'promptkit.quick-action.nudge.enabled
 
 function mountNudgeMetrics(prefix = 'promptkit.') {
   if (typeof window === 'undefined') return null
-  if (window.__promptkitNudgeMetrics) return window.__promptkitNudgeMetrics
+  const registry = window.__promptkitNudgeMetricsByPrefix || (window.__promptkitNudgeMetricsByPrefix = new Map())
+  if (registry.has(prefix)) return registry.get(prefix)
   const storeKey = `${prefix}nudge.metrics.v1`
   const sessionKey = `${prefix}nudge.session-counted.v1`
   const deepKey = `${prefix}nudge.session-deep.v1`
@@ -87,8 +89,8 @@ function mountNudgeMetrics(prefix = 'promptkit.') {
     write(data)
   }
   try {
-    window.addEventListener('promptkit.nudge', onNudge)
-    window.addEventListener('promptkit.studio.open-with-draft.v1', onBridge)
+    window.addEventListener(nudgeEventName(prefix), onNudge)
+    window.addEventListener(studioBridgeEventName(prefix), onBridge)
   } catch {}
   const api = {
     getSummary: () => {
@@ -113,11 +115,19 @@ function mountNudgeMetrics(prefix = 'promptkit.') {
       data.byDay = {}
       data.sessions = 0
       data.deepSessions = 0
+      try { window.sessionStorage.removeItem(sessionKey); window.sessionStorage.removeItem(deepKey) } catch {}
       write(data)
     },
   }
-  window.__promptkitNudgeMetrics = api
+  registry.set(prefix, api)
+  // 保留默认实例的旧全局入口，避免已有 Embed 宿主升级后立即失效。
+  if (prefix === 'promptkit.') window.__promptkitNudgeMetrics = api
   return api
 }
 
-export { isNudgeKitEnabled, setNudgeKitEnabled, mountNudgeMetrics }
+function getNudgeMetrics(prefix = 'promptkit.') {
+  if (typeof window === 'undefined') return null
+  return window.__promptkitNudgeMetricsByPrefix?.get(prefix) || (prefix === 'promptkit.' ? window.__promptkitNudgeMetrics || null : null)
+}
+
+export { isNudgeKitEnabled, setNudgeKitEnabled, mountNudgeMetrics, getNudgeMetrics }

@@ -72,6 +72,7 @@ function concat(files, { customStrip = {} = {} } = {}) {
 /** embed 与 standalone 共用的模块清单（不含 glue / 不含缩进）。 */
 const MODULES = [
   ['src/ui/foundation.js', 'dsh-promptkit foundation（C / GlobalStyle / Icon / S / workbenchStyle，pk-* 视觉命名空间）'],
+  ['src/ui/promptkit-events.js', 'dsh-promptkit UI 事件与存储命名空间'],
   ['src/lib/utils.js', 'dsh-promptkit utils（纯函数 + 分类链 + DSH 快照转换）'],
   ['src/core/method-provider.js', 'dsh-promptkit core: MethodProvider'],
   ['src/core/asset-provider.js', 'dsh-promptkit core: AssetProvider'],
@@ -142,11 +143,11 @@ ${body}
     MethodProvider, AssetProvider, Composer, Enhancer, TextareaComposer, OpenAIEnhancer,
     // 行为助推：宿主级开关 + 本地埋点消费端（详见 src/ui/nudge-metrics.js）
     nudges: {
-      isEnabled: () => isNudgeKitEnabled(),
-      setEnabled: on => setNudgeKitEnabled(!!on),
+      isEnabled: (prefix = 'promptkit.') => isNudgeKitEnabled(nudgeEnabledStorageKey(prefix)),
+      setEnabled: (on, prefix = 'promptkit.') => setNudgeKitEnabled(!!on, nudgeEnabledStorageKey(prefix)),
       mount: mountNudgeMetrics,
-      summary: () => (typeof window !== 'undefined' && window.__promptkitNudgeMetrics ? window.__promptkitNudgeMetrics.getSummary() : null),
-      reset: () => { if (typeof window !== 'undefined' && window.__promptkitNudgeMetrics) window.__promptkitNudgeMetrics.reset() },
+      summary: (prefix = 'promptkit.') => getNudgeMetrics(prefix)?.getSummary?.() || null,
+      reset: (prefix = 'promptkit.') => getNudgeMetrics(prefix)?.reset?.(),
     },
     // 宿主 glue 可复用的纯函数与推荐信号表
     utils: {

@@ -173,7 +173,7 @@ test('草稿桥：sessionStorage 兑底路径解析 JSON 且取后即删（不�
   const PromptKit = loadEmbed(W)
   const providers = makeProviders(PromptKit)
   // 模拟 quick-enhancer openStudioWithDraft 的写入（Studio 尚未挂载）
-  W.sessionStorage.setItem('promptkit.studio.pending-draft.v1', JSON.stringify({ draft: '请评审这段接口设计', methodId: '' }))
+  W.sessionStorage.setItem('studio-test.studio.pending-draft.v1', JSON.stringify({ draft: '请评审这段接口设计', methodId: '' }))
   // 挂载 Studio：mount 时应消费 pending 草稿并清除
   const container = W.document.createElement('div')
   W.document.body.appendChild(container)
@@ -186,7 +186,7 @@ test('草稿桥：sessionStorage 兑底路径解析 JSON 且取后即删（不�
   const textarea = container.querySelector('textarea')
   assert.ok(textarea, 'Studio question 输入框应存在')
   assert.equal(textarea.value, '请评审这段接口设计', 'question 应是草稿本体，而非 JSON 原文')
-  assert.equal(W.sessionStorage.getItem('promptkit.studio.pending-draft.v1'), null, '消费后应清除 pending 草稿')
+  assert.equal(W.sessionStorage.getItem('studio-test.studio.pending-draft.v1'), null, '消费后应清除 pending 草稿')
   // methods 变化导致 effect 重跑时，不应再灌入陈旧草稿
   textarea.value = '用户手动改写的编辑内容'
   textarea.dispatchEvent(new W.Event('input', { bubbles: true }))
@@ -209,12 +209,12 @@ test('草稿桥：事件路径消费后同样清除 sessionStorage', async () =>
   }))
   await tick(120)
   // openStudioWithDraft 的双通道：先写 sessionStorage 再派发事件
-  W.sessionStorage.setItem('promptkit.studio.pending-draft.v1', JSON.stringify({ draft: '事件路径的草稿', methodId: '' }))
-  W.dispatchEvent(new W.CustomEvent('promptkit.studio.open-with-draft.v1', { detail: { draft: '事件路径的草稿', methodId: '', ts: Date.now() } }))
+  W.sessionStorage.setItem('studio-test.studio.pending-draft.v1', JSON.stringify({ draft: '事件路径的草稿', methodId: '' }))
+  W.dispatchEvent(new W.CustomEvent('studio-test.studio.open-with-draft.v1', { detail: { draft: '事件路径的草稿', methodId: '', ts: Date.now() } }))
   await tick(120)
   const textarea = container.querySelector('textarea')
   assert.equal(textarea.value, '事件路径的草稿', '事件路径应预填草稿')
-  assert.equal(W.sessionStorage.getItem('promptkit.studio.pending-draft.v1'), null, '事件路径消费后也应清除 sessionStorage')
+  assert.equal(W.sessionStorage.getItem('studio-test.studio.pending-draft.v1'), null, '事件路径消费后也应清除 sessionStorage')
   root.unmount()
   dom.window.close()
 })

@@ -14,16 +14,30 @@ function minimalHost() {
     getItem: key => (store.has(key) ? store.get(key) : null),
     setItem: (key, value) => store.set(key, String(value)),
   }
+  const sessionStore = new Map()
+  const listeners = new Map()
+  const window = {
+    localStorage,
+    sessionStorage: {
+      getItem: key => (sessionStore.has(key) ? sessionStore.get(key) : null),
+      setItem: (key, value) => sessionStore.set(key, String(value)),
+      removeItem: key => sessionStore.delete(key),
+    },
+    addEventListener: (name, callback) => listeners.set(name, [...(listeners.get(name) || []), callback]),
+    removeEventListener: (name, callback) => listeners.set(name, (listeners.get(name) || []).filter(item => item !== callback)),
+    dispatchEvent: event => { for (const callback of listeners.get(event.type) || []) callback(event); return true },
+  }
   const React = { createElement: () => null }
   const sandbox = {
     React,
-    window: { localStorage },
+    window,
     document: { querySelector: () => null },
     fetch: () => Promise.reject(new Error('not called')),
     AbortController,
+    CustomEvent: class { constructor(type, init = {}) { this.type = type; this.detail = init.detail } },
     console,
   }
-  return { sandbox, store }
+  return { sandbox, store, sessionStore }
 }
 
 /** 在最小宿主闭包中执行 embed.js，返回 PromptKit 命名空间（模拟宿主拼接后的求值）。 */
@@ -119,6 +133,39 @@ test('storagePrefix：宿主数据隔离', async () => {
   assert.ok([...host.store.keys()].every(key => key.startsWith('my-host.')), 'localStorage key 必须带宿主前缀')
 })
 
+test('会话快照：同时兼容数组节点与 DSH 键控节点', () => {
+  const PromptKit = loadEmbed(minimalHost())
+  const nodes = [
+    { kind: 'user', content: [{ type: 'text', text: '请检查接口兼容性' }] },
+    { kind: 'assistant', blocks: [{ kind: 'text', text: '当前存在兼容风险，需要验证。' }] },
+  ]
+  const arrayMessages = PromptKit.utils.conversationMessages({ nodes })
+  const keyedSnapshot = { order: ['u', 'a'], nodes: new Map([['u', nodes[0]], ['a', nodes[1]]]) }
+  const keyedMessages = PromptKit.utils.conversationMessages(keyedSnapshot)
+  const draft = PromptKit.utils.conversationDraft(keyedSnapshot)
+  assert.equal(arrayMessages.length, 2, '旧数组快照不能回归为空')
+  assert.deepEqual([...keyedMessages], [...arrayMessages], '两种宿主快照应得到一致消息')
+  assert.equal(draft.question, '请检查接口兼容性')
+  assert.ok(draft.constraints.includes('兼容风险'))
+})
+
+test('助推统计：多个 storagePrefix 独立记录、独立重置', () => {
+  const host = minimalHost()
+  const PromptKit = loadEmbed(host)
+  const alpha = PromptKit.nudges.mount('alpha.')
+  const beta = PromptKit.nudges.mount('beta.')
+  host.sandbox.window.dispatchEvent(new host.sandbox.CustomEvent('alpha.nudge', { detail: { type: 'vault', action: 'impress' } }))
+  host.sandbox.window.dispatchEvent(new host.sandbox.CustomEvent('beta.nudge', { detail: { type: 'awaken', action: 'accept' } }))
+  assert.equal(alpha.getSummary().totals.impress, 1)
+  assert.equal(alpha.getSummary().totals.accept || 0, 0)
+  assert.equal(beta.getSummary().totals.accept, 1)
+  assert.ok(host.store.has('alpha.nudge.metrics.v1'))
+  assert.ok(host.store.has('beta.nudge.metrics.v1'))
+  PromptKit.nudges.reset('alpha.')
+  assert.equal(PromptKit.nudges.summary('alpha.').totals.impress || 0, 0)
+  assert.equal(PromptKit.nudges.summary('beta.').totals.accept, 1)
+})
+
 test('灵感库：本地保存、搜索、收藏与增量恢复', async () => {
   const host = minimalHost()
   const PromptKit = loadEmbed(host)
@@ -154,6 +201,21 @@ test('灵感库：localStorage 写入失败会向调用方暴露错误', async (
     vault.save({ title: '无法保存', body: '浏览器空间不足' }),
     /灵感库写入失败/,
   )
+})
+
+test('灵感库：同页写入只通知自身一次，同时同步给其他实例', async () => {
+  const host = minimalHost()
+  const PromptKit = loadEmbed(host)
+  const first = new PromptKit.StaticAssetProvider({ storagePrefix: 'same-page.' })
+  const second = new PromptKit.StaticAssetProvider({ storagePrefix: 'same-page.' })
+  let firstCount = 0
+  let secondCount = 0
+  const offFirst = first.onChange(() => { firstCount += 1 })
+  const offSecond = second.onChange(() => { secondCount += 1 })
+  await first.save({ title: '同页同步', body: '内容' })
+  offFirst(); offSecond()
+  assert.equal(firstCount, 1, '写入者不能因本地 CustomEvent 重复刷新')
+  assert.equal(secondCount, 1, '同页其他实例仍应收到同步')
 })
 
 test('历史订阅：任一写入会立即通知同一方法源的消费者', async () => {
