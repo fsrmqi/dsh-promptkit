@@ -41,6 +41,24 @@ function PromptStudio({ methodProvider, assetProvider, messages, onSend, compose
     const offHistory = methodProvider.onHistoryChange?.(value => { if (alive) setHistory(list(value)) })
     return () => { alive = false; offHistory?.() }
   }, [methodProvider])
+  // 草稿桥（搭配快捷助手的 openStudioWithDraft）：收到 open-with-draft 事件时
+  // 预填 question 字段；若组件晚于事件挂载，从 sessionStorage 兜底取回。
+  React.useEffect(() => {
+    let alive = true
+    const takeDraft = payload => {
+      if (!alive) return
+      const draft = (typeof payload === 'string' ? payload : payload?.draft) || ''
+      const methodId = typeof payload === 'string' ? '' : payload?.methodId || ''
+      if (!String(draft || '').trim()) return
+      setQuestion(String(draft))
+      if (methodId && methods.some(item => item.id === methodId)) setMethodId(methodId)
+      setMessage('已从快捷助手带入草稿，可补充事实与约束后生成。')
+    }
+    const onOpen = event => takeDraft(event?.detail)
+    window.addEventListener('promptkit.studio.open-with-draft.v1', onOpen)
+    try { takeDraft(window.sessionStorage.getItem('promptkit.studio.pending-draft.v1')) } catch {}
+    return () => { alive = false; window.removeEventListener('promptkit.studio.open-with-draft.v1', onOpen) }
+  }, [methods])
   const categories = ['全部', ...Array.from(new Set(methods.map(item => item.category))).filter(Boolean)]
   const pinnedSet = new Set(['苏格拉底式提问', '第一性原理', '双向钢人论证'])
   const visibleMethods = (category === '全部' ? methods : methods.filter(item => item.category === category)).filter(item => !search.trim() || `${item.title} ${item.purpose} ${item.tags}`.toLowerCase().includes(search.trim().toLowerCase()))

@@ -1027,6 +1027,24 @@ window.__ModuleLoader__.load({
           const offHistory = methodProvider.onHistoryChange?.(value => { if (alive) setHistory(list(value)) })
           return () => { alive = false; offHistory?.() }
         }, [methodProvider])
+        // 草稿桥（搭配快捷助手的 openStudioWithDraft）：收到 open-with-draft 事件时
+        // 预填 question 字段；若组件晚于事件挂载，从 sessionStorage 兜底取回。
+        React.useEffect(() => {
+          let alive = true
+          const takeDraft = payload => {
+            if (!alive) return
+            const draft = (typeof payload === 'string' ? payload : payload?.draft) || ''
+            const methodId = typeof payload === 'string' ? '' : payload?.methodId || ''
+            if (!String(draft || '').trim()) return
+            setQuestion(String(draft))
+            if (methodId && methods.some(item => item.id === methodId)) setMethodId(methodId)
+            setMessage('已从快捷助手带入草稿，可补充事实与约束后生成。')
+          }
+          const onOpen = event => takeDraft(event?.detail)
+          window.addEventListener('promptkit.studio.open-with-draft.v1', onOpen)
+          try { takeDraft(window.sessionStorage.getItem('promptkit.studio.pending-draft.v1')) } catch {}
+          return () => { alive = false; window.removeEventListener('promptkit.studio.open-with-draft.v1', onOpen) }
+        }, [methods])
         const categories = ['全部', ...Array.from(new Set(methods.map(item => item.category))).filter(Boolean)]
         const pinnedSet = new Set(['苏格拉底式提问', '第一性原理', '双向钢人论证'])
         const visibleMethods = (category === '全部' ? methods : methods.filter(item => item.category === category)).filter(item => !search.trim() || `${item.title} ${item.purpose} ${item.tags}`.toLowerCase().includes(search.trim().toLowerCase()))
@@ -1371,6 +1389,129 @@ window.__ModuleLoader__.load({
         return { position, onPointerDown, consumeSuppressedClick }
       }
 
+      /* ================= dsh-promptkit NudgeMetrics：行为助推埋点本地消费端 + 宿主级开关 ================= */
+      // NudgeMetrics：行为助推埋点的本地消费端 + 宿主级总开关（零遥测，纯浏览器本地）。
+      //
+      // 上游（quick-enhancer.js 的 trackNudge）把每次引导卡的 展示/接受/关闭 动作派发为
+      // window CustomEvent 'promptkit.nudge'（detail: { type, action, ts, method_id }）；
+      // 草稿桥则派发 'promptkit.studio.open-with-draft.v1'。本模块负责消费并聚合：
+      //
+      //   mountNudgeMetrics(prefix) —— 幂等挂载（window.__promptkitNudgeMetrics 单例）：
+      //     totals / byType / byDay  按「助推类型 × 动作」计数，按天分桶（保留最近 30 天）
+      //     sessions / deepSessions  浏览器会话计数；任一 accept 或草稿桥使用记为深度会话
+      //     deepRate ≈ DMSR（方法深度会话率）的本地近似口径
+      //   getSummary() / reset()     —— 读聚合结果 / 清空本地统计
+      //
+      //   isNudgeKitEnabled / setNudgeKitEnabled —— 宿主级 feature flag（localStorage，
+      //     默认开启）。与组件 prop nudgeEnabled 是「与」关系：任一关闭即停发全部引导卡。
+      //     Embed 宿主经 PromptKit.nudges.* 取用；亦可直接写
+      //     localStorage['promptkit.quick-action.nudge.enabled.v1'] = 'false'。
+
+      function isNudgeKitEnabled(key = 'promptkit.quick-action.nudge.enabled.v1') {
+        try { return window.localStorage.getItem(key) !== 'false' } catch { return true }
+      }
+
+      function setNudgeKitEnabled(enabled, key = 'promptkit.quick-action.nudge.enabled.v1') {
+        try { window.localStorage.setItem(key, String(!!enabled)) } catch {}
+      }
+
+      function mountNudgeMetrics(prefix = 'promptkit.') {
+        if (typeof window === 'undefined') return null
+        if (window.__promptkitNudgeMetrics) return window.__promptkitNudgeMetrics
+        const storeKey = `${prefix}nudge.metrics.v1`
+        const sessionKey = `${prefix}nudge.session-counted.v1`
+        const deepKey = `${prefix}nudge.session-deep.v1`
+        const read = () => { try { return JSON.parse(window.localStorage.getItem(storeKey) || '{}') || {} } catch { return {} } }
+        const write = value => { try { window.localStorage.setItem(storeKey, JSON.stringify(value)) } catch {} }
+        const data = read()
+        data.totals = data.totals || {}
+        data.byType = data.byType || {}
+        data.byDay = data.byDay || {}
+        data.sessions = Number(data.sessions || 0)
+        data.deepSessions = Number(data.deepSessions || 0)
+        const dayOf = (ts) => new Date(ts || Date.now()).toISOString().slice(0, 10)
+        const ensureSession = () => {
+          try {
+            if (window.sessionStorage.getItem(sessionKey) === '1') return
+            window.sessionStorage.setItem(sessionKey, '1')
+          } catch { return }
+          data.sessions += 1
+        }
+        const markDeep = () => {
+          ensureSession()
+          let first = false
+          try {
+            if (window.sessionStorage.getItem(deepKey) !== '1') {
+              window.sessionStorage.setItem(deepKey, '1')
+              first = true
+            }
+          } catch { first = false }
+          if (first) data.deepSessions += 1
+        }
+        const pruneDays = () => {
+          const days = Object.keys(data.byDay).sort()
+          while (days.length > 30) delete data.byDay[days.shift()]
+        }
+        const record = (type, action) => {
+          if (!type || !action) return
+          ensureSession()
+          data.totals[action] = Number(data.totals[action] || 0) + 1
+          const typeBucket = data.byType[type] || (data.byType[type] = {})
+          typeBucket[action] = Number(typeBucket[action] || 0) + 1
+          const day = dayOf()
+          const dayBucket = data.byDay[day] || (data.byDay[day] = {})
+          dayBucket[action] = Number(dayBucket[action] || 0) + 1
+          if (action === 'accept') markDeep()
+          pruneDays()
+          write(data)
+        }
+        const onNudge = event => {
+          const detail = event?.detail || {}
+          record(String(detail.type || ''), String(detail.action || ''))
+        }
+        const onBridge = () => {
+          ensureSession()
+          markDeep()
+          data.totals.bridge = Number(data.totals.bridge || 0) + 1
+          const dayBucket = data.byDay[dayOf()] || (data.byDay[dayOf()] = {})
+          dayBucket.bridge = Number(dayBucket.bridge || 0) + 1
+          pruneDays()
+          write(data)
+        }
+        try {
+          window.addEventListener('promptkit.nudge', onNudge)
+          window.addEventListener('promptkit.studio.open-with-draft.v1', onBridge)
+        } catch {}
+        const api = {
+          getSummary: () => {
+            pruneDays()
+            const days = Object.keys(data.byDay)
+            const deepDays = days.filter(day => Number(data.byDay[day]?.accept || 0) > 0 || Number(data.byDay[day]?.bridge || 0) > 0)
+            const base = Math.max(data.sessions, data.deepSessions)
+            return {
+              sessions: data.sessions,
+              deepSessions: data.deepSessions,
+              deepRate: base ? Math.round((data.deepSessions / base) * 100) / 100 : 0,
+              activeDays: days.length,
+              deepDays: deepDays.length,
+              totals: { ...data.totals },
+              byType: JSON.parse(JSON.stringify(data.byType)),
+              byDay: JSON.parse(JSON.stringify(data.byDay)),
+            }
+          },
+          reset: () => {
+            data.totals = {}
+            data.byType = {}
+            data.byDay = {}
+            data.sessions = 0
+            data.deepSessions = 0
+            write(data)
+          },
+        }
+        window.__promptkitNudgeMetrics = api
+        return api
+      }
+
       /* ================= dsh-promptkit 组件: ConversationQuickAction（快捷助手） ================= */
       // ConversationQuickAction（对话快捷增强器 / QuickEnhancer）：开源核心组件，零宿主依赖。
       // 所有外部能力经 props 注入；未注入的可选能力对应 UI 自动隐藏或降级：
@@ -1380,7 +1521,8 @@ window.__ModuleLoader__.load({
       //   enhancer       (可选) Enhancer：语义增强模型；未注入时仅保留「轻量 · 零 Token」档位
       //   messages       (可选) [{ id, role:'user'|'assistant', text }]：当前对话，供「加对话」参考
       //   searchMemory   (可选) (query) => Promise<string>：项目记忆检索，供「加项目记忆」档位
-      function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, storagePrefix = 'promptkit.' }) {
+      //   nudgeEnabled   (可选) boolean：宿主级行为助推总开关，默认 true；与 localStorage 开关为「与」关系
+      function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, storagePrefix = 'promptkit.', nudgeEnabled = true }) {
         const storageKey = name => `${storagePrefix}quick-action.${name}`
         const msgs = list(messages)
         const [draft, setDraft] = React.useState(() => composer?.getDraft?.() || '')
@@ -1414,6 +1556,28 @@ window.__ModuleLoader__.load({
         const [libraryFavorites, setLibraryFavorites] = React.useState([])
         const [libraryHistory, setLibraryHistory] = React.useState([])
         const [vaultOpen, setVaultOpen] = React.useState(false)
+        // 抽屉与插件根已抬升到宿主浮层之上（zIndex 20001/20002），「关闭 ×」按钮必然露在最上层、始终可点，
+        // 不再需要「被遮挡时自动左移」的运行时检测（此前那套 elementFromPoint 轮询既脆弱又拖性能）。
+        const panelRef = React.useRef(null)
+        const closeBtnRef = React.useRef(null)
+        // DSH 宿主可能在某层 DOM 上 stopPropagation / 拦截 click/pointerdown，导致 React 合成 onClick 收不到。
+        // 在 window 捕获阶段挂原生监听，命中关闭按钮时直接 stopImmediatePropagation + 关面板，绕过宿主拦截。
+        React.useEffect(() => {
+          const close = (event) => {
+            const btn = closeBtnRef.current
+            if (!btn) return
+            if (event.target !== btn && !btn.contains(event.target)) return
+            event.stopImmediatePropagation()
+            event.preventDefault()
+            setVaultOpen(false)
+          }
+          window.addEventListener('click', close, { capture: true })
+          window.addEventListener('pointerdown', close, { capture: true })
+          return () => {
+            window.removeEventListener('click', close, { capture: true })
+            window.removeEventListener('pointerdown', close, { capture: true })
+          }
+        }, [])
         const [vaultItems, setVaultItems] = React.useState([])
         const [vaultSearch, setVaultSearch] = React.useState('')
         // 搜索防抖：斜杠菜单（slashMatches）保持即时过滤，灵感库面板用防抖值避免大数据集逐键重算。
@@ -1472,6 +1636,17 @@ window.__ModuleLoader__.load({
 
         const [recentMethodIds, setRecentMethodIds] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('recent-methods.v1')) || '[]') } catch { return [] } })
         const [methodUsage, setMethodUsage] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('method-usage.v1')) || '{}') } catch { return {} } })
+        // ── 行为助推（方法觉醒 / 灵感库一键存）状态 ──
+        const [nudgeQueue, setNudgeQueue] = React.useState([])
+        const [activeNudge, setActiveNudge] = React.useState(null)
+        const shownNudgeKeys = React.useRef(new Set())
+        const NUDGE_OPTOUT_DAYS = 7
+        // 宿主级 feature flag：prop nudgeEnabled 与 localStorage 开关取「与」，任一关闭即停发全部引导卡。
+        const [nudgeKitOn, setNudgeKitOn] = React.useState(() => isNudgeKitEnabled(storageKey('nudge.enabled.v1')))
+        const [confirmResetNudgeStats, setConfirmResetNudgeStats] = React.useState(false)
+        const nudgeOptoutKey = type => storageKey(`nudge.optout.${type}`)
+        const isNudgeOptedOut = type => { try { const raw = JSON.parse(window.localStorage.getItem(nudgeOptoutKey(type)) || 'null'); return !!raw && typeof raw.until === 'number' && raw.until > Date.now() } catch { return false } }
+        const setNudgeOptout = type => { try { window.localStorage.setItem(nudgeOptoutKey(type), JSON.stringify({ until: Date.now() + NUDGE_OPTOUT_DAYS * 864e5 })) } catch {} }
         const { position, onPointerDown: beginDrag, consumeSuppressedClick } = useFloatingLauncher(storageKey('position.v1'))
         const rootRef = React.useRef(null)
         const openPanel = () => setOpen(value => !value)
@@ -1603,10 +1778,10 @@ window.__ModuleLoader__.load({
             return true
           } catch (error) { setError(String(error?.message || error)); return false }
         }
-        const saveToVault = async (body, provenance = {}) => {
+        const saveToVault = async (body, provenance = {}, titleOverride) => {
           if (!assetProvider) { setWarn('当前宿主未连接灵感库。'); return }
           try {
-            const item = await assetProvider.save({ id: vaultEditingId || undefined, title: vaultTitle, body, tags: vaultTags, note: vaultNote, type: vaultType, project: vaultProject, parentId: vaultParentId, thinkingKind: vaultThinkingKind, epistemicStatus: vaultEpistemicStatus, rationale: vaultRationale, nextAction: vaultNextAction, relatedIds: vaultRelatedIds, dialectic: vaultThinkingKind === 'dialectic' ? vaultDialectic : undefined, verification: vaultThinkingKind === 'assumption' || vaultEpistemicStatus === 'to_verify' ? vaultVerification : undefined, provenance: { ...provenance, ...(assetContextReceipt ? { contextAssetIds: assetContextReceipt.ids } : {}) } })
+            const item = await assetProvider.save({ id: vaultEditingId || undefined, title: titleOverride ?? vaultTitle, body, tags: vaultTags, note: vaultNote, type: vaultType, project: vaultProject, parentId: vaultParentId, thinkingKind: vaultThinkingKind, epistemicStatus: vaultEpistemicStatus, rationale: vaultRationale, nextAction: vaultNextAction, relatedIds: vaultRelatedIds, dialectic: vaultThinkingKind === 'dialectic' ? vaultDialectic : undefined, verification: vaultThinkingKind === 'assumption' || vaultEpistemicStatus === 'to_verify' ? vaultVerification : undefined, provenance: { ...provenance, ...(assetContextReceipt ? { contextAssetIds: assetContextReceipt.ids } : {}) } })
             const action = vaultEditingId ? '已更新' : '已保存'
             setVaultTitle(''); setVaultTags(''); setVaultNote(''); setVaultBody(''); setVaultParentId(''); setVaultEditingId(''); setVaultFormOpen(false); setVaultThinkingKind('conclusion'); setVaultEpistemicStatus('inferred'); setVaultRationale(''); setVaultNextAction(''); setVaultRelatedIds([]); setVaultDialectic({ thesis: '', antithesis: '', synthesis: '' }); setVaultVerification({ status: 'pending', evidence: '', checkedAt: 0 })
             setNotice(`${action}「${item.title}」。`)
@@ -1805,6 +1980,63 @@ window.__ModuleLoader__.load({
           if (!method?.id) return
           methodProvider.pushHistory?.({ id: method.id, title: method.title || '', question: cleanSummary(question), at: Date.now() }).catch(() => {})
         }
+        // ───────── 行为助推：方法觉醒 + 灵感库一键存 ─────────
+        // 埋点：经 window CustomEvent 暴露，由 NudgeMetrics（nudge-metrics.js）本地消费，零遥测。
+        React.useEffect(() => { mountNudgeMetrics(storagePrefix) }, [storagePrefix])
+        React.useEffect(() => { if (activeNudge) trackNudge(activeNudge.type, 'impress', { method_id: activeNudge.methodId }) }, [activeNudge])
+        const trackNudge = (type, action, detail = {}) => {
+          try { window.dispatchEvent(new CustomEvent('promptkit.nudge', { detail: { type, action, ts: Date.now(), ...detail } })) } catch {}
+        }
+        const deriveVaultTitle = (src, method) => {
+          const head = (src || '').trim().replace(/\s+/g, ' ').slice(0, 18)
+          const tag = method ? method.title : '增强'
+          return head ? `${tag} · ${head}` : `${tag}结果`
+        }
+        const pushNudges = candidates => {
+          if (!nudgeEnabled || !nudgeKitOn) return // 宿主级 / 用户级总开关：关闭时一个引导卡都不发
+          const accepted = candidates.filter(c => {
+            if (!c) return false
+            if (isNudgeOptedOut(c.type)) return false
+            if (c.type === 'awaken' && shownNudgeKeys.current.has(`awaken:${c.methodId}`)) return false
+            if (c.type === 'vault' && shownNudgeKeys.current.has('vault')) return false
+            return true
+          })
+          if (!accepted.length) return
+          setNudgeQueue(prev => [...prev, ...accepted])
+          setActiveNudge(prev => prev || accepted[0])
+        }
+        const advanceNudge = () => {
+          setActiveNudge(null)
+          setNudgeQueue(prev => { const next = prev.slice(1); if (next.length) setActiveNudge(next[0]); return next })
+        }
+        const dismissNudge = (nudge, action) => {
+          trackNudge(nudge.type, action, { method_id: nudge.methodId })
+          if (nudge.type === 'awaken') shownNudgeKeys.current.add(`awaken:${nudge.methodId}`)
+          if (nudge.type === 'vault') shownNudgeKeys.current.add('vault')
+          if (action === 'dismiss') setNudgeOptout(nudge.type)
+          advanceNudge()
+        }
+        const onAcceptVault = async nudge => {
+          trackNudge('vault', 'accept', { method_id: nudge.methodId })
+          shownNudgeKeys.current.add('vault')
+          await saveToVault(nudge.body, { kind: 'nudge-quick-save', method: nudge.methodTitle }, nudge.draftTitle)
+          advanceNudge()
+        }
+        // 草稿桥：把当前输入框内容一键带进方法工坊（Studio），零重填。
+        // 经 window CustomEvent + sessionStorage 双通道：事件即时送达已挂载的 Studio，
+        // sessionStorage 兜底 Studio 尚未挂载（视图未打开）的场景，挂载时再取。
+        const openStudioWithDraft = (methodId = '') => {
+          const payload = { draft, methodId: methodId || '' }
+          try { window.sessionStorage.setItem('promptkit.studio.pending-draft.v1', JSON.stringify(payload)) } catch {}
+          try { window.dispatchEvent(new CustomEvent('promptkit.studio.open-with-draft.v1', { detail: { ...payload, ts: Date.now() } })) } catch {}
+        }
+        // 用户级开关：写入 localStorage（宿主级持久关闭同一把钥匙），关闭时清空队列与当前卡。
+        const toggleNudgeKit = () => {
+          const next = !nudgeKitOn
+          setNudgeKitOn(next)
+          setNudgeKitEnabled(next, storageKey('nudge.enabled.v1'))
+          if (!next) { setNudgeQueue([]); setActiveNudge(null) }
+        }
         const composeIntoInput = async choice => {
           if (!choice || !composer) return
           const source = useConversationContext ? activeMessages : []
@@ -1908,6 +2140,11 @@ window.__ModuleLoader__.load({
               setMemoryReceipt(useMemoryContext ? { used: Boolean(remembered), text: remembered, sources: memoryPreview.query === original ? memoryPreview.sources : [] } : null)
               setAssetContextReceipt(contextAssets.length ? { ids: contextAssets.map(item => item.id), titles: contextAssets.map(item => item.title) } : null)
               setOutcomePending({ kind: 'semantic', method: matchedMethod?.title })
+              if (matchedMethod) setMethodUsage(value => { const nextUsage = { ...value, [matchedMethod.id]: Number(value[matchedMethod.id] || 0) + 1 }; try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}; return nextUsage })
+              pushNudges([
+                matchedMethod ? { type: 'awaken', methodId: matchedMethod.id, methodTitle: matchedMethod.title } : null,
+                { type: 'vault', methodId: matchedMethod?.id, methodTitle: matchedMethod?.title, body: after, draftTitle: deriveVaultTitle(original, matchedMethod) }
+              ])
               setNotice(`语义增强完成${body.model ? `（${body.model}）` : ''}；${selection?.text ? '选中片段' : '草稿'}已替换，可在此撤销或对比原稿。`)
             } catch (error) {
               if (error?.name === 'AbortError') setNotice('已取消语义增强，草稿未改动。')
@@ -2004,13 +2241,16 @@ window.__ModuleLoader__.load({
           ]),
           vaultGraphFocusId ? graphPanel : graphOverview,
         ])
-        const reviewPanel = reviewOpen ? h('section', { role: 'dialog', 'aria-label': '对话复盘', style: { position: 'fixed', top: '12%', left: '50%', transform: 'translateX(-50%)', width: 'min(540px, calc(100vw - 32px))', maxHeight: '76vh', overflowY: 'auto', padding: '16px', boxSizing: 'border-box', border: `1px solid ${C.tealLine}`, borderRadius: '14px', background: C.surface, boxShadow: C.shadowLg, zIndex: 70 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between' } }, [h('div', { key: 'title' }, [h('strong', { style: { fontSize: '16px' } }, '对话收束'), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '11px' } }, '确认后才会生成并关联思考卡。')]), h('button', { onClick: () => setReviewOpen(false), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer' } }, '关闭 ×')]), ...reviewCards.map(card => h('label', { key: card.id, style: { display: 'grid', gridTemplateColumns: '18px 1fr', gap: '8px', marginTop: '9px', padding: '8px', border: `1px solid ${card.checked ? C.tealLine : C.line}`, borderRadius: '8px', background: card.checked ? C.tealTint : C.surface, cursor: 'pointer' } }, [h('input', { type: 'checkbox', checked: card.checked, onChange: () => setReviewCards(cards => cards.map(item => item.id === card.id ? { ...item, checked: !item.checked } : item)), style: { accentColor: C.teal } }), h('div', null, [h('strong', { style: { fontSize: '12px' } }, card.title), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '10px' } }, `${thinkingLabel[card.thinkingKind]} · ${epistemicLabel[card.epistemicStatus]}`), h('div', { style: { marginTop: '3px', color: C.slate, fontSize: '11px', whiteSpace: 'pre-wrap' } }, card.body)])])), h('button', { key: 'save', onClick: saveConversationReview, style: { ...workbenchStyle.actionPrimary, width: '100%', marginTop: '12px' } }, '确认并沉淀为思考卡')]) : null
+        const reviewPanel = reviewOpen ? h('section', { role: 'dialog', 'aria-label': '对话复盘', style: { position: 'fixed', top: '12%', left: '50%', transform: 'translateX(-50%)', width: 'min(540px, calc(100vw - 32px))', maxHeight: '76vh', overflowY: 'auto', padding: '16px', boxSizing: 'border-box', border: `1px solid ${C.tealLine}`, borderRadius: '14px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20003 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between' } }, [h('div', { key: 'title' }, [h('strong', { style: { fontSize: '16px' } }, '对话收束'), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '11px' } }, '确认后才会生成并关联思考卡。')]), h('button', { onClick: () => setReviewOpen(false), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer' } }, '关闭 ×')]), ...reviewCards.map(card => h('label', { key: card.id, style: { display: 'grid', gridTemplateColumns: '18px 1fr', gap: '8px', marginTop: '9px', padding: '8px', border: `1px solid ${card.checked ? C.tealLine : C.line}`, borderRadius: '8px', background: card.checked ? C.tealTint : C.surface, cursor: 'pointer' } }, [h('input', { type: 'checkbox', checked: card.checked, onChange: () => setReviewCards(cards => cards.map(item => item.id === card.id ? { ...item, checked: !item.checked } : item)), style: { accentColor: C.teal } }), h('div', null, [h('strong', { style: { fontSize: '12px' } }, card.title), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '10px' } }, `${thinkingLabel[card.thinkingKind]} · ${epistemicLabel[card.epistemicStatus]}`), h('div', { style: { marginTop: '3px', color: C.slate, fontSize: '11px', whiteSpace: 'pre-wrap' } }, card.body)])])), h('button', { key: 'save', onClick: saveConversationReview, style: { ...workbenchStyle.actionPrimary, width: '100%', marginTop: '12px' } }, '确认并沉淀为思考卡')]) : null
         const versionDiff = item => {
           const parent = item.parentId ? vaultById.get(item.parentId) : null
           return h('div', { style: { marginTop: '7px', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surfaceAlt, fontSize: '10px', lineHeight: 1.45 } }, parent ? [h('strong', { key: 'title', style: { color: C.teal } }, `与「${parent.title}」对比`), h('div', { key: 'grid', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', marginTop: '5px' } }, [h('div', { key: 'old', style: { whiteSpace: 'pre-wrap', color: C.muted, maxHeight: '96px', overflow: 'auto' } }, parent.body), h('div', { key: 'new', style: { whiteSpace: 'pre-wrap', color: C.ink, maxHeight: '96px', overflow: 'auto' } }, item.body)])] : '此资产没有可比较的父版本。')
         }
-        const vaultPanel = assetProvider ? h('aside', { key: 'vault-panel', role: 'dialog', 'aria-label': '灵感库', style: { position: 'fixed', top: 0, right: 0, width: 'min(390px, calc(100vw - 24px))', height: '100vh', overflowY: 'auto', padding: '18px', boxSizing: 'border-box', borderLeft: `1px solid ${C.tealLine}`, background: C.surface, boxShadow: '-16px 0 38px var(--pk-shadow-lg)', zIndex: 60, display: 'grid', alignContent: 'start', gap: '10px' } }, [
-          h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [h('strong', { style: { fontSize: '16px' } }, '灵感库'), h('button', { onClick: () => { setVaultOpen(false); setMode('enhance') }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '13px', fontWeight: 800 } }, '关闭 ×')]),
+        const vaultPanel = assetProvider ? h('aside', { key: 'vault-panel', ref: panelRef, role: 'dialog', 'aria-label': '灵感库', style: { position: 'fixed', top: 0, right: 0, width: 'min(390px, calc(100vw - 24px))', height: '100vh', overflowY: 'auto', padding: '18px', boxSizing: 'border-box', borderLeft: `1px solid ${C.tealLine}`, background: C.surface, boxShadow: '-16px 0 38px var(--pk-shadow-lg)', zIndex: 20002, display: 'grid', alignContent: 'start', gap: '10px' } }, [
+          h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', position: 'relative', zIndex: 1 } }, [
+            h('strong', { style: { fontSize: '16px' } }, '灵感库'),
+            h('button', { ref: closeBtnRef, onClick: () => { setVaultOpen(false) }, title: '关闭灵感库', style: { position: 'relative', zIndex: 2, flexShrink: 0, whiteSpace: 'nowrap', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', fontSize: '13px', fontWeight: 800, padding: '3px 11px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' } }, '关闭 ×'),
+          ]),
           tabBar,
           vaultTab === 'vault' ? h('div', { key: 'vault-wrap', style: { display: 'grid', gap: '10px' } }, [
           h('details', { key: 'capture-details', open: vaultFormOpen, onToggle: event => setVaultFormOpen(event.currentTarget.open), style: { border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [h('summary', { style: { padding: '10px 11px', color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, vaultEditingId ? '编辑灵感资产' : vaultParentId ? '保存派生版本' : '+ 新建灵感'),
@@ -2160,6 +2400,26 @@ window.__ModuleLoader__.load({
         const wide = vw >= 620
         const panelW = Math.min(wide ? 640 : 440, vw - 32)
         const enhanceBody = h('div', { key: 'enhance-body', style: { display: 'grid', gridTemplateColumns: wide ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)', gap: '10px', alignItems: 'start', animation: 'pk-fade .2s ease' } }, [h('div', { key: 'config', style: { minWidth: 0 } }, [enhancerKindSection, draftStatusNode, requirementNode, contextLevelNode, contextNode, assetContextNode]), h('div', { key: 'preview', style: { minWidth: 0 } }, [enhancerPanel])])
+        // 方法收集进度（助推③）：本地计数的唯一真源为 methodUsage，此处仅派生展示数据，
+        // 不额外写存储。usedIds 去重后用于「已用 N / 总数」进度，助长收集动量。
+        const usageSum = Object.values(methodUsage || {}).reduce((sum, n) => sum + Number(n || 0), 0)
+        const usedMethodIds = Object.keys(methodUsage || {}).filter(id => Number(methodUsage[id] || 0) > 0)
+        const usedMethodCount = usedMethodIds.length
+        const methodTotal = methods.length || 1
+        const methodProgressLabel = `${usedMethodCount} / ${methods.length} 个方法`
+        const methodProgressPct = Math.min(100, Math.round((usedMethodCount / methodTotal) * 100))
+        const usageNode = h('div', { key: 'usage-progress', style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px', padding: '9px 11px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface, fontSize: '11px', color: C.slate } }, [
+          h('div', { key: 'lab', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+            h('strong', { key: 't', style: { color: C.teal, fontWeight: 800 } }, '方法收集进度'),
+            h('span', { key: 'n', style: { color: C.muted } }, `${methodProgressLabel}${usedMethodCount >= 21 ? ' · 已解锁「方法全景」' : usedMethodCount >= 16 ? ' · 快集齐了' : ''}`)
+          ]),
+          h('div', { key: 'bar', style: { height: '6px', borderRadius: '999px', background: C.surfaceAlt, overflow: 'hidden' } }, [
+            h('div', { key: 'fill', style: { height: '100%', width: `${methodProgressPct}%`, borderRadius: '999px', background: C.teal, transition: 'width .3s ease' } })
+          ]),
+          h('div', { key: 'cnt', style: { color: C.muted, fontSize: '10px' } }, usedMethodCount ? `累计用过 ${usageSum} 次 · ${usedMethodCount} 个方法；常用方法先用起来，慢慢扩大版图。` : '还没用过命名方法——下次增强时留意自动匹配的方法，或到「方法库」手动选一个。')
+        ])
+        // 助推效果看板：直接读 NudgeMetrics 单例的聚合结果（面板打开时随渲染刷新）。
+        const nudgeSummary = (typeof window !== 'undefined' && window.__promptkitNudgeMetrics?.getSummary) ? window.__promptkitNudgeMetrics.getSummary() : null
         const settingsSection = settingsOpen ? h('div', { key: 'settings-dropdown', 'data-settings-dropdown': 'true', style: { position: 'absolute', top: '52px', right: '14px', zIndex: 10, width: '320px', maxWidth: 'calc(100% - 28px)', padding: '11px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.surfaceAlt, boxShadow: C.shadowLg } },
           activeSettingsPanel === null
             ? [
@@ -2173,11 +2433,16 @@ window.__ModuleLoader__.load({
                     h('span', { key: 'name', style: { fontSize: '11px', color: C.slate } }, '本地使用信号（默认关闭）'),
                     h('input', { key: 'cb', type: 'checkbox', checked: metricsEnabled, onChange: toggleMetrics, style: { accentColor: C.teal, cursor: 'pointer' } })
                   ]),
-                  metricsEnabled ? h('div', { key: 'nums', style: { marginTop: '4px', paddingLeft: '8px', color: C.muted, fontSize: '10px' } }, `轻量 ${Number(metrics.light || 0)} · 语义 ${Number(metrics.semantic || 0)} · 反馈 ${feedback.length}`) : null
+                  metricsEnabled ? h('div', { key: 'nums', style: { marginTop: '4px', paddingLeft: '8px', color: C.muted, fontSize: '10px' } }, `轻量 ${Number(metrics.light || 0)} · 语义 ${Number(metrics.semantic || 0)} · 反馈 ${feedback.length}`) : null,
+                  h('label', { key: 'nudge-toggle', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginTop: '4px', padding: '6px 8px', borderRadius: '7px', cursor: 'pointer' } }, [
+                    h('span', { key: 'name', style: { fontSize: '11px', color: C.slate } }, '行为助推引导卡（方法觉醒 / 一键存）'),
+                    h('input', { key: 'cb', type: 'checkbox', checked: nudgeKitOn, onChange: toggleNudgeKit, style: { accentColor: C.teal, cursor: 'pointer' } })
+                  ]),
                 ]),
                 h('details', { key: 'more', style: { marginTop: '10px', borderTop: `1px solid ${C.divide}`, paddingTop: '9px' } }, [
-                  h('summary', { style: { color: C.muted, cursor: 'pointer', fontSize: '10px', fontWeight: 800, letterSpacing: '0.5px' } }, '更多操作 · 导入 / 备份 / 私有方法'),
+                  h('summary', { style: { color: C.muted, cursor: 'pointer', fontSize: '10px', fontWeight: 800, letterSpacing: '0.5px' } }, '更多操作 · 统计 / 导入 / 备份 / 私有方法'),
                   h('div', { key: 'data', style: { marginTop: '8px', display: 'grid', gap: '6px' } }, [
+                    h('button', { key: 'nudges', onClick: () => setActiveSettingsPanel('nudges'), style: { width: '100%', textAlign: 'left', padding: '7px 8px', border: `1px solid ${C.tealLine}`, borderRadius: '7px', background: C.surface, color: C.slate, cursor: 'pointer', fontSize: '11px' } }, '→ 行为助推效果（本地统计）'),
                     h('button', { key: 'import', onClick: () => setActiveSettingsPanel('import'), style: { width: '100%', textAlign: 'left', padding: '7px 8px', border: `1px solid ${C.tealLine}`, borderRadius: '7px', background: C.surface, color: C.slate, cursor: 'pointer', fontSize: '11px' } }, '→ 导入 Obsidian Prompt 卡片'),
                     h('button', { key: 'backup', onClick: () => setActiveSettingsPanel('backup'), style: { width: '100%', textAlign: 'left', padding: '7px 8px', border: `1px solid ${C.tealLine}`, borderRadius: '7px', background: C.surface, color: C.slate, cursor: 'pointer', fontSize: '11px' } }, '→ 备份或恢复私有方法')
                   ]),
@@ -2200,6 +2465,22 @@ window.__ModuleLoader__.load({
                   h('button', { key: 'exp', className: 'pk-btn', onClick: exportPrivateMethods, style: { ...workbenchStyle.action, marginTop: '6px' } }, '导出私有方法'),
                   h('textarea', { key: 'bk', value: privateBackup, onChange: event => setPrivateBackup(event.target.value), placeholder: '粘贴此前导出的 JSON 备份', style: { ...workbenchStyle.input, width: '100%', minHeight: '64px', marginTop: '6px', resize: 'vertical', fontSize: '11px' } }),
                   h('button', { key: 'imp', className: 'pk-btn', disabled: !privateBackup.trim(), onClick: importPrivateBackup, style: { ...workbenchStyle.action, marginTop: '6px', opacity: privateBackup.trim() ? 1 : .55 } }, '恢复私有方法'),
+                ]) : activeSettingsPanel === 'nudges' ? h(Card, { key: 'panel-nudges' }, [
+                  h('strong', { key: 't', style: { fontSize: '12px' } }, '行为助推效果（本地统计）'),
+                  h('div', { key: 'desc', style: { marginTop: '4px', color: C.muted, fontSize: '10px', lineHeight: 1.5 } }, '零遥测，计数只存本浏览器。深度会话 = 本次浏览器会话中接受过任一引导，或经草稿桥进入方法工坊（DMSR 本地近似口径）。'),
+                  nudgeSummary ? [
+                    h('div', { key: 'kpi', style: { marginTop: '8px', padding: '8px 9px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', color: C.slate } }, [
+                      h('div', { key: 'rate', style: { display: 'flex', justifyContent: 'space-between' } }, [h('span', null, '深度会话率（近似 DMSR）'), h('strong', { style: { color: C.teal } }, `${Math.round((nudgeSummary.deepRate || 0) * 100)}%`)]),
+                      h('div', { key: 'sess', style: { marginTop: '4px', display: 'flex', justifyContent: 'space-between', color: C.muted, fontSize: '10px' } }, [h('span', null, `深度 ${nudgeSummary.deepSessions} / 共 ${nudgeSummary.sessions} 次会话`), h('span', null, `活跃 ${nudgeSummary.activeDays} 天 · 深度 ${nudgeSummary.deepDays} 天`)]),
+                    ]),
+                    h('div', { key: 'totals', style: { marginTop: '7px', color: C.slate, fontSize: '11px', lineHeight: 1.7 } }, [
+                      h('div', { key: 'row', style: { fontWeight: 800, color: C.ink } }, '动作计数'),
+                      h('div', { key: 'v', style: { color: C.muted, fontSize: '10px' } }, `展示 ${Number(nudgeSummary.totals.impress || 0)} · 接受 ${Number(nudgeSummary.totals.accept || 0)} · 查看 ${Number(nudgeSummary.totals.see_how || 0)} · 关闭 ${Number(nudgeSummary.totals.dismiss || 0)} · 草稿桥 ${Number(nudgeSummary.totals.bridge || 0)}`),
+                      h('div', { key: 'row2', style: { marginTop: '4px', fontWeight: 800, color: C.ink } }, '分类型'),
+                      ...Object.entries(nudgeSummary.byType || {}).map(([type, actions]) => h('div', { key: type, style: { color: C.muted, fontSize: '10px' } }, `${type === 'awaken' ? '方法觉醒' : type === 'vault' ? '灵感库一键存' : type}：${Object.entries(actions).map(([action, count]) => `${action} ${count}`).join(' · ')}`)),
+                    ]),
+                    h('button', { key: 'reset', className: 'pk-btn', onClick: () => { if (!confirmResetNudgeStats) { setConfirmResetNudgeStats(true); return } window.__promptkitNudgeMetrics?.reset?.(); setConfirmResetNudgeStats(false); setSettingsOpen(true) }, style: { ...workbenchStyle.action, marginTop: '8px', color: confirmResetNudgeStats ? C.red : undefined } }, confirmResetNudgeStats ? '再次点击清除本地统计' : '清除本地统计'),
+                  ] : h('div', { key: 'empty', style: { marginTop: '8px', color: C.muted, fontSize: '11px' } }, '暂无数据——发生第一次增强或草稿桥使用后这里会出现统计。'),
                 ]) : h(Card, { key: 'panel-manage' }, [
                   h('strong', { key: 't', style: { fontSize: '12px' } }, '管理我的私有方法'),
                   ...(methods.filter(method => method.source === 'private').length ? methods.filter(method => method.source === 'private').map(method => h('div', { key: method.id, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', marginTop: '7px', fontSize: '11px' } }, [
@@ -2216,8 +2497,28 @@ window.__ModuleLoader__.load({
               h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'start' } }, [h('div', { key: 'copy' }, [h('strong', { key: 'title', style: { fontSize: '14px' } }, '对话增强器'), h('div', { key: 'sub', style: { marginTop: '3px', color: C.muted, fontSize: '12px', lineHeight: 1.45 } }, libraryOpen ? '从提示词库选择模板：可直接填入消息框，或基于当前草稿调用模型按该方法改造。' : mode === 'enhance' ? '把当前输入框提示词做增强或改写，只填入消息框，不会自动发送。' : '写问题即可直接处理；也可选择对话消息作为额外参考。生成内容只填入消息框，不会自动发送。')]), h('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 } }, [h('button', { key: 'gear', 'data-gear-button': 'true', onClick: () => { setSettingsOpen(value => !value); if (settingsOpen) setActiveSettingsPanel(null) }, style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: settingsOpen ? C.tealTint : 'transparent', color: C.teal, cursor: 'pointer' }, 'aria-label': '设置' }, h(Icon, { key: 'ic', name: 'settings', size: 16 })), h('button', { key: 'close', onClick: () => setOpen(false), style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: 'transparent', color: C.muted, cursor: 'pointer' }, 'aria-label': '关闭' }, h(Icon, { key: 'ic', name: 'close', size: 16 }))])]),
               libraryOpen || vaultOpen || mode === 'enhance' ? null : h('div', { key: 'summary', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', margin: '12px 0 5px', padding: '10px 11px', borderRadius: '10px', background: selectedChars > 1600 ? C.amberTint : C.tealTint, color: selectedChars > 1600 ? C.amber : C.teal, fontSize: '12px', fontWeight: 700 } }, [h('span', { key: 'count' }, activeMessages.length ? `已选 ${activeMessages.length} 条 · 约 ${selectedChars} 字符${selectedChars > 1600 ? ' · 建议精简' : ''}` : '未选择对话 · 可直接写问题'), msgs.length ? h('button', { key: 'recent', onClick: () => setSelected(msgs.slice(0, 4).map(item => item.id)), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 700 } }, '选择最近 4 条') : null]),
               undoDraft ? h('div', { key: 'undo-area', style: { marginTop: '5px' } }, [h('button', { key: 'undo', onClick: () => { if (draft !== undoDraft.after) { setUndoDraft(null); setNotice('消息框内容已变化，无法撤销到之前状态。'); return } clearOutcomeAt('undo'); composer?.write(undoDraft.before); setUndoDraft(null); setNotice('已撤销上一次填入。') }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '撤销上一次填入'), h('details', { key: 'orig', style: { marginTop: '4px' } }, [h('summary', { style: { color: C.muted, fontSize: '11px', cursor: 'pointer', fontWeight: 700 } }, '查看原稿'), h('div', { style: { marginTop: '4px', padding: '8px', border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5, whiteSpace: 'pre-wrap', maxHeight: '120px', overflow: 'auto' } }, undoDraft.before || '（原稿为空）')])]) : null,
+              activeNudge ? h('div', { key: 'nudge', role: 'status', 'aria-live': 'polite', style: { marginTop: '8px', padding: '10px 11px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: activeNudge.type === 'awaken' ? C.tealTint : C.amberTint, color: C.ink, fontSize: '12px', lineHeight: 1.5, animation: 'pk-fade .2s ease' } }, activeNudge.type === 'awaken' ? [
+                h('strong', { key: 't', style: { color: C.teal, fontSize: '12px' } }, `🎯 这次自动用了「${activeNudge.methodTitle || '思考方法'}」`),
+                h('div', { key: 'd', style: { marginTop: '3px', color: C.slate } }, '10 秒看看它是怎么收敛这个问题的？'),
+                h('div', { key: 'a', style: { display: 'flex', gap: '8px', marginTop: '8px' } }, [
+                  h('button', { key: 'see', onClick: () => { dismissNudge(activeNudge, 'see_how'); openStudioWithDraft(activeNudge.methodId || '') }, style: { border: 0, background: C.teal, color: '#fff', borderRadius: '7px', padding: '6px 11px', cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '看看它怎么想'),
+                  h('button', { key: 'no', onClick: () => dismissNudge(activeNudge, 'dismiss'), style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px' } }, '不用，继续聊')
+                ])
+              ] : [
+                h('strong', { key: 't', style: { color: C.teal, fontSize: '12px' } }, '这个 Prompt 不错，存进灵感库？'),
+                h('div', { key: 'd', style: { marginTop: '3px', color: C.slate, fontSize: '11px' } }, `标题已帮你填好：「${activeNudge.draftTitle || '未命名'}」`),
+                h('div', { key: 'a', style: { display: 'flex', gap: '8px', marginTop: '8px' } }, [
+                  h('button', { key: 'save', onClick: () => onAcceptVault(activeNudge), style: { border: 0, background: C.teal, color: '#fff', borderRadius: '7px', padding: '6px 11px', cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '一键存'),
+                  h('button', { key: 'no', onClick: () => dismissNudge(activeNudge, 'dismiss'), style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px' } }, '不用')
+                ])
+              ]) : null,
+              methods.length ? usageNode : null,
       assetProvider ? h('div', { key: 'vault-quick', style: { display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px', marginTop: '10px' } }, [h('button', { key: 'save', disabled: !draft.trim(), onClick: () => saveToVault(draft, { kind: 'quick-capture' }), style: { padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: draft.trim() ? C.tealTint : C.surface, color: draft.trim() ? C.teal : C.muted, cursor: draft.trim() ? 'pointer' : 'not-allowed', fontSize: '12px', fontWeight: 800 } }, '收藏当前草稿'), h('button', { key: 'manage', onClick: () => { setVaultOpen(true); setLibraryOpen(false) }, style: { padding: '8px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, '打开灵感库 →')]) : null,
               h('div', { key: 'mode', style: { display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '6px', marginTop: '12px' } }, [['enhance', '智能增强'], ['method', '手动选方法']].map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => { setMode(id); setLibraryOpen(false); setVaultOpen(false) }, style: { padding: '8px', border: `1px solid ${mode === id && !libraryOpen && !vaultOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: mode === id && !libraryOpen && !vaultOpen ? C.tealTintDeep : C.surface, color: mode === id && !libraryOpen && !vaultOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, label)).concat(h('button', { key: 'library', className: 'pk-btn', onClick: () => { const next = !libraryOpen; setMode(next ? 'library' : 'method'); setLibraryOpen(next); setVaultOpen(false) }, style: { padding: '8px', border: `1px solid ${libraryOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: libraryOpen ? C.tealTintDeep : C.surface, color: libraryOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, '方法库'))),
+              !libraryOpen && !vaultOpen ? h('div', { key: 'studio-bridge', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '9px', padding: '9px 11px', border: `1px dashed ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, fontSize: '11px', color: C.slate } }, [
+                h('span', { key: 'tip', style: { lineHeight: 1.4 } }, draft.trim() ? '这段挺完整，想认真拆？' : '写完草稿后，可带进方法工坊慢慢精修'),
+                h('button', { key: 'go', disabled: !draft.trim() || !enhancer, onClick: openStudioWithDraft, style: { flexShrink: 0, border: 0, borderRadius: '7px', background: draft.trim() ? C.teal : C.surfaceAlt, color: draft.trim() ? '#fff' : C.muted, padding: '6px 10px', cursor: draft.trim() ? 'pointer' : 'not-allowed', fontSize: '11px', fontWeight: 800 } }, '在方法工坊打开')
+              ]) : null,
 
               mode === 'enhance' && !libraryOpen && (requirement.trim() || useConversationContext || useMemoryContext) ? stepperNode : null,
               settingsOpen ? settingsSection : null,
@@ -2235,8 +2536,8 @@ window.__ModuleLoader__.load({
               ]),
               noticeState ? h('div', { key: 'notice', role: 'status', 'aria-live': 'polite', style: { marginTop: '10px', padding: '9px 11px', borderRadius: '8px', border: `1px solid ${noticeState.kind === 'error' ? C.red : noticeState.kind === 'warn' ? C.amberLine : C.tealLine}`, background: noticeState.kind === 'error' ? C.redTint : noticeState.kind === 'warn' ? C.amberTint : C.tealTint, color: noticeState.kind === 'error' ? C.red : noticeState.kind === 'warn' ? C.amber : C.teal, fontSize: '12px', lineHeight: 1.45 } }, noticeState.text) : null,
             ]) : null
-        const slashMenu = slashOpen ? h('div', { key: 'slash-menu', role: 'listbox', style: { position: 'fixed', right: '76px', bottom: '86px', width: 'min(360px, calc(100vw - 32px))', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 61 } }, [h('div', { key: 'label', style: { padding: '4px 6px 7px', color: C.muted, fontSize: '11px' } }, `灵感库 · /pk ${vaultSearch} · ↑↓ 选择，Enter 插入`), ...(slashMatches.length ? slashMatches.map((item, index) => h('button', { key: item.id, role: 'option', 'aria-selected': index === slashActiveIndex, onClick: () => useVaultItem(item, 'replace'), style: { width: '100%', padding: '8px', border: 0, borderRadius: '7px', background: index === slashActiveIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer' } }, [h('strong', { key: 'title', style: { fontSize: '12px' } }, item.title), h('div', { key: 'meta', style: { marginTop: '2px', color: C.muted, fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, item.tags?.length ? `#${item.tags.join(' #')}` : item.type)])) : [h('div', { key: 'empty', style: { padding: '10px 6px', color: C.muted, fontSize: '11px' } }, '未找到匹配灵感；继续输入关键词或按 Esc。')])]) : null
-        return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 30 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel, vaultOpen ? vaultPanel : null])
+        const slashMenu = slashOpen ? h('div', { key: 'slash-menu', role: 'listbox', style: { position: 'fixed', right: '76px', bottom: '86px', width: 'min(360px, calc(100vw - 32px))', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20004 } }, [h('div', { key: 'label', style: { padding: '4px 6px 7px', color: C.muted, fontSize: '11px' } }, `灵感库 · /pk ${vaultSearch} · ↑↓ 选择，Enter 插入`), ...(slashMatches.length ? slashMatches.map((item, index) => h('button', { key: item.id, role: 'option', 'aria-selected': index === slashActiveIndex, onClick: () => useVaultItem(item, 'replace'), style: { width: '100%', padding: '8px', border: 0, borderRadius: '7px', background: index === slashActiveIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer' } }, [h('strong', { key: 'title', style: { fontSize: '12px' } }, item.title), h('div', { key: 'meta', style: { marginTop: '2px', color: C.muted, fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, item.tags?.length ? `#${item.tags.join(' #')}` : item.type)])) : [h('div', { key: 'empty', style: { padding: '10px 6px', color: C.muted, fontSize: '11px' } }, '未找到匹配灵感；继续输入关键词或按 Esc。')])]) : null
+        return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel, vaultOpen ? vaultPanel : null])
       }
 
 

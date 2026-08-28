@@ -85,6 +85,7 @@ const MODULES = [
   ['src/ui/studio.js', 'dsh-promptkit 组件: PromptStudio（方法工坊）'],
   ['src/ui/quick-enhancer-vault-state.js', 'dsh-promptkit QuickEnhancer: Vault 状态容器'],
   ['src/ui/use-floating-launcher.js', 'dsh-promptkit QuickEnhancer: 浮动入口拖动'],
+  ['src/ui/nudge-metrics.js', 'dsh-promptkit NudgeMetrics：行为助推埋点本地消费端 + 宿主级开关'],
   ['src/ui/quick-enhancer.js', 'dsh-promptkit 组件: ConversationQuickAction（快捷助手）'],
 ]
 
@@ -139,6 +140,14 @@ ${body}
     StaticMethodProvider, StaticAssetProvider,
     // 基类与通用 adapter
     MethodProvider, AssetProvider, Composer, Enhancer, TextareaComposer, OpenAIEnhancer,
+    // 行为助推：宿主级开关 + 本地埋点消费端（详见 src/ui/nudge-metrics.js）
+    nudges: {
+      isEnabled: () => isNudgeKitEnabled(),
+      setEnabled: on => setNudgeKitEnabled(!!on),
+      mount: mountNudgeMetrics,
+      summary: () => (typeof window !== 'undefined' && window.__promptkitNudgeMetrics ? window.__promptkitNudgeMetrics.getSummary() : null),
+      reset: () => { if (typeof window !== 'undefined' && window.__promptkitNudgeMetrics) window.__promptkitNudgeMetrics.reset() },
+    },
     // 宿主 glue 可复用的纯函数与推荐信号表
     utils: {
       safeText, conversationDraft, conversationMessages, list, obj, fileMentions,
