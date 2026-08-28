@@ -43,20 +43,39 @@ function PromptStudio({ methodProvider, assetProvider, messages, onSend, compose
   }, [methodProvider])
   // 草稿桥（搭配快捷助手的 openStudioWithDraft）：收到 open-with-draft 事件时
   // 预填 question 字段；若组件晚于事件挂载，从 sessionStorage 兜底取回。
+  // 语义是「取一次、用掉、删掉」：pending 草稿消费后立即清除，避免 effect 因
+  // methods 变化重跑时把陈旧草稿覆盖到用户已编辑的 question 上。
+  const BRIDGE_KEY = 'promptkit.studio.pending-draft.v1'
   React.useEffect(() => {
     let alive = true
     const takeDraft = payload => {
       if (!alive) return
-      const draft = (typeof payload === 'string' ? payload : payload?.draft) || ''
-      const methodId = typeof payload === 'string' ? '' : payload?.methodId || ''
+      // 兼容三种载荷：事件 detail 对象 / sessionStorage 的 JSON 字符串 / 纯文本草稿
+      let data = payload
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data) } catch { /* 纯文本草稿，按原文使用 */ }
+      }
+      const draft = (data?.draft ?? data) || ''
+      const methodId = data?.methodId || ''
       if (!String(draft || '').trim()) return
       setQuestion(String(draft))
       if (methodId && methods.some(item => item.id === methodId)) setMethodId(methodId)
       setMessage('已从快捷助手带入草稿，可补充事实与约束后生成。')
     }
-    const onOpen = event => takeDraft(event?.detail)
+    const consumePending = () => {
+      try {
+        const stored = window.sessionStorage.getItem(BRIDGE_KEY)
+        if (stored == null) return
+        window.sessionStorage.removeItem(BRIDGE_KEY)
+        takeDraft(stored)
+      } catch {}
+    }
+    const onOpen = event => {
+      try { window.sessionStorage.removeItem(BRIDGE_KEY) } catch {}
+      takeDraft(event?.detail)
+    }
     window.addEventListener('promptkit.studio.open-with-draft.v1', onOpen)
-    try { takeDraft(window.sessionStorage.getItem('promptkit.studio.pending-draft.v1')) } catch {}
+    consumePending()
     return () => { alive = false; window.removeEventListener('promptkit.studio.open-with-draft.v1', onOpen) }
   }, [methods])
   const categories = ['全部', ...Array.from(new Set(methods.map(item => item.category))).filter(Boolean)]

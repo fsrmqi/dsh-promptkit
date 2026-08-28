@@ -1029,20 +1029,39 @@ window.__ModuleLoader__.load({
         }, [methodProvider])
         // 草稿桥（搭配快捷助手的 openStudioWithDraft）：收到 open-with-draft 事件时
         // 预填 question 字段；若组件晚于事件挂载，从 sessionStorage 兜底取回。
+        // 语义是「取一次、用掉、删掉」：pending 草稿消费后立即清除，避免 effect 因
+        // methods 变化重跑时把陈旧草稿覆盖到用户已编辑的 question 上。
+        const BRIDGE_KEY = 'promptkit.studio.pending-draft.v1'
         React.useEffect(() => {
           let alive = true
           const takeDraft = payload => {
             if (!alive) return
-            const draft = (typeof payload === 'string' ? payload : payload?.draft) || ''
-            const methodId = typeof payload === 'string' ? '' : payload?.methodId || ''
+            // 兼容三种载荷：事件 detail 对象 / sessionStorage 的 JSON 字符串 / 纯文本草稿
+            let data = payload
+            if (typeof data === 'string') {
+              try { data = JSON.parse(data) } catch { /* 纯文本草稿，按原文使用 */ }
+            }
+            const draft = (data?.draft ?? data) || ''
+            const methodId = data?.methodId || ''
             if (!String(draft || '').trim()) return
             setQuestion(String(draft))
             if (methodId && methods.some(item => item.id === methodId)) setMethodId(methodId)
             setMessage('已从快捷助手带入草稿，可补充事实与约束后生成。')
           }
-          const onOpen = event => takeDraft(event?.detail)
+          const consumePending = () => {
+            try {
+              const stored = window.sessionStorage.getItem(BRIDGE_KEY)
+              if (stored == null) return
+              window.sessionStorage.removeItem(BRIDGE_KEY)
+              takeDraft(stored)
+            } catch {}
+          }
+          const onOpen = event => {
+            try { window.sessionStorage.removeItem(BRIDGE_KEY) } catch {}
+            takeDraft(event?.detail)
+          }
           window.addEventListener('promptkit.studio.open-with-draft.v1', onOpen)
-          try { takeDraft(window.sessionStorage.getItem('promptkit.studio.pending-draft.v1')) } catch {}
+          consumePending()
           return () => { alive = false; window.removeEventListener('promptkit.studio.open-with-draft.v1', onOpen) }
         }, [methods])
         const categories = ['全部', ...Array.from(new Set(methods.map(item => item.category))).filter(Boolean)]
@@ -1561,15 +1580,23 @@ window.__ModuleLoader__.load({
         const panelRef = React.useRef(null)
         const closeBtnRef = React.useRef(null)
         // DSH 宿主可能在某层 DOM 上 stopPropagation / 拦截 click/pointerdown，导致 React 合成 onClick 收不到。
-        // 在 window 捕获阶段挂原生监听，命中关闭按钮时直接 stopImmediatePropagation + 关面板，绕过宿主拦截。
+        // 在 window 捕获阶段挂原生监听：
+        //   1) 命中「关闭 ×」按钮 -> stopImmediatePropagation + 关抽屉，绕过宿主拦截；
+        //   2) 抽屉打开时点在插件根（FAB/主面板/抽屉）之外 -> 关抽屉（按钮被物理遮挡时的第二条出路）。
         React.useEffect(() => {
           const close = (event) => {
             const btn = closeBtnRef.current
-            if (!btn) return
-            if (event.target !== btn && !btn.contains(event.target)) return
-            event.stopImmediatePropagation()
-            event.preventDefault()
-            setVaultOpen(false)
+            if (btn && (event.target === btn || btn.contains(event.target))) {
+              event.stopImmediatePropagation()
+              event.preventDefault()
+              setVaultOpen(false)
+              return
+            }
+            if (event.type === 'pointerdown' && vaultOpen) {
+              const root = rootRef.current
+              // rootRef 尚未挂载（理论不可能）或点击就在插件自身 UI 内 -> 不处理
+              if (root && !root.contains(event.target)) setVaultOpen(false)
+            }
           }
           window.addEventListener('click', close, { capture: true })
           window.addEventListener('pointerdown', close, { capture: true })
@@ -1577,7 +1604,7 @@ window.__ModuleLoader__.load({
             window.removeEventListener('click', close, { capture: true })
             window.removeEventListener('pointerdown', close, { capture: true })
           }
-        }, [])
+        }, [vaultOpen])
         const [vaultItems, setVaultItems] = React.useState([])
         const [vaultSearch, setVaultSearch] = React.useState('')
         // 搜索防抖：斜杠菜单（slashMatches）保持即时过滤，灵感库面板用防抖值避免大数据集逐键重算。
@@ -1683,7 +1710,13 @@ window.__ModuleLoader__.load({
         }, [open, methods.length, methodProvider])
         React.useEffect(() => {
           const onKeydown = event => {
-            if (event.key === 'Escape' && open) { setOpen(false); return }
+            // Escape 层级化关闭：复盘弹层 -> 灵感库抽屉 -> 主面板，一层一层退。
+            // 复盘层的 Escape 在其自身 effect 中处理（带捕获吞事件），此处兜底抽屉与主面板。
+            if (event.key === 'Escape') {
+              if (vaultOpen) { event.preventDefault(); setVaultOpen(false); return }
+              if (open) { event.preventDefault(); setOpen(false); return }
+              return
+            }
             if (!(event.metaKey || event.ctrlKey)) return
             // 普通 Enter 在 textarea 内天然换行：Enter 提交分支位于 meta/ctrl 守卫之后，
             // 只有 ⌘/Ctrl+Enter 才会走到这里；再限定焦点在面板内，避免与宿主主输入框
@@ -1704,15 +1737,17 @@ window.__ModuleLoader__.load({
           }
           window.addEventListener('keydown', onKeydown)
           return () => window.removeEventListener('keydown', onKeydown)
-        }, [msgs.length, selected.length, open, methods, selectedMethodId, requirement, useConversationContext, useMemoryContext, mode])
+        }, [msgs.length, selected.length, open, vaultOpen, methods, selectedMethodId, requirement, useConversationContext, useMemoryContext, mode])
         React.useEffect(() => {
           if (!open) return
           const onPointerDown = event => {
             if (!rootRef.current?.contains(event.target)) setOpen(false)
           }
+          // 抽屉打开时点外部只关抽屉（由上方捕获 handler 负责），主面板保留，避免一次点击关两层。
+          if (vaultOpen) return undefined
           window.addEventListener('pointerdown', onPointerDown)
           return () => window.removeEventListener('pointerdown', onPointerDown)
-        }, [open])
+        }, [open, vaultOpen])
         React.useEffect(() => {
           if (!slashOpen) return undefined
           const onKeydown = event => {
@@ -2006,9 +2041,13 @@ window.__ModuleLoader__.load({
           setActiveNudge(prev => prev || accepted[0])
         }
         const advanceNudge = () => {
+          setNudgeQueue(prev => prev.slice(1))
           setActiveNudge(null)
-          setNudgeQueue(prev => { const next = prev.slice(1); if (next.length) setActiveNudge(next[0]); return next })
         }
+        // 队列推进后由 effect 同步下一张卡：setter 保持纯调用，不在 updater 里嵌套 setState。
+        React.useEffect(() => {
+          if (!activeNudge && nudgeQueue.length) setActiveNudge(nudgeQueue[0])
+        }, [activeNudge, nudgeQueue])
         const dismissNudge = (nudge, action) => {
           trackNudge(nudge.type, action, { method_id: nudge.methodId })
           if (nudge.type === 'awaken') shownNudgeKeys.current.add(`awaken:${nudge.methodId}`)
@@ -2025,10 +2064,12 @@ window.__ModuleLoader__.load({
         // 草稿桥：把当前输入框内容一键带进方法工坊（Studio），零重填。
         // 经 window CustomEvent + sessionStorage 双通道：事件即时送达已挂载的 Studio，
         // sessionStorage 兜底 Studio 尚未挂载（视图未打开）的场景，挂载时再取。
+        const BRIDGE_KEY = 'promptkit.studio.pending-draft.v1'
         const openStudioWithDraft = (methodId = '') => {
           const payload = { draft, methodId: methodId || '' }
-          try { window.sessionStorage.setItem('promptkit.studio.pending-draft.v1', JSON.stringify(payload)) } catch {}
+          try { window.sessionStorage.setItem(BRIDGE_KEY, JSON.stringify(payload)) } catch {}
           try { window.dispatchEvent(new CustomEvent('promptkit.studio.open-with-draft.v1', { detail: { ...payload, ts: Date.now() } })) } catch {}
+          setNotice('草稿已带到方法工坊：切换到「高级方法工坊」即可看到已预填的问题，无需重写。')
         }
         // 用户级开关：写入 localStorage（宿主级持久关闭同一把钥匙），关闭时清空队列与当前卡。
         const toggleNudgeKit = () => {
@@ -2408,10 +2449,13 @@ window.__ModuleLoader__.load({
         const methodTotal = methods.length || 1
         const methodProgressLabel = `${usedMethodCount} / ${methods.length} 个方法`
         const methodProgressPct = Math.min(100, Math.round((usedMethodCount / methodTotal) * 100))
+        // 里程碑阈值与分母同口径（相对 methods.length，含私有方法），避免魔法数字与真实总数脱节。
+        const methodFullRatio = usedMethodCount / methodTotal
+        const methodMilestone = methodFullRatio >= 1 ? ' · 已解锁「方法全景」' : methodFullRatio >= 0.75 ? ' · 快集齐了' : ''
         const usageNode = h('div', { key: 'usage-progress', style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px', padding: '9px 11px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface, fontSize: '11px', color: C.slate } }, [
           h('div', { key: 'lab', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
             h('strong', { key: 't', style: { color: C.teal, fontWeight: 800 } }, '方法收集进度'),
-            h('span', { key: 'n', style: { color: C.muted } }, `${methodProgressLabel}${usedMethodCount >= 21 ? ' · 已解锁「方法全景」' : usedMethodCount >= 16 ? ' · 快集齐了' : ''}`)
+            h('span', { key: 'n', style: { color: C.muted } }, `${methodProgressLabel}${methodMilestone}`)
           ]),
           h('div', { key: 'bar', style: { height: '6px', borderRadius: '999px', background: C.surfaceAlt, overflow: 'hidden' } }, [
             h('div', { key: 'fill', style: { height: '100%', width: `${methodProgressPct}%`, borderRadius: '999px', background: C.teal, transition: 'width .3s ease' } })
@@ -2517,7 +2561,7 @@ window.__ModuleLoader__.load({
               h('div', { key: 'mode', style: { display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '6px', marginTop: '12px' } }, [['enhance', '智能增强'], ['method', '手动选方法']].map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => { setMode(id); setLibraryOpen(false); setVaultOpen(false) }, style: { padding: '8px', border: `1px solid ${mode === id && !libraryOpen && !vaultOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: mode === id && !libraryOpen && !vaultOpen ? C.tealTintDeep : C.surface, color: mode === id && !libraryOpen && !vaultOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, label)).concat(h('button', { key: 'library', className: 'pk-btn', onClick: () => { const next = !libraryOpen; setMode(next ? 'library' : 'method'); setLibraryOpen(next); setVaultOpen(false) }, style: { padding: '8px', border: `1px solid ${libraryOpen ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: libraryOpen ? C.tealTintDeep : C.surface, color: libraryOpen ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, '方法库'))),
               !libraryOpen && !vaultOpen ? h('div', { key: 'studio-bridge', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '9px', padding: '9px 11px', border: `1px dashed ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, fontSize: '11px', color: C.slate } }, [
                 h('span', { key: 'tip', style: { lineHeight: 1.4 } }, draft.trim() ? '这段挺完整，想认真拆？' : '写完草稿后，可带进方法工坊慢慢精修'),
-                h('button', { key: 'go', disabled: !draft.trim() || !enhancer, onClick: openStudioWithDraft, style: { flexShrink: 0, border: 0, borderRadius: '7px', background: draft.trim() ? C.teal : C.surfaceAlt, color: draft.trim() ? '#fff' : C.muted, padding: '6px 10px', cursor: draft.trim() ? 'pointer' : 'not-allowed', fontSize: '11px', fontWeight: 800 } }, '在方法工坊打开')
+                h('button', { key: 'go', disabled: !draft.trim(), onClick: openStudioWithDraft, title: '把草稿预填到方法工坊（不切换视图）', style: { flexShrink: 0, border: 0, borderRadius: '7px', background: draft.trim() ? C.teal : C.surfaceAlt, color: draft.trim() ? '#fff' : C.muted, padding: '6px 10px', cursor: draft.trim() ? 'pointer' : 'not-allowed', fontSize: '11px', fontWeight: 800 } }, '带草稿去方法工坊')
               ]) : null,
 
               mode === 'enhance' && !libraryOpen && (requirement.trim() || useConversationContext || useMemoryContext) ? stepperNode : null,
