@@ -28,6 +28,7 @@ function LatexText({ text, block = false }) {
       tealTint: 'var(--pk-teal-tint)', tealTintDeep: 'var(--pk-teal-tint-deep)',
       blue: 'var(--pk-blue)', amber: 'var(--pk-amber)', amberLine: 'var(--pk-amber-line)', amberTint: 'var(--pk-amber-tint)',
       red: 'var(--pk-red)', redTint: 'var(--pk-red-tint)', slate: 'var(--pk-slate)',
+      statusVerified: 'var(--pk-status-verified)', statusInferred: 'var(--pk-status-inferred)', statusToVerify: 'var(--pk-status-toverify)', statusPreference: 'var(--pk-status-preference)', statusRefuted: 'var(--pk-status-refuted)',
       divide: 'var(--pk-divide)', surfaceAlt: 'var(--pk-surface-alt)', track: 'var(--pk-track)',
       font: 'var(--pk-font)', fontMono: 'var(--pk-font-mono)',
     }
@@ -48,6 +49,7 @@ function LatexText({ text, block = false }) {
   --pk-teal-tint: #f1faf8; --pk-teal-tint-deep: #effaf7;
   --pk-blue: #2563eb; --pk-amber: #b45309; --pk-amber-line: #f1d4a5; --pk-amber-tint: #fff7ed;
   --pk-red: #b91c1c; --pk-red-tint: #fdecec; --pk-slate: #52606d;
+  --pk-status-verified: #15803d; --pk-status-inferred: #2563eb; --pk-status-toverify: #b45309; --pk-status-preference: #7c3aed; --pk-status-refuted: #b91c1c;
   --pk-divide: #edf1f4; --pk-surface-alt: #fcfdff; --pk-track: #e8eef2;
   --pk-font: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --pk-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, "Liberation Mono", monospace;
@@ -77,6 +79,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid rgba(15,118,110,.
     --pk-teal-tint: #1a2e2c; --pk-teal-tint-deep: #162a28;
     --pk-blue: #5c9dff; --pk-amber: #f0a040; --pk-amber-line: #5a3a10; --pk-amber-tint: #2a1f10;
     --pk-red: #ff6b6b; --pk-red-tint: #3a1a1a; --pk-slate: #8a9199;
+    --pk-status-verified: #34d399; --pk-status-inferred: #5c9dff; --pk-status-toverify: #f0a040; --pk-status-preference: #b794f6; --pk-status-refuted: #ff6b6b;
     --pk-divide: #2d3139; --pk-surface-alt: #1e2127; --pk-track: #2d3139;
   }
   .pk-spinner { border-color: rgba(61,189,180,.22) }
@@ -103,6 +106,7 @@ body[data-ds-dark-theme] {
   --pk-teal-tint: #1a2e2c; --pk-teal-tint-deep: #162a28;
   --pk-blue: #5c9dff; --pk-amber: #f0a040; --pk-amber-line: #5a3a10; --pk-amber-tint: #2a1f10;
   --pk-red: #ff6b6b; --pk-red-tint: #3a1a1a; --pk-slate: #8a9199;
+  --pk-status-verified: #34d399; --pk-status-inferred: #5c9dff; --pk-status-toverify: #f0a040; --pk-status-preference: #b794f6; --pk-status-refuted: #ff6b6b;
   --pk-divide: #2d3139; --pk-surface-alt: #1e2127; --pk-track: #2d3139;
 }
 body[data-ds-dark-theme] .pk-spinner { border-color: rgba(61,189,180,.22) }
