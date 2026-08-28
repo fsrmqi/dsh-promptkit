@@ -62,25 +62,45 @@ pre, code, .pk-mono { font-family: var(--pk-font-mono); }
 .pk-field:focus-within > .pk-label, .pk-field:focus-within > div > .pk-label { color: var(--pk-teal) }
 @keyframes pk-breath { 0%,100% { box-shadow: 0 0 0 2px var(--pk-teal-tint) } 50% { box-shadow: 0 0 0 4px var(--pk-teal-tint) } }
 input:focus, textarea:focus, select:focus { outline: 2px solid rgba(15,118,110,.45); outline-offset: 1px; border-color: var(--pk-teal-line-active) !important; animation: pk-breath 1.8s ease-in-out infinite }
+/* ── 暗色调色板：唯一定义处（单一真源）──
+   系统暗色（@media prefers-color-scheme: dark）与 DSH 暗色（body[data-ds-dark-theme]）
+   两路触发都引用这里的 --pk-d-* 值。改任一暗色只需改此块，旧实现中两套暗色块各自
+   复制导致的漂移问题已消除。 */
+:root {
+  --pk-d-ink: #e8eaed; --pk-d-muted: #9aa0a6; --pk-d-line: #3c4043; --pk-d-canvas: #181a20; --pk-d-surface: #242830;
+  --pk-d-paper: #1e2127; --pk-d-paper-warm: #1a1d22;
+  --pk-d-on-ink: #f4f7f9;
+  --pk-d-action-bg: #2a9d94;
+  --pk-d-action-fg: #ffffff;
+  --pk-d-shadow-card: 0 1px 2px rgba(0,0,0,.35),0 8px 22px rgba(0,0,0,.30);
+  --pk-d-shadow-panel: 0 1px 2px rgba(0,0,0,.30),0 10px 24px rgba(0,0,0,.22);
+  --pk-d-shadow-fab: 0 4px 14px rgba(0,0,0,.50),0 0 0 1px rgba(0,0,0,.30);
+  --pk-d-shadow-faint: 0 6px 16px rgba(0,0,0,.35);
+  --pk-d-shadow-lg: 0 20px 50px rgba(0,0,0,.55);
+  --pk-d-teal: #3dbdb4; --pk-d-teal-strong: #2a9d94;
+  --pk-d-teal-line: #1a3d38; --pk-d-teal-line-strong: #2a6a60; --pk-d-teal-line-active: #3a9a8a;
+  --pk-d-teal-tint: #1a2e2c; --pk-d-teal-tint-deep: #162a28;
+  --pk-d-blue: #5c9dff; --pk-d-amber: #f0a040; --pk-d-amber-line: #5a3a10; --pk-d-amber-tint: #2a1f10;
+  --pk-d-red: #ff6b6b; --pk-d-red-tint: #3a1a1a; --pk-d-slate: #8a9199;
+  --pk-d-status-verified: #34d399; --pk-d-status-inferred: #5c9dff; --pk-d-status-toverify: #f0a040; --pk-d-status-preference: #b794f6; --pk-d-status-refuted: #ff6b6b;
+  --pk-d-divide: #2d3139; --pk-d-surface-alt: #1e2127; --pk-d-track: #2d3139;
+}
+/* 系统暗色：跟随操作系统偏好 */
 @media (prefers-color-scheme: dark) {
   :root {
-    --pk-ink: #e8eaed; --pk-muted: #9aa0a6; --pk-line: #3c4043; --pk-canvas: #181a20; --pk-surface: #242830;
-    --pk-paper: #1e2127; --pk-paper-warm: #1a1d22;
-    --pk-on-ink: #f4f7f9;
-    --pk-action-bg: #2a9d94;
-    --pk-action-fg: #ffffff;
-    --pk-shadow-card: 0 1px 2px rgba(0,0,0,.35),0 8px 22px rgba(0,0,0,.30);
-    --pk-shadow-panel: 0 1px 2px rgba(0,0,0,.30),0 10px 24px rgba(0,0,0,.22);
-    --pk-shadow-fab: 0 4px 14px rgba(0,0,0,.50),0 0 0 1px rgba(0,0,0,.30);
-    --pk-shadow-faint: 0 6px 16px rgba(0,0,0,.35);
-    --pk-shadow-lg: 0 20px 50px rgba(0,0,0,.55);
-    --pk-teal: #3dbdb4; --pk-teal-strong: #2a9d94;
-    --pk-teal-line: #1a3d38; --pk-teal-line-strong: #2a6a60; --pk-teal-line-active: #3a9a8a;
-    --pk-teal-tint: #1a2e2c; --pk-teal-tint-deep: #162a28;
-    --pk-blue: #5c9dff; --pk-amber: #f0a040; --pk-amber-line: #5a3a10; --pk-amber-tint: #2a1f10;
-    --pk-red: #ff6b6b; --pk-red-tint: #3a1a1a; --pk-slate: #8a9199;
-    --pk-status-verified: #34d399; --pk-status-inferred: #5c9dff; --pk-status-toverify: #f0a040; --pk-status-preference: #b794f6; --pk-status-refuted: #ff6b6b;
-    --pk-divide: #2d3139; --pk-surface-alt: #1e2127; --pk-track: #2d3139;
+    --pk-ink: var(--pk-d-ink); --pk-muted: var(--pk-d-muted); --pk-line: var(--pk-d-line); --pk-canvas: var(--pk-d-canvas); --pk-surface: var(--pk-d-surface);
+    --pk-paper: var(--pk-d-paper); --pk-paper-warm: var(--pk-d-paper-warm);
+    --pk-on-ink: var(--pk-d-on-ink);
+    --pk-action-bg: var(--pk-d-action-bg);
+    --pk-action-fg: var(--pk-d-action-fg);
+    --pk-shadow-card: var(--pk-d-shadow-card); --pk-shadow-panel: var(--pk-d-shadow-panel); --pk-shadow-fab: var(--pk-d-shadow-fab); --pk-shadow-faint: var(--pk-d-shadow-faint); --pk-shadow-lg: var(--pk-d-shadow-lg);
+    --pk-teal: var(--pk-d-teal); --pk-teal-strong: var(--pk-d-teal-strong);
+    --pk-teal-line: var(--pk-d-teal-line); --pk-teal-line-strong: var(--pk-d-teal-line-strong); --pk-teal-line-active: var(--pk-d-teal-line-active);
+    --pk-teal-tint: var(--pk-d-teal-tint); --pk-teal-tint-deep: var(--pk-d-teal-tint-deep);
+    --pk-blue: var(--pk-d-blue); --pk-amber: var(--pk-d-amber); --pk-amber-line: var(--pk-d-amber-line); --pk-amber-tint: var(--pk-d-amber-tint);
+    --pk-red: var(--pk-d-red); --pk-red-tint: var(--pk-d-red-tint); --pk-slate: var(--pk-d-slate);
+    --pk-status-verified: var(--pk-d-status-verified); --pk-status-inferred: var(--pk-d-status-inferred); --pk-status-toverify: var(--pk-d-status-toverify); --pk-status-preference: var(--pk-d-status-preference); --pk-status-refuted: var(--pk-d-status-refuted);
+    --pk-divide: var(--pk-d-divide); --pk-surface-alt: var(--pk-d-surface-alt); --pk-track: var(--pk-d-track);
   }
   .pk-spinner { border-color: rgba(61,189,180,.22) }
   .pk-scroll::-webkit-scrollbar-thumb { background: #4a4f59 }
@@ -88,31 +108,28 @@ input:focus, textarea:focus, select:focus { outline: 2px solid rgba(15,118,110,.
   .pk-card:hover { box-shadow: 0 10px 26px rgba(0,0,0,.22) }
   .pk-fab:hover { box-shadow: 0 6px 18px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.35) }
 }
-/* DSH 暗色主题：DSH 通过 body[data-ds-dark-theme] 属性 + root color-scheme 切换明暗，
-  不改变系统 prefers-color-scheme，故此处显式跟随该属性，与上方系统暗色共用同一组暗色值。 */
+/* DSH 暗色主题：DSH 通过 body[data-ds-dark-theme] 属性切换明暗，不改变系统 prefers-color-scheme，
+   故此处显式跟随该属性；暗色值复用上方 --pk-d-* 单一真源，与系统暗色完全一致。 */
 body[data-ds-dark-theme] {
-  --pk-ink: #e8eaed; --pk-muted: #9aa0a6; --pk-line: #3c4043; --pk-canvas: #181a20; --pk-surface: #242830;
-  --pk-paper: #1e2127; --pk-paper-warm: #1a1d22;
-  --pk-on-ink: #f4f7f9;
-  --pk-action-bg: #2a9d94;
-  --pk-action-fg: #ffffff;
-  --pk-shadow-card: 0 1px 2px rgba(0,0,0,.35),0 8px 22px rgba(0,0,0,.30);
-  --pk-shadow-panel: 0 1px 2px rgba(0,0,0,.30),0 10px 24px rgba(0,0,0,.22);
-  --pk-shadow-fab: 0 4px 14px rgba(0,0,0,.50),0 0 0 1px rgba(0,0,0,.30);
-  --pk-shadow-faint: 0 6px 16px rgba(0,0,0,.35);
-  --pk-shadow-lg: 0 20px 50px rgba(0,0,0,.55);
-  --pk-teal: #3dbdb4; --pk-teal-strong: #2a9d94;
-  --pk-teal-line: #1a3d38; --pk-teal-line-strong: #2a6a60; --pk-teal-line-active: #3a9a8a;
-  --pk-teal-tint: #1a2e2c; --pk-teal-tint-deep: #162a28;
-  --pk-blue: #5c9dff; --pk-amber: #f0a040; --pk-amber-line: #5a3a10; --pk-amber-tint: #2a1f10;
-  --pk-red: #ff6b6b; --pk-red-tint: #3a1a1a; --pk-slate: #8a9199;
-  --pk-status-verified: #34d399; --pk-status-inferred: #5c9dff; --pk-status-toverify: #f0a040; --pk-status-preference: #b794f6; --pk-status-refuted: #ff6b6b;
-  --pk-divide: #2d3139; --pk-surface-alt: #1e2127; --pk-track: #2d3139;
+  --pk-ink: var(--pk-d-ink); --pk-muted: var(--pk-d-muted); --pk-line: var(--pk-d-line); --pk-canvas: var(--pk-d-canvas); --pk-surface: var(--pk-d-surface);
+  --pk-paper: var(--pk-d-paper); --pk-paper-warm: var(--pk-d-paper-warm);
+  --pk-on-ink: var(--pk-d-on-ink);
+  --pk-action-bg: var(--pk-d-action-bg);
+  --pk-action-fg: var(--pk-d-action-fg);
+  --pk-shadow-card: var(--pk-d-shadow-card); --pk-shadow-panel: var(--pk-d-shadow-panel); --pk-shadow-fab: var(--pk-d-shadow-fab); --pk-shadow-faint: var(--pk-d-shadow-faint); --pk-shadow-lg: var(--pk-d-shadow-lg);
+  --pk-teal: var(--pk-d-teal); --pk-teal-strong: var(--pk-d-teal-strong);
+  --pk-teal-line: var(--pk-d-teal-line); --pk-teal-line-strong: var(--pk-d-teal-line-strong); --pk-teal-line-active: var(--pk-d-teal-line-active);
+  --pk-teal-tint: var(--pk-d-teal-tint); --pk-teal-tint-deep: var(--pk-d-teal-tint-deep);
+  --pk-blue: var(--pk-d-blue); --pk-amber: var(--pk-d-amber); --pk-amber-line: var(--pk-d-amber-line); --pk-amber-tint: var(--pk-d-amber-tint);
+  --pk-red: var(--pk-d-red); --pk-red-tint: var(--pk-d-red-tint); --pk-slate: var(--pk-d-slate);
+  --pk-status-verified: var(--pk-d-status-verified); --pk-status-inferred: var(--pk-d-status-inferred); --pk-status-toverify: var(--pk-d-status-toverify); --pk-status-preference: var(--pk-d-status-preference); --pk-status-refuted: var(--pk-d-status-refuted);
+  --pk-divide: var(--pk-d-divide); --pk-surface-alt: var(--pk-d-surface-alt); --pk-track: var(--pk-d-track);
+  .pk-spinner { border-color: rgba(61,189,180,.22) }
+  .pk-scroll::-webkit-scrollbar-thumb { background: #4a4f59 }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline-color: rgba(61,189,180,.45) }
+  .pk-card:hover { box-shadow: 0 10px 26px rgba(0,0,0,.22) }
+  .pk-fab:hover { box-shadow: 0 6px 18px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.35) }
 }
-body[data-ds-dark-theme] .pk-spinner { border-color: rgba(61,189,180,.22) }
-body[data-ds-dark-theme] .pk-scroll::-webkit-scrollbar-thumb { background: #4a4f59 }
-body[data-ds-dark-theme] button:focus-visible, body[data-ds-dark-theme] input:focus-visible, body[data-ds-dark-theme] textarea:focus-visible, body[data-ds-dark-theme] select:focus-visible { outline-color: rgba(61,189,180,.45) }
-body[data-ds-dark-theme] .pk-card:hover { box-shadow: 0 10px 26px rgba(0,0,0,.22) }
 @keyframes pk-pop { from { opacity: 0; transform: translateY(6px) scale(.985) } to { opacity: 1; transform: none } }
 @keyframes pk-fade { from { opacity: 0 } to { opacity: 1 } }
 @keyframes pk-spin { to { transform: rotate(360deg) } }
@@ -162,6 +179,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
     }
     const Icon = ({ name, size = 14, style, strokeWidth = 1.7 }) => h('svg', { viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true', style }, ICON_PATHS[name] ? h('path', { d: ICON_PATHS[name] }) : null)
     function Panel({ title, hint, children, style }) { return h('section', { style: { ...S.panel, ...style } }, [h('div', { key: 'h', style: S.head }, [h('h2', { key: 't', style: S.h2 }, title), h('span', { key: 'i', style: S.hint }, hint)]), children]) }
+    // 浮层分区卡片外壳：quick-enhancer 多处复用的「带边框圆角容器」共性样式。
+    // 仅负责容器外观（边框 / 圆角 / 背景 / 可选小字号），标题行与内部内容由调用处自行组织，
+    // 以保持与浮层现有视觉（tealLine 淡青边框、9px 圆角）完全一致，且不影响 studio 全页 Panel。
+    function Card({ tint = false, fontSize, as = 'div', style, children }) {
+      return h(as, {
+        style: {
+          padding: '9px',
+          border: `1px solid ${C.tealLine}`,
+          borderRadius: '9px',
+          background: tint ? C.tealTint : C.surface,
+          ...(fontSize ? { fontSize } : {}),
+          ...style,
+        },
+      }, children)
+    }
     const S = { page: { minHeight: '100%', boxSizing: 'border-box', overflow: 'auto', padding: '24px', background: C.canvas, color: C.ink }, title: { margin: 0, fontSize: '20px', fontWeight: 720 }, lead: { margin: '6px 0 20px', color: C.muted, fontSize: '13px' }, cards: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(132px,1fr))', gap: '10px', marginBottom: '16px' }, card: { minHeight: '82px', padding: '14px', border: `1px solid ${C.line}`, borderRadius: '12px', background: C.surface }, label: { color: C.muted, fontSize: '12px', fontWeight: 600 }, value: { marginTop: '8px', fontSize: '23px', fontWeight: 720 }, layout: { display: 'grid', gridTemplateColumns: 'minmax(0,1.45fr) minmax(270px,.8fr)', gap: '16px', alignItems: 'start' }, side: { display: 'grid', gap: '16px' }, panel: { overflow: 'hidden', border: `1px solid ${C.line}`, borderRadius: '12px', background: C.surface }, head: { display: 'flex', justifyContent: 'space-between', padding: '14px 16px', borderBottom: `1px solid ${C.line}` }, h2: { margin: 0, fontSize: '14px', fontWeight: 700 }, hint: { color: C.muted, fontSize: '12px' }, row: { display: 'grid', gridTemplateColumns: '9px minmax(0,1fr) auto', alignItems: 'center', gap: '10px', padding: '12px 16px', borderBottom: `1px solid ${C.divide}` }, name: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px', fontWeight: 600 }, meta: { marginTop: '3px', color: C.muted, fontSize: '12px' }, small: { color: C.muted, fontSize: '12px', fontVariantNumeric: 'tabular-nums' }, empty: { padding: '28px 16px', color: C.muted, fontSize: '13px', lineHeight: 1.6 }, bars: { padding: '4px 16px 12px' }, bar: { padding: '10px 0' }, top: { display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '6px', fontSize: '12px' }, track: { height: '6px', overflow: 'hidden', borderRadius: '999px', background: C.track }, privacy: { marginTop: '16px', padding: '11px 13px', border: `1px solid ${C.tealLineStrong}`, borderRadius: '8px', background: C.tealTint, color: C.tealStrong, fontSize: '12px', lineHeight: 1.55 } }
     Object.assign(S, {
       page: { ...S.page, padding: '30px 34px 48px', background: C.canvas },
@@ -208,4 +240,4 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
       input: { ...workbenchStyle.input, flex: 1, minWidth: 0, padding: '11px 12px', borderRadius: '8px', background: C.surface },
     })
 
-export { h, C, GLOBAL_CSS, GlobalStyle, Spinner, ICON_PATHS, Icon, LatexText, S, workbenchStyle, Panel }
+export { h, C, GLOBAL_CSS, GlobalStyle, Spinner, ICON_PATHS, Icon, LatexText, S, workbenchStyle, Panel, Card }

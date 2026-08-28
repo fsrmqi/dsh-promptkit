@@ -14,6 +14,7 @@
 - **灵感库抽屉三视图合一（P1 精简）**：原独立的「灵感库 / 思考收件箱 / 关系图谱」合并为同一个抽屉 + 顶部三 tab（灵感库 / 收件箱 / 图谱），消除两个全屏抽屉互相覆盖的迷路问题；收件箱从独立 modal 收进 tab，图谱从 item 内嵌聚焦子图升为独立「全貌」tab（所有节点按异常高亮：红=被推翻 / 黄=待验证 / 灰虚线=久未更新），点击节点聚焦其关联关系；item 的「关系」按钮跳转到图谱 tab 并定位该节点
 - **死代码清理**：删除 P1 中性化后遗留的 `attentionPanel` 整行常量（约 2654 字符，`false ? ... : null` 永不渲染）及其伴生的孤儿状态 `vaultAttentionOpen` / `setVaultAttentionOpen`；`grep` 确认全文件无 `attentionPanel` / `vaultAttentionOpen` 残留引用，`npm run check` 全部 16 文件语法通过
 - **交互体验五项调整 + 三项截图修复 + 双栏布局重构**：① 灵感库捕获表单默认收起（删掉 `vaultAutoOpenRef` 空库自动展开 effect——异步加载初始为 `[]` 导致误触，改为纯手动「+ 新建」展开；仅在保存草稿时自动打开）；② 对话增强器面板由 `position:fixed;right:8px`（在 DSH transform 容器内退化）回退为 `position:absolute;left:50%;transform:translateX(-50%)` 居中浮动；③ 增强步骤条仅在用户已填补充要求或勾选上下文时出现（默认隐藏=快速增强）；④ 灵感库空状态新增「保存当前草稿为灵感」主按钮；⑤ 设置面板低频操作收进「更多操作」折叠；⑥ **Vault 从 `position:fixed; height:100vh` 全高侧边栏改为面板内流式右栏**——经多轮迭代最终定为 position:fixed 全高右侧栏（zIndex 60），与增强器面板顶层平级渲染、互不嵌套（以最新条目为准）
+- **UI 一致性 P1：抽离浮层 `Card` 外壳组件**：quick-enhancer 内散落 5 处写法完全一致的「带边框圆角容器」分区卡片（graphPanel 外层 / vault 列表项 / 设置 import·backup·manage 子面板），统一收敛为 foundation 的 `Card({ tint, fontSize, as, style, children })` 组件（默认 padding:9px / tealLine 淡青边框 / 9px 圆角 / surface 背景，tint→tealTint），未来改卡片外观只改一处。未套用 studio 的 `Panel()`（其依赖 S.* 页面级 token 会改变浮层视觉），保持零视觉变化；`npm run check` 16 文件 + `node --check ui/client.js` 均通过
 - QuickEnhancer 与 PromptStudio 的入口调整
 - 自动方法匹配统一草稿、对话、可选记忆和 `@文件` 引用上下文，并允许一键改用建议方法
 - 独立 DSH 插件的语义增强复用当前会话模型，不要求用户配置 API Key 或 endpoint

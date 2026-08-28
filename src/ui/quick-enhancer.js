@@ -1,5 +1,5 @@
 import React from 'react'
-import { h, C, S, workbenchStyle, GlobalStyle, Spinner, Icon, LatexText } from './foundation.js'
+import { h, C, S, workbenchStyle, GlobalStyle, Spinner, Icon, LatexText, Card } from './foundation.js'
 import { planPromptEnhancement, detectLanguage, methodChoice, recommendMethods, selectedConversationDraft, cleanSummary, cleanContext, list, lightTemplate, fileMentions } from '../lib/utils.js'
 import { withPrefix } from '../core/composer.js'
 
@@ -605,7 +605,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     if (!focus) return null
     const related = vaultItems.filter(item => focus.relatedIds?.includes(item.id) || item.relatedIds?.includes(focus.id) || item.parentId === focus.id || focus.parentId === item.id)
     const graphNodes = related.length ? related.map(item => h('button', { key: item.id, onClick: () => setVaultGraphFocusId(item.id), style: { maxWidth: '150px', padding: '5px 7px', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.slate, cursor: 'pointer', fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.title)) : [h('span', { key: 'empty', style: { color: C.muted } }, '暂无关联资产；编辑时可建立关系。')]
-    return h('div', { style: { padding: '9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, fontSize: '11px' } }, [
+    return h(Card, { tint: true, fontSize: '11px' }, [
       h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between' } }, [h('strong', { key: 'title' }, '关系图谱'), h('button', { key: 'close', onClick: () => setVaultGraphFocusId(''), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer' } }, '关闭')]),
       h('div', { key: 'graph', style: { display: 'grid', justifyItems: 'center', gap: '5px', marginTop: '7px' } }, [h('button', { key: 'focus', onClick: () => editVaultItem(focus), style: { maxWidth: '95%', padding: '6px 9px', border: `1px solid ${C.teal}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, focus.title), related.length ? h('div', { key: 'edges', style: { color: C.teal, letterSpacing: '8px' } }, '↙ ↓ ↘') : null, h('div', { key: 'nodes', style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '5px' } }, graphNodes)]),
     ])
@@ -706,7 +706,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       h('textarea', { key: 'import-text', value: vaultBackup, onChange: e => setVaultBackup(e.target.value), placeholder: '粘贴此前导出的 JSON；恢复只追加，不会覆盖现有资产。', style: { ...workbenchStyle.input, width: '100%', minHeight: '55px', marginTop: '7px', resize: 'vertical', fontSize: '10px' } }),
       h('button', { key: 'import', disabled: !vaultBackup.trim(), onClick: importVault, style: { ...workbenchStyle.action, marginTop: '5px', fontSize: '11px', opacity: vaultBackup.trim() ? 1 : .5 } }, '恢复备份'),
     ]),
-    h('div', { key: 'items', style: { display: 'grid', gap: '6px', maxHeight: '290px', overflowY: 'auto' } }, vaultMatches.length ? vaultMatches.map(item => h('div', { key: item.id, style: { padding: '9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface } }, [
+    h('div', { key: 'items', style: { display: 'grid', gap: '6px', maxHeight: '290px', overflowY: 'auto' } }, vaultMatches.length ? vaultMatches.map(item => h(Card, { key: item.id }, [
       h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' } }, [
         h('button', { key: 'toggle', onClick: () => setExpandedVaultId(value => value === item.id ? '' : item.id), style: { flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '5px', border: 0, background: 'transparent', padding: 0, cursor: 'pointer', textAlign: 'left' } }, [
           h('strong', { key: 'title', style: { fontSize: '12px', color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `${item.favorite ? '★ ' : ''}${item.title}`),
@@ -833,19 +833,19 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
         ]
       : [
           h('button', { key: 'back', onClick: () => setActiveSettingsPanel(null), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800, marginBottom: '7px' } }, '← 返回'),
-          activeSettingsPanel === 'import' ? h('div', { key: 'panel-import', style: { padding: '9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface } }, [
+          activeSettingsPanel === 'import' ? h(Card, { key: 'panel-import' }, [
             h('strong', { key: 't', style: { fontSize: '12px' } }, '导入 Obsidian Prompt 卡片'),
             h('div', { key: 'desc', style: { marginTop: '4px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, '粘贴一张 Markdown 卡片即可，仅保存到当前浏览器；不会读取或上传你的笔记库。'),
             h('textarea', { key: 'md', value: privateMarkdown, onChange: event => setPrivateMarkdown(event.target.value), placeholder: '# 我的方法\n\n## Prompt\n```\n提示词正文\n```', style: { ...workbenchStyle.input, width: '100%', minHeight: '90px', marginTop: '6px', resize: 'vertical', fontSize: '11px' } }),
             h('button', { key: 'go', className: 'pk-btn', disabled: !privateMarkdown.trim(), onClick: importPrivateMethod, style: { ...workbenchStyle.action, marginTop: '6px', opacity: privateMarkdown.trim() ? 1 : .55 } }, privateEditingId ? '保存修改' : '导入到我的私有方法'),
             privateNotice ? h('div', { key: 'nt', style: { marginTop: '5px', color: C.teal, fontSize: '10px' } }, privateNotice) : null
-          ]) : activeSettingsPanel === 'backup' ? h('div', { key: 'panel-backup', style: { padding: '9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface } }, [
+          ]) : activeSettingsPanel === 'backup' ? h(Card, { key: 'panel-backup' }, [
             h('strong', { key: 't', style: { fontSize: '12px' } }, '备份或恢复私有方法'),
             h('div', { key: 'desc', style: { marginTop: '4px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, '导出 JSON 备份；恢复只会追加，不会删除当前私有方法。'),
             h('button', { key: 'exp', className: 'pk-btn', onClick: exportPrivateMethods, style: { ...workbenchStyle.action, marginTop: '6px' } }, '导出私有方法'),
             h('textarea', { key: 'bk', value: privateBackup, onChange: event => setPrivateBackup(event.target.value), placeholder: '粘贴此前导出的 JSON 备份', style: { ...workbenchStyle.input, width: '100%', minHeight: '64px', marginTop: '6px', resize: 'vertical', fontSize: '11px' } }),
             h('button', { key: 'imp', className: 'pk-btn', disabled: !privateBackup.trim(), onClick: importPrivateBackup, style: { ...workbenchStyle.action, marginTop: '6px', opacity: privateBackup.trim() ? 1 : .55 } }, '恢复私有方法'),
-          ]) : h('div', { key: 'panel-manage', style: { padding: '9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface } }, [
+          ]) : h(Card, { key: 'panel-manage' }, [
             h('strong', { key: 't', style: { fontSize: '12px' } }, '管理我的私有方法'),
             ...(methods.filter(method => method.source === 'private').length ? methods.filter(method => method.source === 'private').map(method => h('div', { key: method.id, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', marginTop: '7px', fontSize: '11px' } }, [
               h('span', { style: { color: C.slate } }, method.title),
