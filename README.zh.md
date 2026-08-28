@@ -245,12 +245,12 @@ const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
 
 | 环境 | 要求 |
 | --- | --- |
-| DeepSeek Harness | Developer Preview（建议 `@deepseek-ai/dsh` 0.1.0-rc.x 及以上） |
+| DeepSeek Harness | Developer Preview（`@deepseek-ai/dsh` 0.1.2-alpha.1 及以上；不再支持旧 rc 版） |
 | Node.js | ≥ 18（构建脚本使用 `node --test`） |
 | 浏览器 | Chrome 90+ / Firefox 88+ / Safari 14+（需支持 ES Modules + `AbortController`） |
 | React | ≥ 17（peer dependency，宿主环境需提供） |
 
-> **兼容性声明**（2026-08-26）：DeepSeek Harness 处于 Developer Preview 阶段，接口可能不兼容变更。本插件基于 `dsh.client` manifest（`platform: "web"`）和 `conversation.view` / `conversation.input.right` 插槽开发，DSH 版本更新后请以 `dsh --dump-config` 实际输出为准。
+> **兼容性声明**（2026-08-28）：DeepSeek Harness 处于 Developer Preview 阶段，接口可能不兼容变更。本插件面向 `@deepseek-ai/dsh` 0.1.2-alpha.1+ 的 `useInput` / `useChat` 客户端契约，并基于 `dsh.client` manifest（`platform: "web"`）和 `conversation.view` / `conversation.input.right` 插槽开发。
 
 ## 贡献
 

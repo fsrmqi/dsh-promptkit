@@ -236,12 +236,12 @@ The QuickEnhancer “Advanced settings” panel accepts pasted Obsidian-style Ma
 
 | Environment | Requirement |
 | --- | --- |
-| DeepSeek Harness | Developer Preview (recommended `@deepseek-ai/dsh` 0.1.0-rc.x or above) |
+| DeepSeek Harness | Developer Preview (`@deepseek-ai/dsh` 0.1.2-alpha.1 or above; older rc releases are not supported) |
 | Node.js | ≥ 18 (build scripts use `node --test`) |
 | Browser | Chrome 90+ / Firefox 88+ / Safari 14+ (requires ES Modules + `AbortController`) |
 | React | ≥ 17 (peer dependency, provided by host environment) |
 
-> **Compatibility Note** (2026-08-26): DeepSeek Harness is in Developer Preview, interfaces may change incompatibly. This plugin is built on `dsh.client` manifest (`platform: "web"`) and `conversation.view` / `conversation.input.right` slots. After DSH version updates, refer to actual `dsh --dump-config` output.
+> **Compatibility Note** (2026-08-28): DeepSeek Harness is in Developer Preview and may make incompatible interface changes. This plugin targets the `useInput` / `useChat` client contracts in `@deepseek-ai/dsh` 0.1.2-alpha.1+, along with the `dsh.client` manifest and `conversation.view` / `conversation.input.right` slots.
 
 ## Contributing
 

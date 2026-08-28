@@ -430,7 +430,12 @@ function conversationDraft(snapshot) {
   }
 }
 function conversationMessages(snapshot, limit = 12) {
-  const nodes = list(snapshot?.nodes)
+  // DSH Chat target 的键控快照：`{ order, nodes: MapLike }`。
+  // PromptKit 对组件仍只输出标准 messages 数组。
+  const rawNodes = snapshot?.nodes
+  const nodes = Array.isArray(snapshot?.order) && typeof rawNodes?.get === 'function'
+    ? snapshot.order.map(key => rawNodes.get(key)).filter(Boolean)
+    : []
   const messages = []
   // The launcher only ever renders a small recent window. Scan backwards
   // and stop once it is full so a long-lived DSH session stays responsive.

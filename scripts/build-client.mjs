@@ -97,7 +97,8 @@ function buildStandalone() {
   const out = `/* eslint-disable */
 /* dsh-promptkit 独立 DSH 浏览器视图 — 本文件由 scripts/build-client.mjs 生成，勿手改。 */
 window.__ModuleLoader__.load({
-  id: 'dsh-promptkit/ui',
+  // DSH 0.1.2+ 仅扫描包根 Loader 行，模块图 ID 使用根包名。
+  id: 'dsh-promptkit',
   factory: require => {
     const React = require('react')
 ${body}

@@ -16,4 +16,7 @@ export { TextareaComposer } from './adapters/textarea-composer.js'
 export { OpenAIEnhancer } from './adapters/openai-enhancer.js'
 export { StaticAssetProvider } from './adapters/static-asset-provider.js'
 
+// DSH 0.1.2+ 仅扫描包根 Loader 行；由根包同时提供 node half 与 ./client 浏览器导出。
+export { inject, apply } from '../ui/plugin.js'
+
 export * from './lib/utils.js'

@@ -1,7 +1,8 @@
 /* eslint-disable */
 /* dsh-promptkit 独立 DSH 浏览器视图 — 本文件由 scripts/build-client.mjs 生成，勿手改。 */
 window.__ModuleLoader__.load({
-  id: 'dsh-promptkit/ui',
+  // DSH 0.1.2+ 仅扫描包根 Loader 行，模块图 ID 使用根包名。
+  id: 'dsh-promptkit',
   factory: require => {
     const React = require('react')
 
@@ -432,7 +433,12 @@ window.__ModuleLoader__.load({
         }
       }
       function conversationMessages(snapshot, limit = 12) {
-        const nodes = list(snapshot?.nodes)
+        // DSH Chat target 的键控快照：`{ order, nodes: MapLike }`。
+        // PromptKit 对组件仍只输出标准 messages 数组。
+        const rawNodes = snapshot?.nodes
+        const nodes = Array.isArray(snapshot?.order) && typeof rawNodes?.get === 'function'
+          ? snapshot.order.map(key => rawNodes.get(key)).filter(Boolean)
+          : []
         const messages = []
         // The launcher only ever renders a small recent window. Scan backwards
         // and stop once it is full so a long-lived DSH session stays responsive.
@@ -2151,7 +2157,7 @@ window.__ModuleLoader__.load({
         cancel() { this.controller?.abort(); this.controller = null }
       }
 
-      // 桥接 DSH 会话输入框（conversation.input.right 注入的 props）为 Composer 接口
+      // 桥接新版 DSH 会话输入框：InputState 由 useInput Hook 提供。
       class DshDraftComposer {
         constructor(input, inputActions) { this.input = input; this.inputActions = inputActions; this.listeners = new Set() }
         getDraft() { return this.input?.draft ?? '' }
@@ -2160,19 +2166,21 @@ window.__ModuleLoader__.load({
         notify(draft) { for (const cb of this.listeners) cb(draft) }
       }
 
-      // 快捷助手宿主：把 DSH 注入的 props 翻译为组件 deps
-      function PromptkitQuickActionHost({ sessionId, useSession, inputActions, input }) {
-        const snapshot = useSession(value => value)
-        const messages = React.useMemo(() => conversationMessages(snapshot), [snapshot?.nodes])
-        const composer = React.useMemo(() => new DshDraftComposer(input, inputActions), [input, inputActions])
+      // 快捷助手宿主：新版 DSH 的 useInput 是草稿真源，useChat 提供键控对话快照。
+      function PromptkitQuickActionHost({ sessionId, useInput, useChat, inputActions }) {
+        const currentInput = useInput(value => value)
+        const chatSnapshot = useChat(value => value)
+        const messages = React.useMemo(() => conversationMessages(chatSnapshot), [chatSnapshot])
+        const composer = React.useMemo(() => new DshDraftComposer(currentInput, inputActions), [currentInput, inputActions])
         const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
         const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
-        React.useEffect(() => { composer.notify(input?.draft ?? '') }, [input?.draft, composer])
+        React.useEffect(() => { composer.notify(currentInput?.draft ?? '') }, [currentInput?.draft, composer])
         return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory })
       }
 
-      // 方法工坊宿主：conversation.view 视图，onSend 走当前会话
-      function PromptkitStudioHost({ sessionId, onSend }) {
+      // 方法工坊宿主：写入新版输入机后交由 inputActions.submit() 发送。
+      function PromptkitStudioHost({ inputActions }) {
+        const onSend = async text => { inputActions.setDraft(String(text ?? '')); inputActions.submit() }
         return h(PromptStudio, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, onSend })
       }
 
@@ -2183,11 +2191,7 @@ window.__ModuleLoader__.load({
             id: 'dsh-promptkit-studio',
             order: 90,
             label: () => '高级方法工坊',
-            inject: sessionId => {
-              const session = ctx.sessions.binding(sessionId)?.session
-              if (!session) throw new Error('dsh-promptkit: session unavailable')
-              return { sessionId, onSend: text => session.prompt([{ type: 'text', text }], 'queue') }
-            },
+            inject: sessionId => ({ sessionId }),
           },
           PromptkitStudioHost,
         ]
