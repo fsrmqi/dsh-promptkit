@@ -11,9 +11,9 @@ function LatexText({ text, block = false }) {
     const latex = raw.slice(display ? 2 : 1, display ? -2 : -1)
     try {
       const katex = typeof window !== 'undefined' ? window.katex : null
-      if (katex?.renderToString) return h('span', { key: index, className: 'pk-latex', style: { display: display ? 'block' : 'inline-block', margin: display ? '5px 0' : '0 2px' }, dangerouslySetInnerHTML: { __html: katex.renderToString(latex, { displayMode: display, throwOnError: false, trust: false }) } })
+      if (katex?.renderToString) return h('span', { key: index, className: 'pk-latex', title: '点击复制 LaTeX 源码', onClick: () => navigator.clipboard?.writeText(latex).catch(() => {}), style: { display: display ? 'block' : 'inline-block', margin: display ? '5px 0' : '0 2px', cursor: 'copy' }, dangerouslySetInnerHTML: { __html: katex.renderToString(latex, { displayMode: display, throwOnError: false, trust: false }) } })
     } catch {}
-    return h('code', { key: index, className: 'pk-mono', title: 'LaTeX 源码（宿主未提供 KaTeX 渲染器）', style: { display: display ? 'block' : 'inline', padding: '1px 4px', borderRadius: '4px', background: 'var(--pk-paper-warm)', color: 'var(--pk-teal)' } }, raw)
+    return h('code', { key: index, className: 'pk-mono', title: '点击复制 LaTeX 源码', onClick: () => navigator.clipboard?.writeText(latex).catch(() => {}), style: { display: display ? 'block' : 'inline', padding: '1px 4px', borderRadius: '4px', background: 'var(--pk-paper-warm)', color: 'var(--pk-teal)', cursor: 'copy' } }, raw)
   }
   return h(block ? 'div' : 'span', { style: block ? { whiteSpace: 'pre-wrap' } : undefined }, parts.map((part, index) => /^\$\$[\s\S]+\$\$$|^\$[^$\n]+\$$/.test(part) ? renderFormula(part, index) : h('span', { key: index }, part)))
 }

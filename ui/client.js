@@ -21,9 +21,9 @@ window.__ModuleLoader__.load({
           const latex = raw.slice(display ? 2 : 1, display ? -2 : -1)
           try {
             const katex = typeof window !== 'undefined' ? window.katex : null
-            if (katex?.renderToString) return h('span', { key: index, className: 'pk-latex', style: { display: display ? 'block' : 'inline-block', margin: display ? '5px 0' : '0 2px' }, dangerouslySetInnerHTML: { __html: katex.renderToString(latex, { displayMode: display, throwOnError: false, trust: false }) } })
+            if (katex?.renderToString) return h('span', { key: index, className: 'pk-latex', title: '点击复制 LaTeX 源码', onClick: () => navigator.clipboard?.writeText(latex).catch(() => {}), style: { display: display ? 'block' : 'inline-block', margin: display ? '5px 0' : '0 2px', cursor: 'copy' }, dangerouslySetInnerHTML: { __html: katex.renderToString(latex, { displayMode: display, throwOnError: false, trust: false }) } })
           } catch {}
-          return h('code', { key: index, className: 'pk-mono', title: 'LaTeX 源码（宿主未提供 KaTeX 渲染器）', style: { display: display ? 'block' : 'inline', padding: '1px 4px', borderRadius: '4px', background: 'var(--pk-paper-warm)', color: 'var(--pk-teal)' } }, raw)
+          return h('code', { key: index, className: 'pk-mono', title: '点击复制 LaTeX 源码', onClick: () => navigator.clipboard?.writeText(latex).catch(() => {}), style: { display: display ? 'block' : 'inline', padding: '1px 4px', borderRadius: '4px', background: 'var(--pk-paper-warm)', color: 'var(--pk-teal)', cursor: 'copy' } }, raw)
         }
         return h(block ? 'div' : 'span', { style: block ? { whiteSpace: 'pre-wrap' } : undefined }, parts.map((part, index) => /^\$\$[\s\S]+\$\$$|^\$[^$\n]+\$$/.test(part) ? renderFormula(part, index) : h('span', { key: index }, part)))
       }
@@ -1512,6 +1512,20 @@ window.__ModuleLoader__.load({
             setNotice('已导出灵感库备份。')
           } catch (error) { setError(String(error?.message || error)) }
         }
+        const exportProjectMarkdown = () => {
+          const rows = vaultItems.filter(item => !vaultProjectFilter || item.project === vaultProjectFilter)
+          const title = vaultProjectFilter || '全部灵感资产'
+          const markdown = [`# ${title}`, '', `导出时间：${new Date().toLocaleString()}`, '', ...rows.flatMap(item => [`## ${item.title}`, `- 类型：${item.thinkingKind || 'conclusion'} · ${item.epistemicStatus || 'inferred'}`, item.rationale ? `- 为什么重要：${item.rationale}` : '', item.nextAction ? `- 下一步：${item.nextAction}` : '', '', item.body, ''])].filter(Boolean).join('\n')
+          const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown' })); const link = document.createElement('a'); link.href = url; link.download = `${title.replace(/[^\w\u4e00-\u9fff-]+/g, '-') || 'promptkit'}-review.md`; link.click(); URL.revokeObjectURL(url)
+          setNotice(`已导出 ${rows.length} 条资产的 Markdown 复盘。`)
+        }
+        const organizeVault = async () => {
+          const updates = vaultItems.filter(item => !item.project || item.thinkingKind === 'conclusion').map(item => {
+            const suggestion = suggestThinkingCard(item.body)
+            return assetProvider.save({ ...item, thinkingKind: item.thinkingKind === 'conclusion' ? suggestion.kind : item.thinkingKind, epistemicStatus: item.epistemicStatus === 'inferred' ? suggestion.epistemic : item.epistemicStatus, tags: [...(item.tags || []), suggestion.kind].filter((tag, index, tags) => tags.indexOf(tag) === index) })
+          })
+          await Promise.all(updates); setNotice(`已为 ${updates.length} 条资产补充本地分类建议，可继续手动修订。`)
+        }
         const importVault = async () => {
           try {
             const items = await assetProvider?.import?.(vaultBackup)
@@ -1812,6 +1826,7 @@ window.__ModuleLoader__.load({
             h('input', { key: 'search', value: vaultSearch, onChange: e => setVaultSearch(e.target.value), placeholder: '搜索标题、标签、正文或备注', style: { ...workbenchStyle.input, padding: '8px 9px', fontSize: '12px' } }),
             vaultProjects.length ? h('select', { key: 'project-filter', value: vaultProjectFilter, onChange: e => setVaultProjectFilter(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [h('option', { value: '' }, '全部项目'), ...vaultProjects.map(project => h('option', { key: project, value: project }, project))]) : null,
           ]),
+          h('div', { key: 'project-actions', style: { display: 'flex', gap: '8px' } }, [h('button', { onClick: exportProjectMarkdown, style: { ...workbenchStyle.action, fontSize: '11px' } }, '导出项目复盘 Markdown'), h('button', { onClick: organizeVault, style: { ...workbenchStyle.action, fontSize: '11px' } }, '本地整理建议')]),
           graphPanel,
           h('details', { key: 'backup', style: { padding: '8px 9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface, fontSize: '11px' } }, [
             h('summary', { style: { color: C.teal, cursor: 'pointer', fontWeight: 800 } }, '备份或恢复灵感库'),
