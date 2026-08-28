@@ -95,7 +95,7 @@ async function openVault(W, container) {
 const vaultVisible = container => !!container.querySelector('aside[aria-label="灵感库"]')
 const mainPanelVisible = container => !!container.querySelector('section[aria-label="对话增强器"]')
 const findCloseBtn = container =>
-  [...container.querySelectorAll('aside[aria-label="灵感库"] button')].find(b => /^关闭\s?×$/.test(b.textContent.trim()))
+  container.querySelector('aside[aria-label="灵感库"] button[aria-label="关闭灵感库"]')
 
 test('灵感库关闭：宿主在 body 层截胡时，window 捕获兜底仍能关抽屉', async () => {
   const dom = setupDom()
@@ -111,6 +111,7 @@ test('灵感库关闭：宿主在 body 层截胡时，window 捕获兜底仍能�
   btn.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
   assert.ok(!vaultVisible(container), '宿主截胡下关闭按钮仍应生效')
+  assert.ok(mainPanelVisible(container), '关闭抽屉不能继续触发主面板关闭')
   root.unmount()
   cleanup()
   dom.window.close()
@@ -125,6 +126,7 @@ test('灵感库关闭：干净环境下 React onClick 正常关抽屉', async ()
   findCloseBtn(container).dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
   assert.ok(!vaultVisible(container), '干净环境点击关闭应生效')
+  assert.ok(mainPanelVisible(container), '关闭抽屉后主面板应保留')
   root.unmount()
   dom.window.close()
 })

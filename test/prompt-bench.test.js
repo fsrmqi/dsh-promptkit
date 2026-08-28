@@ -17,6 +17,7 @@ const methods = JSON.parse(readFileSync(resolve(ROOT, 'methods/builtin.json'), '
 // 每条：{ name, draft, expect, note }
 const CASES = [
   { name: '技术方案设计', draft: '帮我设计一个技术方案，把登录拆成独立的认证服务，涉及接口设计和落库', expect: '技术方案设计', note: '技术方案+接口设计为强信号' },
+  { name: '接口方案评审', draft: '请评审这个接口方案，列出兼容性风险并给出最小验证步骤', expect: '技术方案设计', note: '接口方案为强信号，不应被通用决策词抢占' },
   { name: '代码评审', draft: '帮我做一次代码评审，重点看有没有安全问题', expect: '代码评审', note: '代码评审为强信号（纯中文，避免触发中英混合分支）' },
   { name: '英文代码评审', draft: 'Please do a code review for this authentication change', expect: '代码评审', note: '英文触发词也应参与方法匹配' },
   { name: '接口文档生成', draft: '帮我写 API 文档，列出参数说明和错误码', expect: '接口文档生成', note: 'API 文档为强信号' },

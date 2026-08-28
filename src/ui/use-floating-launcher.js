@@ -1,5 +1,11 @@
 import React from 'react'
 
+/** 计算面板左边界：面板尺寸而非按钮尺寸才是可见性约束。 */
+export function floatingPanelLeft(buttonX, viewportWidth, panelWidth, gutter = 16) {
+  const maxLeft = Math.max(gutter, viewportWidth - panelWidth - gutter)
+  return Math.max(gutter, Math.min(maxLeft, buttonX - panelWidth / 2))
+}
+
 /** 高频拖动状态保存在 ref，仅按动画帧提交 React 更新，并在抬手时持久化。 */
 export function useFloatingLauncher(storageKey) {
   const [position, setPosition] = React.useState(() => {
@@ -10,6 +16,7 @@ export function useFloatingLauncher(storageKey) {
     return { x: Math.max(24, window.innerWidth - 86), y: Math.max(96, window.innerHeight - 158) }
   })
   const positionRef = React.useRef(position)
+  const [viewport, setViewport] = React.useState(() => ({ width: window.innerWidth, height: window.innerHeight }))
   const drag = React.useRef(null)
   const suppressClick = React.useRef(false)
   const frame = React.useRef(0)
@@ -45,6 +52,24 @@ export function useFloatingLauncher(storageKey) {
       window.removeEventListener('pointerup', up)
     }
   }, [storageKey])
+  React.useEffect(() => {
+    const resize = () => {
+      const width = window.innerWidth
+      const height = window.innerHeight
+      setViewport({ width, height })
+      const next = {
+        x: Math.max(16, Math.min(width - 62, positionRef.current.x)),
+        y: Math.max(58, Math.min(height - 62, positionRef.current.y)),
+      }
+      if (next.x !== positionRef.current.x || next.y !== positionRef.current.y) {
+        positionRef.current = next
+        setPosition(next)
+        try { window.localStorage.setItem(storageKey, JSON.stringify(next)) } catch {}
+      }
+    }
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
+  }, [storageKey])
 
   const onPointerDown = React.useCallback(event => {
     suppressClick.current = false
@@ -55,5 +80,5 @@ export function useFloatingLauncher(storageKey) {
     suppressClick.current = false
     return true
   }, [])
-  return { position, onPointerDown, consumeSuppressedClick }
+  return { position, viewport, onPointerDown, consumeSuppressedClick }
 }

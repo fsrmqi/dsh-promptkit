@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
+import { floatingPanelLeft } from '../src/ui/use-floating-launcher.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -147,6 +148,12 @@ test('会话快照：同时兼容数组节点与 DSH 键控节点', () => {
   assert.deepEqual([...keyedMessages], [...arrayMessages], '两种宿主快照应得到一致消息')
   assert.equal(draft.question, '请检查接口兼容性')
   assert.ok(draft.constraints.includes('兼容风险'))
+})
+
+test('浮动面板：右侧入口也必须完整落在视口内', () => {
+  assert.equal(floatingPanelLeft(1194, 1280, 640), 624)
+  assert.equal(floatingPanelLeft(40, 1280, 640), 16)
+  assert.equal(floatingPanelLeft(600, 375, 343), 16)
 })
 
 test('助推统计：多个 storagePrefix 独立记录、独立重置', () => {
