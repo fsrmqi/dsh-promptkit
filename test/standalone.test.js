@@ -104,3 +104,11 @@ test('独立 DSH 插件：0.1.2+ 从 useInput 与键控 useChat 快照读取草�
     assert.deepEqual(submitted, ['由方法工坊生成', 'submitted'])
   })
 })
+
+test('轻量 DSH 浏览器产物不内联 KaTeX 运行时', () => {
+  const full = readFileSync(resolve(ROOT, 'ui/client.js'), 'utf8')
+  const lite = readFileSync(resolve(ROOT, 'ui/client-lite.js'), 'utf8')
+  assert.ok(full.includes('KaTeX runtime'), '完整版保留离线公式渲染')
+  assert.ok(!lite.includes('KaTeX runtime'), '轻量版不应内联 KaTeX')
+  assert.ok(lite.length < full.length, '轻量版应小于完整版')
+})

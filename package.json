@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.js",
     "./client": "./ui/client.js",
+    "./client-lite": "./ui/client-lite.js",
     "./ui": "./ui/plugin.js",
     "./ui/client": "./ui/client.js",
     "./ui/package.json": "./ui/package.json"
@@ -55,9 +56,10 @@
     "react": ">=17"
   },
   "scripts": {
-    "check": "node --check src/index.js && node --check src/ui/foundation.js && node --check src/ui/studio.js && node --check src/ui/quick-enhancer.js && node --check src/lib/utils.js && node --check src/core/method-provider.js && node --check src/core/asset-provider.js && node --check src/core/composer.js && node --check src/core/enhancer.js && node --check src/methods/builtin.js && node --check src/adapters/static-method-provider.js && node --check src/adapters/static-asset-provider.js && node --check src/adapters/textarea-composer.js && node --check src/adapters/openai-enhancer.js && node --check dsh/semantic-enhance.js && node --check ui/plugin.js",
+    "check": "node --check src/index.js && node --check src/ui/foundation.js && node --check src/ui/studio.js && node --check src/ui/quick-enhancer-vault-state.js && node --check src/ui/use-floating-launcher.js && node --check src/ui/quick-enhancer.js && node --check src/lib/utils.js && node --check src/core/method-provider.js && node --check src/core/asset-provider.js && node --check src/core/composer.js && node --check src/core/enhancer.js && node --check src/methods/builtin.js && node --check src/adapters/static-method-provider.js && node --check src/adapters/static-asset-provider.js && node --check src/adapters/textarea-composer.js && node --check src/adapters/openai-enhancer.js && node --check dsh/semantic-enhance.js && node --check ui/plugin.js",
     "build:ui": "node scripts/build-client.mjs",
-    "build": "npm run check && npm run build:methods && npm run build:ui",
+    "build:ui:lite": "node scripts/build-client.mjs --lite",
+    "build": "npm run check && npm run build:methods && npm run build:ui && npm run build:ui:lite",
     "build:methods": "node scripts/build-methods.mjs",
     "build:embed": "node scripts/build-client.mjs --embed",
     "test": "node --test"
@@ -75,7 +77,8 @@
       "patch": "./cordis.patch.yml"
     }
   },
-  "dependencies": {
-    "katex": "0.16.22"
+  "devDependencies": {
+    "katex": "0.16.22",
+    "react-dom": "^19.2.8"
   }
 }

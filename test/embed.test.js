@@ -145,6 +145,17 @@ test('灵感库：本地保存、搜索、收藏与增量恢复', async () => {
   assert.ok([...host.store.keys()].every(key => key.startsWith('vault-host.')), '灵感库必须遵守宿主存储隔离')
 })
 
+test('灵感库：localStorage 写入失败会向调用方暴露错误', async () => {
+  const host = minimalHost()
+  const PromptKit = loadEmbed(host)
+  const vault = new PromptKit.StaticAssetProvider({ storagePrefix: 'quota.' })
+  host.sandbox.window.localStorage.setItem = () => { throw new Error('quota exceeded') }
+  await assert.rejects(
+    vault.save({ title: '无法保存', body: '浏览器空间不足' }),
+    /灵感库写入失败/,
+  )
+})
+
 test('历史订阅：任一写入会立即通知同一方法源的消费者', async () => {
   const PromptKit = loadEmbed(minimalHost())
   const provider = new PromptKit.StaticMethodProvider()

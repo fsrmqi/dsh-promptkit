@@ -2,6 +2,8 @@ import React from 'react'
 import { h, C, S, workbenchStyle, GlobalStyle, Spinner, Icon, LatexText, Card } from './foundation.js'
 import { planPromptEnhancement, detectLanguage, methodChoice, recommendMethods, selectedConversationDraft, cleanSummary, cleanContext, list, lightTemplate, fileMentions } from '../lib/utils.js'
 import { withPrefix } from '../core/composer.js'
+import { useQuickEnhancerVaultState } from './quick-enhancer-vault-state.js'
+import { useFloatingLauncher } from './use-floating-launcher.js'
 
 // ConversationQuickAction（对话快捷增强器 / QuickEnhancer）：开源核心组件，零宿主依赖。
 // 所有外部能力经 props 注入；未注入的可选能力对应 UI 自动隐藏或降级：
@@ -47,24 +49,15 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const [vaultOpen, setVaultOpen] = React.useState(false)
   const [vaultItems, setVaultItems] = React.useState([])
   const [vaultSearch, setVaultSearch] = React.useState('')
-  const [vaultTitle, setVaultTitle] = React.useState('')
-  const [vaultTags, setVaultTags] = React.useState('')
-  const [vaultNote, setVaultNote] = React.useState('')
-  const [vaultBody, setVaultBody] = React.useState('')
-  const [vaultProject, setVaultProject] = React.useState('')
+  // 搜索防抖：斜杠菜单（slashMatches）保持即时过滤，灵感库面板用防抖值避免大数据集逐键重算。
+  const [debouncedVaultSearch, setDebouncedVaultSearch] = React.useState('')
+  React.useEffect(() => {
+    if (vaultSearch === debouncedVaultSearch) return undefined
+    const timer = setTimeout(() => setDebouncedVaultSearch(vaultSearch), 160)
+    return () => clearTimeout(timer)
+  }, [vaultSearch, debouncedVaultSearch])
   const [vaultProjectFilter, setVaultProjectFilter] = React.useState('')
-  const [vaultParentId, setVaultParentId] = React.useState('')
-  const [vaultEditingId, setVaultEditingId] = React.useState('')
-  const [vaultFormOpen, setVaultFormOpen] = React.useState(false)
-  const [vaultCompareId, setVaultCompareId] = React.useState('')
   const [expandedVaultId, setExpandedVaultId] = React.useState('')
-  const [vaultThinkingKind, setVaultThinkingKind] = React.useState('conclusion')
-  const [vaultEpistemicStatus, setVaultEpistemicStatus] = React.useState('inferred')
-  const [vaultRationale, setVaultRationale] = React.useState('')
-  const [vaultNextAction, setVaultNextAction] = React.useState('')
-  const [vaultRelatedIds, setVaultRelatedIds] = React.useState([])
-  const [vaultDialectic, setVaultDialectic] = React.useState({ thesis: '', antithesis: '', synthesis: '' })
-  const [vaultVerification, setVaultVerification] = React.useState({ status: 'pending', evidence: '', checkedAt: 0 })
   const [vaultGraphFocusId, setVaultGraphFocusId] = React.useState('')
   const [vaultTab, setVaultTab] = React.useState('vault')
   const [reviewOpen, setReviewOpen] = React.useState(false)
@@ -73,8 +66,14 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const [assetContextReceipt, setAssetContextReceipt] = React.useState(null)
   const [slashOpen, setSlashOpen] = React.useState(false)
   const [slashActiveIndex, setSlashActiveIndex] = React.useState(0)
-  const [vaultType, setVaultType] = React.useState('prompt')
-  const [vaultBackup, setVaultBackup] = React.useState('')
+  const {
+    vaultTitle, setVaultTitle, vaultTags, setVaultTags, vaultNote, setVaultNote, vaultBody, setVaultBody,
+    vaultProject, setVaultProject, vaultParentId, setVaultParentId, vaultEditingId, setVaultEditingId,
+    vaultFormOpen, setVaultFormOpen, vaultCompareId, setVaultCompareId, vaultThinkingKind, setVaultThinkingKind,
+    vaultEpistemicStatus, setVaultEpistemicStatus, vaultRationale, setVaultRationale, vaultNextAction, setVaultNextAction,
+    vaultRelatedIds, setVaultRelatedIds, vaultDialectic, setVaultDialectic, vaultVerification, setVaultVerification,
+    vaultType, setVaultType, vaultBackup, setVaultBackup,
+  } = useQuickEnhancerVaultState()
   const [enhancementMethodId, setEnhancementMethodId] = React.useState('')
   const [privateMarkdown, setPrivateMarkdown] = React.useState('')
   const [privateNotice, setPrivateNotice] = React.useState('')
@@ -88,7 +87,10 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const [confirmClearMetrics, setConfirmClearMetrics] = React.useState(false)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [activeSettingsPanel, setActiveSettingsPanel] = React.useState(null) // null | 'import' | 'backup' | 'manage'
-  const slashMatches = vaultItems.filter(item => !vaultSearch.trim() || `${item.title} ${(item.tags || []).join(' ')}`.toLowerCase().includes(vaultSearch.trim().toLowerCase())).slice(0, 5)
+  const slashMatches = React.useMemo(() => {
+    const query = vaultSearch.trim().toLowerCase()
+    return vaultItems.filter(item => !query || `${item.title} ${(item.tags || []).join(' ')}`.toLowerCase().includes(query)).slice(0, 5)
+  }, [vaultItems, vaultSearch])
   React.useEffect(() => {
     if (!settingsOpen) return undefined
     const handleMouseDown = event => {
@@ -103,15 +105,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
 
   const [recentMethodIds, setRecentMethodIds] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('recent-methods.v1')) || '[]') } catch { return [] } })
   const [methodUsage, setMethodUsage] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('method-usage.v1')) || '{}') } catch { return {} } })
-  const [position, setPosition] = React.useState(() => {
-    try {
-      const value = JSON.parse(window.localStorage.getItem(storageKey('position.v1')) || 'null')
-      if (Number.isFinite(value?.x) && Number.isFinite(value?.y)) return value
-    } catch {}
-    return { x: Math.max(24, window.innerWidth - 86), y: Math.max(96, window.innerHeight - 158) }
-  })
-  const drag = React.useRef(null)
-  const suppressClick = React.useRef(false)
+  const { position, onPointerDown: beginDrag, consumeSuppressedClick } = useFloatingLauncher(storageKey('position.v1'))
   const rootRef = React.useRef(null)
   const openPanel = () => setOpen(value => !value)
   React.useEffect(() => { if (!open) enhancer?.cancel() }, [open, enhancer])
@@ -191,26 +185,6 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     window.addEventListener('keydown', onKeydown, true)
     return () => window.removeEventListener('keydown', onKeydown, true)
   }, [slashOpen, slashActiveIndex, slashMatches])
-  React.useEffect(() => {
-    const move = event => {
-      if (!drag.current) return
-      const next = {
-        x: Math.max(16, Math.min(window.innerWidth - 62, event.clientX - drag.current.dx)),
-        y: Math.max(58, Math.min(window.innerHeight - 62, event.clientY - drag.current.dy)),
-      }
-      drag.current.moved = true
-      setPosition(next)
-    }
-    const up = () => {
-      if (!drag.current) return
-      suppressClick.current = drag.current.moved
-      try { window.localStorage.setItem(storageKey('position.v1'), JSON.stringify(position)) } catch {}
-      drag.current = null
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
-  }, [position])
   const toggle = id => setSelected(value => value.includes(id) ? value.filter(item => item !== id) : [...value, id])
   const selectAllMessages = () => setSelected(msgs.map(m => m.id))
   const clearAllSelections = () => setSelected([])
@@ -230,20 +204,24 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const referencedFiles = fileMentions(draft)
   const autoMethods = recommendMethods(methods, [draft, requirement, selectedContextText].filter(Boolean).join('\n'))
   const matchedMethod = methods.find(method => method.id === enhancementMethodId) || autoMethods[0]
+  // 异步记忆检索的代际守卫：返回时若 query 已变化则丢弃过期结果，避免旧摘要覆盖新输入。
+  const memoryRequestId = React.useRef(0)
   const loadMemory = async query => {
     const text = String(query || '').trim()
     if (!searchMemory) throw new Error('项目记忆服务未连接。')
     if (text.length < 8) throw new Error('草稿至少 8 个字符后再检索项目记忆。')
-    setMemoryPreview({ status: 'loading', query: text, text: '', sources: [] })
+    const requestId = ++memoryRequestId.current
+    const commit = preview => { if (memoryRequestId.current === requestId) setMemoryPreview(preview) }
+    commit({ status: 'loading', query: text, text: '', sources: [] })
     try {
       const raw = await searchMemory(text)
       const result = cleanContext(typeof raw === 'string' ? raw : raw?.text || '')
       const sources = Array.isArray(raw?.sources) ? raw.sources.filter(item => item?.label).slice(0, 6) : result ? [{ kind: 'memory-center', label: 'Memory Center 项目记忆' }] : []
       const next = { status: result || sources.length ? 'ready' : 'empty', query: text, text: result, sources }
-      setMemoryPreview(next)
+      commit(next)
       return result
     } catch (error) {
-      setMemoryPreview({ status: 'error', query: text, text: String(error?.message || error), sources: [] })
+      commit({ status: 'error', query: text, text: String(error?.message || error), sources: [] })
       throw error
     }
   }
@@ -586,8 +564,23 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const recommended = autoMethods
   const recentMethods = recentMethodIds.map(id => methods.find(method => method.id === id)).filter(Boolean)
   const libraryMatches = methods.filter(method => !librarySearch.trim() || `${method.title} ${method.purpose} ${method.tags}`.toLowerCase().includes(librarySearch.trim().toLowerCase()))
-  const vaultProjects = [...new Set(vaultItems.map(item => item.project).filter(Boolean))].sort()
-  const vaultMatches = vaultItems.filter(item => (!vaultProjectFilter || item.project === vaultProjectFilter) && (!vaultSearch.trim() || `${item.title} ${item.body} ${item.note || ''} ${(item.tags || []).join(' ')}`.toLowerCase().includes(vaultSearch.trim().toLowerCase())))
+  const vaultView = React.useMemo(() => {
+    const query = debouncedVaultSearch.trim().toLowerCase()
+    const byId = new Map(vaultItems.map(item => [item.id, item]))
+    const vaultMatches = vaultItems.filter(item => (!vaultProjectFilter || item.project === vaultProjectFilter) && (!query || `${item.title} ${item.body} ${item.note || ''} ${(item.tags || []).join(' ')}`.toLowerCase().includes(query)))
+    const now = Date.now()
+    return {
+      byId,
+      vaultMatches,
+      vaultProjects: [...new Set(vaultItems.map(item => item.project).filter(Boolean))].sort(),
+      attentionGroups: {
+        pending: vaultItems.filter(item => item.verification?.status === 'pending' || item.epistemicStatus === 'to_verify'),
+        action: vaultItems.filter(item => item.nextAction && item.verification?.status !== 'confirmed'),
+        review: vaultItems.filter(item => item.verification?.status === 'refuted' || (item.epistemicStatus === 'inferred' && now - Number(item.updatedAt || 0) > 1000 * 60 * 60 * 24 * 30)),
+      },
+    }
+  }, [vaultItems, debouncedVaultSearch, vaultProjectFilter])
+  const { byId: vaultById, vaultMatches, vaultProjects, attentionGroups } = vaultView
   const vaultCaptureBody = vaultBody.trim() || draft.trim()
   const thinkingLabel = { question: '问题', goal: '目标', fact: '事实', assumption: '假设', decision: '决策', method: '方法', conclusion: '结论', action: '行动', dialectic: '辩证卡' }
   const epistemicLabel = { verified: '已证实', inferred: '推断', to_verify: '待核实', preference: '个人偏好' }
@@ -601,7 +594,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   }
   const toggleAssetContext = id => setAssetContextIds(ids => ids.includes(id) ? ids.filter(itemId => itemId !== id) : ids.length >= 3 ? ids : [...ids, id])
   const graphPanel = (() => {
-    const focus = vaultItems.find(item => item.id === vaultGraphFocusId)
+    const focus = vaultById.get(vaultGraphFocusId)
     if (!focus) return null
     const related = vaultItems.filter(item => focus.relatedIds?.includes(item.id) || item.relatedIds?.includes(focus.id) || item.parentId === focus.id || focus.parentId === item.id)
     const graphNodes = related.length ? related.map(item => h('button', { key: item.id, onClick: () => setVaultGraphFocusId(item.id), style: { maxWidth: '150px', padding: '5px 7px', border: `1px solid ${C.tealLine}`, borderRadius: '999px', background: C.surface, color: C.slate, cursor: 'pointer', fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.title)) : [h('span', { key: 'empty', style: { color: C.muted } }, '暂无关联资产；编辑时可建立关系。')]
@@ -610,11 +603,6 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       h('div', { key: 'graph', style: { display: 'grid', justifyItems: 'center', gap: '5px', marginTop: '7px' } }, [h('button', { key: 'focus', onClick: () => editVaultItem(focus), style: { maxWidth: '95%', padding: '6px 9px', border: `1px solid ${C.teal}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, focus.title), related.length ? h('div', { key: 'edges', style: { color: C.teal, letterSpacing: '8px' } }, '↙ ↓ ↘') : null, h('div', { key: 'nodes', style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '5px' } }, graphNodes)]),
     ])
   })()
-  const attentionGroups = {
-    pending: vaultItems.filter(item => item.verification?.status === 'pending' || item.epistemicStatus === 'to_verify'),
-    action: vaultItems.filter(item => item.nextAction && item.verification?.status !== 'confirmed'),
-    review: vaultItems.filter(item => item.verification?.status === 'refuted' || (item.epistemicStatus === 'inferred' && Date.now() - Number(item.updatedAt || 0) > 1000 * 60 * 60 * 24 * 30)),
-  }
   const vaultTabLabels = [['vault', '灵感库'], ['inbox', '收件箱'], ['graph', '图谱']]
   const tabBar = h('div', { key: 'vault-tabs', role: 'tablist', 'aria-label': '资产库视图', style: { display: 'flex', gap: '4px', padding: '3px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surfaceAlt } },
     vaultTabLabels.map(([id, label]) => h('button', { key: id, role: 'tab', 'aria-selected': vaultTab === id, onClick: () => setVaultTab(id), style: { flex: 1, padding: '6px 4px', border: 0, borderRadius: '7px', background: vaultTab === id ? C.teal : 'transparent', color: vaultTab === id ? C.surface : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, label))
@@ -651,7 +639,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   ])
   const reviewPanel = reviewOpen ? h('section', { role: 'dialog', 'aria-label': '对话复盘', style: { position: 'fixed', top: '12%', left: '50%', transform: 'translateX(-50%)', width: 'min(540px, calc(100vw - 32px))', maxHeight: '76vh', overflowY: 'auto', padding: '16px', boxSizing: 'border-box', border: `1px solid ${C.tealLine}`, borderRadius: '14px', background: C.surface, boxShadow: C.shadowLg, zIndex: 70 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between' } }, [h('div', { key: 'title' }, [h('strong', { style: { fontSize: '16px' } }, '对话收束'), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '11px' } }, '确认后才会生成并关联思考卡。')]), h('button', { onClick: () => setReviewOpen(false), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer' } }, '关闭 ×')]), ...reviewCards.map(card => h('label', { key: card.id, style: { display: 'grid', gridTemplateColumns: '18px 1fr', gap: '8px', marginTop: '9px', padding: '8px', border: `1px solid ${card.checked ? C.tealLine : C.line}`, borderRadius: '8px', background: card.checked ? C.tealTint : C.surface, cursor: 'pointer' } }, [h('input', { type: 'checkbox', checked: card.checked, onChange: () => setReviewCards(cards => cards.map(item => item.id === card.id ? { ...item, checked: !item.checked } : item)), style: { accentColor: C.teal } }), h('div', null, [h('strong', { style: { fontSize: '12px' } }, card.title), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '10px' } }, `${thinkingLabel[card.thinkingKind]} · ${epistemicLabel[card.epistemicStatus]}`), h('div', { style: { marginTop: '3px', color: C.slate, fontSize: '11px', whiteSpace: 'pre-wrap' } }, card.body)])])), h('button', { key: 'save', onClick: saveConversationReview, style: { ...workbenchStyle.actionPrimary, width: '100%', marginTop: '12px' } }, '确认并沉淀为思考卡')]) : null
   const versionDiff = item => {
-    const parent = item.parentId ? vaultItems.find(candidate => candidate.id === item.parentId) : null
+    const parent = item.parentId ? vaultById.get(item.parentId) : null
     return h('div', { style: { marginTop: '7px', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surfaceAlt, fontSize: '10px', lineHeight: 1.45 } }, parent ? [h('strong', { key: 'title', style: { color: C.teal } }, `与「${parent.title}」对比`), h('div', { key: 'grid', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', marginTop: '5px' } }, [h('div', { key: 'old', style: { whiteSpace: 'pre-wrap', color: C.muted, maxHeight: '96px', overflow: 'auto' } }, parent.body), h('div', { key: 'new', style: { whiteSpace: 'pre-wrap', color: C.ink, maxHeight: '96px', overflow: 'auto' } }, item.body)])] : '此资产没有可比较的父版本。')
   }
   const vaultPanel = assetProvider ? h('aside', { key: 'vault-panel', role: 'dialog', 'aria-label': '灵感库', style: { position: 'fixed', top: 0, right: 0, width: 'min(390px, calc(100vw - 24px))', height: '100vh', overflowY: 'auto', padding: '18px', boxSizing: 'border-box', borderLeft: `1px solid ${C.tealLine}`, background: C.surface, boxShadow: '-16px 0 38px var(--pk-shadow-lg)', zIndex: 60, display: 'grid', alignContent: 'start', gap: '10px' } }, [
@@ -881,7 +869,7 @@ assetProvider ? h('div', { key: 'vault-quick', style: { display: 'grid', gridTem
         noticeState ? h('div', { key: 'notice', role: 'status', 'aria-live': 'polite', style: { marginTop: '10px', padding: '9px 11px', borderRadius: '8px', border: `1px solid ${noticeState.kind === 'error' ? C.red : noticeState.kind === 'warn' ? C.amberLine : C.tealLine}`, background: noticeState.kind === 'error' ? C.redTint : noticeState.kind === 'warn' ? C.amberTint : C.tealTint, color: noticeState.kind === 'error' ? C.red : noticeState.kind === 'warn' ? C.amber : C.teal, fontSize: '12px', lineHeight: 1.45 } }, noticeState.text) : null,
       ]) : null
   const slashMenu = slashOpen ? h('div', { key: 'slash-menu', role: 'listbox', style: { position: 'fixed', right: '76px', bottom: '86px', width: 'min(360px, calc(100vw - 32px))', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 61 } }, [h('div', { key: 'label', style: { padding: '4px 6px 7px', color: C.muted, fontSize: '11px' } }, `灵感库 · /pk ${vaultSearch} · ↑↓ 选择，Enter 插入`), ...(slashMatches.length ? slashMatches.map((item, index) => h('button', { key: item.id, role: 'option', 'aria-selected': index === slashActiveIndex, onClick: () => useVaultItem(item, 'replace'), style: { width: '100%', padding: '8px', border: 0, borderRadius: '7px', background: index === slashActiveIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer' } }, [h('strong', { key: 'title', style: { fontSize: '12px' } }, item.title), h('div', { key: 'meta', style: { marginTop: '2px', color: C.muted, fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, item.tags?.length ? `#${item.tags.join(' #')}` : item.type)])) : [h('div', { key: 'empty', style: { padding: '10px 6px', color: C.muted, fontSize: '11px' } }, '未找到匹配灵感；继续输入关键词或按 Esc。')])]) : null
-  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 30 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: event => { suppressClick.current = false; drag.current = { dx: event.clientX - position.x, dy: event.clientY - position.y, moved: false } }, onClick: () => { if (suppressClick.current) { suppressClick.current = false; return } setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel, vaultOpen ? vaultPanel : null])
+  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 30 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel, vaultOpen ? vaultPanel : null])
 }
 
 export { ConversationQuickAction as QuickEnhancer }

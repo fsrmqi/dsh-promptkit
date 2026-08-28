@@ -11,6 +11,9 @@ export class StaticAssetProvider extends AssetProvider {
     this.key = `${storagePrefix}vault.assets.v1`
     this.event = `${storagePrefix}vault.changed.v1`
     this.listeners = new Set()
+    this._onStorage = event => { if (event?.key === this.key) this._notify(this._read()) }
+    this._onLocalChange = event => { if (event?.detail?.key === this.key) this._notify(this._read()) }
+    this._listening = false
   }
   async list() { return this._read().sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)) }
   async save(input) {
@@ -80,7 +83,64 @@ export class StaticAssetProvider extends AssetProvider {
     this._write([...valid, ...this._read()])
     return valid
   }
-  onChange(callback) { this.listeners.add(callback); return () => this.listeners.delete(callback) }
-  _read() { try { const rows = JSON.parse(window.localStorage.getItem(this.key) || '[]'); return Array.isArray(rows) ? rows.filter(item => item && item.id && item.body) : [] } catch { return [] } }
-  _write(rows) { try { window.localStorage.setItem(this.key, JSON.stringify(rows)) } catch {} ; this.listeners.forEach(listener => { try { listener(rows) } catch {} }); try { window.dispatchEvent?.(new CustomEvent(this.event)) } catch {} }
+  onChange(callback) {
+    this.listeners.add(callback)
+    if (!this._listening) {
+      window.addEventListener?.('storage', this._onStorage)
+      window.addEventListener?.(this.event, this._onLocalChange)
+      this._listening = true
+    }
+    return () => {
+      this.listeners.delete(callback)
+      if (this.listeners.size || !this._listening) return
+      window.removeEventListener?.('storage', this._onStorage)
+      window.removeEventListener?.(this.event, this._onLocalChange)
+      this._listening = false
+    }
+  }
+  _read() {
+    try {
+      const raw = JSON.parse(window.localStorage.getItem(this.key) || 'null')
+      // 兼容旧版裸数组（无版本包装）与当前 { version, assets } 格式。
+      const payload = Array.isArray(raw) ? { version: 0, assets: raw } : raw
+      if (!payload || typeof payload !== 'object') return []
+      const rows = Array.isArray(payload.assets) ? payload.assets : []
+      return this._migrate(Number(payload.version || 0), rows).filter(item => item && item.id && item.body)
+    } catch { return [] }
+  }
+  /** 版本迁移策略：v0（裸数组）→ v1 只需补全语义字段；更高版本未知时原样保留以免丢数据。 */
+  _migrate(fromVersion, rows) {
+    if (fromVersion >= 1) return rows
+    return rows.map(item => ({
+      id: String(item.id),
+      type: ['prompt', 'snippet', 'insight'].includes(item.type) ? item.type : 'prompt',
+      title: String(item.title || '').trim() || String(item.body || '').split('\n').find(Boolean)?.slice(0, 48) || '未命名灵感',
+      body: String(item.body || ''),
+      tags: Array.isArray(item.tags) ? item.tags.map(String) : [],
+      note: String(item.note || ''),
+      project: String(item.project || ''),
+      parentId: String(item.parentId || ''),
+      thinkingKind: item.thinkingKind || 'conclusion',
+      epistemicStatus: item.epistemicStatus || 'inferred',
+      rationale: String(item.rationale || ''),
+      nextAction: String(item.nextAction || ''),
+      relatedIds: Array.isArray(item.relatedIds) ? item.relatedIds.map(String) : [],
+      verification: item.verification && typeof item.verification === 'object' ? item.verification : undefined,
+      favorite: Boolean(item.favorite),
+      createdAt: Number(item.createdAt || 0) || undefined,
+      updatedAt: Number(item.updatedAt || 0) || undefined,
+      lastUsedAt: Number(item.lastUsedAt || 0) || undefined,
+      useCount: Number(item.useCount || 0),
+    }))
+  }
+  _notify(rows) { this.listeners.forEach(listener => { try { listener(rows) } catch {} }) }
+  _write(rows) {
+    const payload = { version: 1, assets: rows }
+    try { window.localStorage.setItem(this.key, JSON.stringify(payload)) }
+    catch (error) {
+      throw Object.assign(new Error('灵感库写入失败：浏览器未允许本地存储或空间已满。'), { cause: error })
+    }
+    this._notify(rows)
+    try { window.dispatchEvent?.(new CustomEvent(this.event, { detail: { key: this.key } })) } catch {}
+  }
 }

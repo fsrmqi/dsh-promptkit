@@ -7,9 +7,10 @@
   "main": "plugin.js",
   "exports": {
     ".": "./plugin.js",
-    "./client": "./client.js"
+    "./client": "./client.js",
+    "./client-lite": "./client-lite.js"
   },
-  "files": ["plugin.js", "client.js", "embed.js"],
+  "files": ["plugin.js", "client.js", "client-lite.js", "embed.js"],
   "dsh": {
     "client": {
       "platform": "web",
