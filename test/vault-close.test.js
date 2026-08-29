@@ -220,3 +220,87 @@ test('草稿桥：事件路径消费后同样清除 sessionStorage', async () =>
   root.unmount()
   dom.window.close()
 })
+
+test('灵感库关闭：抽屉内「追加」条目后点 ×，主面板必须保留（回归：useVaultItem 曾误 setOpen(false)）', async () => {
+  const dom = setupDom()
+  const W = dom.window
+  const PromptKit = loadEmbed(W)
+  const providers = makeProviders(PromptKit)
+  providers.assetProvider._items.push({ id: 'asset-1', title: '测试灵感', body: '测试正文', type: 'prompt' })
+  const { root, container } = await mountKit(W, PromptKit, providers)
+  await openVault(W, container)
+  assert.ok(vaultVisible(container) && mainPanelVisible(container))
+  providers.composer.write('一段草稿')
+  const toggleBtn = [...container.querySelectorAll('aside[aria-label="灵感库"] button')].find(b => /测试灵感/.test(b.textContent))
+  assert.ok(toggleBtn, '应能找到灵感条目')
+  toggleBtn.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+  await tick()
+  const appendBtn = [...container.querySelectorAll('aside[aria-label="灵感库"] button')].find(b => b.textContent.trim() === '追加')
+  assert.ok(appendBtn, '展开后应有「追加」按钮')
+  appendBtn.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+  await tick()
+  assert.ok(mainPanelVisible(container), '追加后主面板必须仍在（useVaultItem 不应误关主面板）')
+  const closeBtn = findCloseBtn(container)
+  if (closeBtn) {
+    closeBtn.dispatchEvent(new W.MouseEvent('pointerdown', { bubbles: true }))
+    await tick()
+    closeBtn.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+    await tick()
+  }
+  assert.ok(!vaultVisible(container), '点 × 后抽屉应关闭')
+  assert.ok(mainPanelVisible(container), '点 × 后主面板必须保留——用户报告的「关灵感库连插件一起关」回归点')
+  assert.ok(container.querySelector('.pk-fab'), 'FAB 仍在')
+  root.unmount()
+  dom.window.close()
+})
+
+test('灵感库关闭：抽屉内「引用已选对话」后点 ×，主面板必须保留（回归：quoteSelectedMessages 曾误 setOpen(false)）', async () => {
+  const dom = setupDom()
+  const W = dom.window
+  const PromptKit = loadEmbed(W)
+  const providers = makeProviders(PromptKit)
+  // 「引用已选对话」按钮仅在勾选了对话消息时渲染：注入消息并先勾选
+  const messages = [
+    { id: 'm1', role: 'user', text: '第一问：接口如何设计？' },
+    { id: 'm2', role: 'assistant', text: '第一答：按资源划分即可。' },
+  ]
+  const container = W.document.createElement('div')
+  container.className = 'test-root'
+  W.document.body.appendChild(container)
+  const root = createRoot(container)
+  root.render(React.createElement(PromptKit.QuickEnhancer, {
+    methodProvider: providers.methodProvider,
+    assetProvider: providers.assetProvider,
+    composer: providers.composer,
+    storagePrefix: 'vault-close-test.',
+    messages,
+  }))
+  await tick()
+  // 主面板打开 → 勾选最近消息 → 打开灵感库抽屉
+  container.querySelector('.pk-fab').dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+  await tick()
+  const pickBtn = [...container.querySelectorAll('button')].find(b => /选择最近/.test(b.textContent))
+  assert.ok(pickBtn, '主面板应出现「选择最近」按钮')
+  pickBtn.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+  await tick()
+  const openBtn = [...container.querySelectorAll('button')].find(b => /打开灵感库/.test(b.textContent))
+  openBtn.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+  await tick()
+  assert.ok(vaultVisible(container) && mainPanelVisible(container))
+  const quoteBtn = [...container.querySelectorAll('aside[aria-label="灵感库"] button')].find(b => /引用已选对话/.test(b.textContent))
+  assert.ok(quoteBtn, '抽屉内应有「引用已选对话」按钮')
+  quoteBtn.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+  await tick()
+  assert.ok(mainPanelVisible(container), '引用动作后主面板必须仍在（quoteSelectedMessages 不应误关主面板）')
+  const closeBtn = findCloseBtn(container)
+  if (closeBtn) {
+    closeBtn.dispatchEvent(new W.MouseEvent('pointerdown', { bubbles: true }))
+    await tick()
+    closeBtn.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+    await tick()
+  }
+  assert.ok(!vaultVisible(container), '点 × 后抽屉应关闭')
+  assert.ok(mainPanelVisible(container), '点 × 后主面板必须保留')
+  root.unmount()
+  dom.window.close()
+})

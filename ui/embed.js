@@ -1917,7 +1917,9 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     await assetProvider?.markUsed?.(item.id)
     setUndoDraft({ before: draft, after: next })
     setNotice(`已${slashInvocation || mode === 'replace' ? '插入' : '追加'}「${item.title}」到消息框，可编辑后发送。`)
-    setSlashOpen(false); setOpen(false)
+    // 只关抽屉不动主面板：抽屉是主面板的 DOM 后代，此处的 setOpen(false) 会在用户
+    // 随后正常关闭抽屉时让整个插件直接消失，表现为“关灵感库连主题插件一起关”。
+    setSlashOpen(false); setVaultOpen(false)
   }
   const selectedMessageBody = () => activeMessages.map(item => `${item.role === 'user' ? '用户' : '助手'}：${cleanContext(item.text)}`).join('\n\n')
   const saveSelectedMessages = () => saveToVault(selectedMessageBody(), { kind: 'conversation-selection', messageIds: activeMessages.map(item => item.id) })
@@ -1965,7 +1967,8 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     composer?.write(next)
     setUndoDraft({ before: draft, after: next })
     setNotice(`已引用 ${activeMessages.length} 条对话到消息框，可继续追问或改写。`)
-    setOpen(false)
+    // 与 useVaultItem 同理：抽屉内动作只关抽屉，setOpen(false) 会连主面板一起卸载。
+    setVaultOpen(false)
   }
   const deriveVaultItem = item => {
     setVaultTitle(`${item.title} · 变体`); setVaultBody(item.body); setVaultTags((item.tags || []).join(', ')); setVaultType(item.type || 'prompt'); setVaultProject(item.project || ''); setVaultParentId(item.id); setVaultEditingId(''); setVaultFormOpen(true); setVaultThinkingKind(item.thinkingKind || 'conclusion'); setVaultEpistemicStatus(item.epistemicStatus || 'inferred'); setVaultRationale(item.rationale || ''); setVaultNextAction(item.nextAction || ''); setVaultRelatedIds(item.relatedIds || []); setVaultDialectic(item.dialectic || { thesis: '', antithesis: '', synthesis: '' }); setVaultVerification(item.verification || { status: 'pending', evidence: '', checkedAt: 0 })
