@@ -1686,6 +1686,9 @@ function getNudgeMetrics(prefix = 'promptkit.') {
 }
 
 /* ================= dsh-promptkit 组件: ConversationQuickAction（快捷助手） ================= */
+// 知识区（诊断发现暂存）容量上限：超限时挤掉最旧的未处理项。
+const KNOWLEDGE_INBOX_MAX = 12
+
 // ConversationQuickAction（对话快捷增强器 / QuickEnhancer）：开源核心组件，零宿主依赖。
 // 所有外部能力经 props 注入；未注入的可选能力对应 UI 自动隐藏或降级：
 //   methodProvider (必填) MethodProvider：方法源 + compose + getTemplate + 收藏/历史
@@ -1818,6 +1821,14 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   React.useEffect(() => { try { window.localStorage.setItem(storageKey('enhance.strength.v1'), enhanceStrength) } catch {} }, [enhanceStrength])
   // ── 五维诊断结果（clarity/completeness/constraints/verifiability/context_fit）──
   const [enhanceDiagnosis, setEnhanceDiagnosis] = React.useState(null)
+  // ── 诊断闭环（方向三）：诊断发现 → 知识区暂存 → 用户主动决定 → Vault 思考卡 ──
+  // 知识区是「待审阅」暂存队列（localStorage 持久化，面板关闭不丢）：
+  // 增强完成时认识缺口（隐含前提/不可证伪要求）自动入区，用户逐条审阅后
+  // 主动选择「存为假设卡」（进收件箱待验证队列 + 可注入增强上下文）或「忽略」。
+  const [knowledgeInbox, setKnowledgeInbox] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('knowledge-inbox.v1')) || '[]') } catch { return [] } })
+  React.useEffect(() => { try { window.localStorage.setItem(storageKey('knowledge-inbox.v1'), JSON.stringify(knowledgeInbox)) } catch {} }, [knowledgeInbox])
+  // 草稿指纹（前 120 字符）：跨次增强查重，同一草稿的同一缺口不重复入区/建卡。
+  const [diagnosisDraftFingerprint, setDiagnosisDraftFingerprint] = React.useState('')
   // ── 流式预览：增强产出逐段上屏，应用前不落草稿 ──
   const [streamState, setStreamState] = React.useState(null) // null | { phase:'waiting'|'streaming'|'done', segments:[], elapsedMs }
   const streamStartRef = React.useRef(0)
@@ -2501,6 +2512,9 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
         }
         if (!body) body = await enhancer.enhance(enhanceOptions)
         setEnhanceDiagnosis(body.diagnosis || null)
+        // 诊断闭环第 1 步：认识缺口自动入「知识区」暂存（不是存卡！）。
+        // 用户稍后在知识区里逐条审阅，主动决定存为假设卡或忽略。
+        if (body.diagnosis) enqueueDiagnosisFindings(body.diagnosis, String(original || '').trim().slice(0, 120), matchedMethod?.title || '')
         // 技能引用修复：草稿里的 /xxx 记号在改写中丢失时，原样补回末尾而不是静默消失。
         const repaired = restoreLostSkillMentions(original, body.prompt)
         if (repaired) setSkillRestore({ lost: skillMentions(original).filter(name => !skillMentions(body.prompt).includes(name)), restored: repaired })
@@ -2582,7 +2596,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       h('div', { key: 'graph', style: { display: 'grid', justifyItems: 'center', gap: '5px', marginTop: '7px' } }, [h('button', { key: 'focus', onClick: () => editVaultItem(focus), style: { maxWidth: '95%', padding: '6px 9px', border: `1px solid ${C.teal}`, borderRadius: '999px', background: C.surface, color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, focus.title), related.length ? h('div', { key: 'edges', style: { color: C.teal, letterSpacing: '8px' } }, '↙ ↓ ↘') : null, h('div', { key: 'nodes', style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '5px' } }, graphNodes)]),
     ])
   })()
-  const vaultTabLabels = [['vault', '灵感库'], ['inbox', '收件箱'], ['graph', '图谱']]
+  const vaultTabLabels = [['vault', '灵感库'], ['inbox', '收件箱'], ['knowledge', '知识区'], ['graph', '图谱']]
   const tabBar = h('div', { key: 'vault-tabs', role: 'tablist', 'aria-label': '资产库视图', style: { display: 'flex', gap: '4px', padding: '3px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surfaceAlt } },
     vaultTabLabels.map(([id, label]) => h('button', { key: id, role: 'tab', 'aria-selected': vaultTab === id, onClick: () => setVaultTab(id), style: { flex: 1, padding: '6px 4px', border: 0, borderRadius: '7px', background: vaultTab === id ? C.teal : 'transparent', color: vaultTab === id ? C.surface : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, label))
   )
@@ -2615,6 +2629,24 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       vaultGraphFocusId ? h('button', { key: 'back', onClick: () => setVaultGraphFocusId(''), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800, flexShrink: 0 } }, '返回全貌') : null,
     ]),
     vaultGraphFocusId ? graphPanel : graphOverview,
+  ])
+  // 知识区 tab：诊断发现的「待审阅」暂存区。增强完成时认识缺口自动入区（见
+  // enqueueDiagnosisFindings），用户逐条主动决定：存为假设卡（进收件箱待验证队列 +
+  // 可注入增强上下文）或忽略。这里不做任何自动写入 Vault 的动作。
+  const knowledgeTab = h('div', { key: 'knowledge-tab', style: { display: 'grid', gap: '8px' } }, [
+    h('div', { key: 'hint', style: { color: C.muted, fontSize: '11px', lineHeight: 1.4 } }, knowledgeInbox.length ? `语义增强发现的 ${knowledgeInbox.length} 条认识缺口在此暂存（本地保存，最多 ${KNOWLEDGE_INBOX_MAX} 条）。是否留证由你决定：存卡进入验证流程，忽略则丢弃。` : '暂无待审阅的发现。语义增强诊断出「隐含前提」或「不可证伪要求」时会自动出现在这里。'),
+    ...knowledgeInbox.slice().reverse().map(entry => h('div', { key: entry.id, style: { padding: '9px', border: `1px solid ${C.amberLine}`, borderRadius: '8px', background: C.amberTint, display: 'grid', gap: '5px' } }, [
+      h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' } }, [
+        h('span', { key: 'tag', style: { display: 'inline-block', padding: '1px 8px', borderRadius: '999px', background: C.amber, color: '#fff', fontSize: '10px', fontWeight: 800, whiteSpace: 'nowrap' } }, entry.label),
+        h('span', { key: 'meta', style: { color: C.muted, fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, entry.method ? `${entry.method} · ` : '' + new Date(entry.at).toLocaleDateString()),
+      ]),
+      h('div', { key: 'finding', style: { color: C.slate, fontSize: '11px', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, entry.finding),
+      h('div', { key: 'draft', style: { color: C.muted, fontSize: '10px', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `原草稿：${entry.draft || '（空）'}`),
+      h('div', { key: 'actions', style: { display: 'flex', gap: '8px', marginTop: '2px' } }, [
+        h('button', { key: 'promote', onClick: () => promoteKnowledgeItem(entry), style: { border: 0, borderRadius: '7px', background: C.teal, color: '#fff', padding: '5px 10px', cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '存为假设卡'),
+        h('button', { key: 'dismiss', onClick: () => dismissKnowledgeItem(entry.id), style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '忽略'),
+      ]),
+    ])),
   ])
   const reviewPanel = reviewOpen ? h('section', { role: 'dialog', 'aria-label': '对话复盘', style: { position: 'fixed', top: '12%', left: '50%', transform: 'translateX(-50%)', width: 'min(540px, calc(100vw - 32px))', maxHeight: '76vh', overflowY: 'auto', padding: '16px', boxSizing: 'border-box', border: `1px solid ${C.tealLine}`, borderRadius: '14px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20003 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between' } }, [h('div', { key: 'title' }, [h('strong', { style: { fontSize: '16px' } }, '对话收束'), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '11px' } }, '确认后才会生成并关联思考卡。')]), h('button', { onClick: () => setReviewOpen(false), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer' } }, '关闭 ×')]), ...reviewCards.map(card => h('label', { key: card.id, style: { display: 'grid', gridTemplateColumns: '18px 1fr', gap: '8px', marginTop: '9px', padding: '8px', border: `1px solid ${card.checked ? C.tealLine : C.line}`, borderRadius: '8px', background: card.checked ? C.tealTint : C.surface, cursor: 'pointer' } }, [h('input', { type: 'checkbox', checked: card.checked, onChange: () => setReviewCards(cards => cards.map(item => item.id === card.id ? { ...item, checked: !item.checked } : item)), style: { accentColor: C.teal } }), h('div', null, [h('strong', { style: { fontSize: '12px' } }, card.title), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '10px' } }, `${thinkingLabel[card.thinkingKind]} · ${epistemicLabel[card.epistemicStatus]}`), h('div', { style: { marginTop: '3px', color: C.slate, fontSize: '11px', whiteSpace: 'pre-wrap' } }, card.body)])])), h('button', { key: 'save', onClick: saveConversationReview, style: { ...workbenchStyle.actionPrimary, width: '100%', marginTop: '12px' } }, '确认并沉淀为思考卡')]) : null
   const versionDiff = item => {
@@ -2702,6 +2734,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       ])),
     ]) : null,
     vaultTab === 'inbox' ? inboxTab : null,
+    vaultTab === 'knowledge' ? knowledgeTab : null,
     vaultTab === 'graph' ? graphTab : null,
   ]) : null
   const rankedCommon = [...common].sort((a, b) => Number(methodUsage[b.id] || 0) - Number(methodUsage[a.id] || 0))
@@ -2792,8 +2825,77 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   // ── 五维诊断展示（哲学启发式量表）：概念清晰/隐含前提/可证伪性/可行动性/语境契合 ──
   // 标签与 host 的 DIAGNOSIS_LABELS 保持同一键序；流式期间诊断行先于正文到达，
   // enhanceDiagnosis 增量填充时诊断卡先亮起来，用户先看到「体检结果」再看改写。
+  // ── 诊断闭环：认识缺口 → 知识区暂存 → 用户主动决定 → Vault assumption 卡 ──
+  // 只有隐含前提/可证伪性两类「认识缺口」入区；概念清晰是措辞问题，入区即噪音。
+  const DIAGNOSIS_GAP_FIELDS = [
+    { key: 'hidden_premise', label: '隐含前提', hint: '草稿默认了哪些未言明的假设' },
+    { key: 'falsifiability', label: '不可证伪要求', hint: '哪些要求无法被观察或测试判定' },
+  ]
+  // 第 1 步（自动）：增强完成时发现入区。查重按「维度+草稿指纹」——同一草稿的
+  // 同一缺口不重复入区；区满（KNOWLEDGE_INBOX_MAX 条）时挤掉最旧的未处理项。
+  const enqueueDiagnosisFindings = (diagnosis, draftFingerprint, methodTitle) => {
+    const added = []
+    setKnowledgeInbox(prev => {
+      const next = [...prev]
+      for (const field of DIAGNOSIS_GAP_FIELDS) {
+        const finding = diagnosis?.[field.key]
+        if (!finding) continue
+        const fingerprint = `${field.key}:${draftFingerprint}`
+        if (next.some(entry => entry.fingerprint === fingerprint)) continue
+        added.push(fingerprint)
+        next.push({
+          id: `know:${Date.now()}:${field.key}:${Math.random().toString(36).slice(2, 6)}`,
+          fingerprint,
+          dimension: field.key,
+          label: field.label,
+          hint: field.hint,
+          finding,
+          draft: draftFingerprint,
+          method: methodTitle || '',
+          at: Date.now(),
+        })
+      }
+      // 区满裁剪：保留最新 N 条（旧未处理项被挤出，避免无限堆积）。
+      return next.slice(-KNOWLEDGE_INBOX_MAX)
+    })
+    if (added.length) setNotice(`本次诊断发现 ${added.length} 条认识缺口，已放入灵感库「知识区」待你审阅——可存为假设卡或忽略。`)
+  }
+  // 第 2 步（主动）：用户在知识区点「存为假设卡」才真正写入 Vault。
+  // assumption + to_verify：进入收件箱待验证队列；provenance.fingerprint 保留查重线索。
+  const promoteKnowledgeItem = async entry => {
+    if (!assetProvider) return
+    const duplicate = vaultItems.some(item => item.provenance?.fingerprint === entry.fingerprint)
+    if (duplicate) { setNotice(`「${entry.label}」这条发现已存过卡，已从知识区移除。`); return dismissKnowledgeItem(entry.id) }
+    const body = [`诊断发现：${entry.finding}`, `原草稿（节选）：${entry.draft}`, `待验证问题：${entry.hint}——请补充证据或反例，验证后更新此卡状态。`].join('\n')
+    try {
+      const item = await assetProvider.save({
+        title: `${entry.label} · ${cleanSummary(entry.draft).slice(0, 24)}`,
+        body,
+        type: 'insight',
+        thinkingKind: 'assumption',
+        epistemicStatus: 'to_verify',
+        verification: { status: 'pending', evidence: '', checkedAt: 0 },
+        provenance: { kind: 'diagnosis', dimension: entry.dimension, fingerprint: entry.fingerprint, diagnosis: entry.diagnosisSnapshot || undefined, method: entry.method || '' },
+      })
+      setNotice(`已存为待验证假设卡「${item.title}」；收件箱可跟进验证，增强时勾选「用于增强」即注入。`)
+      return dismissKnowledgeItem(entry.id)
+    } catch (error) { setError(String(error?.message || error)) }
+  }
+  // 第 2 步的另一条出路：用户判断不值得留证，直接忽略（从知识区移除）。
+  const dismissKnowledgeItem = id => {
+    setKnowledgeInbox(prev => prev.filter(item => item.id !== id))
+  }
   const DIAGNOSIS_LABELS = { concept_clarity: '概念清晰', hidden_premise: '隐含前提', falsifiability: '可证伪性', actionability: '可行动性', context_fit: '语境契合' }
-  const diagnosisNode = enhanceDiagnosis ? h('details', { key: 'diagnosis', open: true, style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', lineHeight: 1.5 } }, [h('summary', { key: 'sum', style: { color: C.teal, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'gauge', size: 12 }), '五维诊断', matchedMethod ? h('span', { key: 'hint', style: { color: C.muted, fontWeight: 600 } }, ` · ${matchedMethod.title} 侧重`) : null]), h('div', { key: 'rows', style: { marginTop: '6px', display: 'grid', gap: '3px' } }, Object.entries(DIAGNOSIS_LABELS).map(([key, label]) => h('div', { key, style: { color: C.slate } }, [h('strong', { key: 'l', style: { color: C.teal } }, `${label}：`), enhanceDiagnosis[key] || '—'])))]) : null
+  const diagnosisNode = enhanceDiagnosis ? h('details', { key: 'diagnosis', open: true, style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', lineHeight: 1.5 } }, [
+    h('summary', { key: 'sum', style: { color: C.teal, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'gauge', size: 12 }), '五维诊断', matchedMethod ? h('span', { key: 'hint', style: { color: C.muted, fontWeight: 600 } }, ` · ${matchedMethod.title} 侧重`) : null]),
+    h('div', { key: 'rows', style: { marginTop: '6px', display: 'grid', gap: '3px' } }, Object.entries(DIAGNOSIS_LABELS).map(([key, label]) => h('div', { key, style: { color: C.slate } }, [h('strong', { key: 'l', style: { color: C.teal } }, `${label}：`), enhanceDiagnosis[key] || '—']))),
+    // 诊断闭环入口：发现自动进灵感库「知识区」暂存，用户审阅后主动决定存卡或忽略。
+    // 这里只提供入口，不替用户做决定。
+    assetProvider ? h('div', { key: 'save-cards', style: { marginTop: '7px', paddingTop: '7px', borderTop: `1px dashed ${C.tealLine}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' } }, [
+      h('span', { key: 'hint', style: { color: C.muted, fontSize: '10px', lineHeight: 1.4, flex: 1 } }, knowledgeInbox.length ? `知识区有 ${knowledgeInbox.length} 条诊断发现待审阅，可存为假设卡或忽略。` : '认识缺口已自动放入灵感库「知识区」，审阅后可存为假设卡。'),
+      h('button', { key: 'go', onClick: () => { setVaultTab('knowledge'); setVaultOpen(true) }, style: { flexShrink: 0, border: 0, borderRadius: '7px', background: C.teal, color: '#fff', padding: '5px 10px', cursor: 'pointer', fontSize: '11px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' } }, ['查看知识区', knowledgeInbox.length ? h('span', { key: 'n', style: { background: C.surface, color: C.teal, borderRadius: '999px', padding: '0 6px', fontSize: '10px', fontWeight: 800 } }, String(knowledgeInbox.length)) : null]),
+    ]) : null,
+  ]) : null
   // ── 技能引用修复：改写丢失 /xxx 时提示可一键补回 ──
   const skillRestoreNode = skillRestore ? h('div', { key: 'skill-restore', role: 'status', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.amberLine}`, borderRadius: '8px', background: C.amberTint, fontSize: '11px', lineHeight: 1.5, display: 'flex', alignItems: 'center', gap: '8px' } }, [
     h(Icon, { key: 'ic', name: 'shield', size: 13, style: { color: C.amber, flexShrink: 0 } }),
