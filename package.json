@@ -1,6 +1,6 @@
 {
   "name": "dsh-promptkit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "开源的 Prompt 构建与增强工具包：方法工坊（Studio）+ 对话快捷增强器（QuickEnhancer）。内置 21 个 Markdown 思考方法（含技术开发/数据分析等场景卡 + frontmatter + prompt 正文），可作为 npm 库嵌入，也可直接安装为 DSH 浏览器插件。",
   "type": "module",
   "main": "src/index.js",

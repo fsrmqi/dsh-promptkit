@@ -271,7 +271,20 @@ export function semanticEnhanceRoute({ llm, routes }) {
       await withRequestGuards(req, res, async (sessionId, controller) => {
         try {
           const body = await readJson(req)
-          const result = await streamEnhanceWithCurrentSessionModel({ llm, route: routes.get(sessionId), sessionId, draft: body.draft, extra: body.extra, lang: body.lang, method: body.method, strength: body.strength, hasContext: Boolean(body.hasContext), diagnose: body.diagnose !== false, signal: controller.signal })
+          // diagnose !== false：诊断默认开启（非流式也返回 diagnosis），旧客户端忽略该字段不受影响。
+          const result = await streamEnhanceWithCurrentSessionModel({
+            llm,
+            route: routes.get(sessionId),
+            sessionId,
+            draft: body.draft,
+            extra: body.extra,
+            lang: body.lang,
+            method: body.method,
+            strength: body.strength,
+            hasContext: Boolean(body.hasContext),
+            diagnose: body.diagnose !== false,
+            signal: controller.signal,
+          })
           reply(res, 200, result)
         } catch (error) {
           const timeoutMessage = controller.signal.aborted ? '模型响应超时，请稍后重试。' : String(error?.message || error)
@@ -295,10 +308,18 @@ export function semanticEnhanceStreamRoute({ llm, routes }) {
           // 连接建立即发一帧 open：前端据此把阶段从「等待模型响应」切到「输出中」。
           sseSend(res, 'open', { ok: true })
           const result = await streamEnhanceWithCurrentSessionModel({
-            llm, route: routes.get(sessionId), sessionId,
-            draft: body.draft, extra: body.extra, lang: body.lang, method: body.method,
-            strength: body.strength, hasContext: Boolean(body.hasContext), diagnose: body.diagnose !== false,
+            llm,
+            route: routes.get(sessionId),
+            sessionId,
+            draft: body.draft,
+            extra: body.extra,
+            lang: body.lang,
+            method: body.method,
+            strength: body.strength,
+            hasContext: Boolean(body.hasContext),
+            diagnose: body.diagnose !== false,
             signal: controller.signal,
+            // 每个增量立即推一帧 delta：诊断行与正文行都原样流过，客户端统一解析。
             onDelta: delta => sseSend(res, 'delta', { text: delta }),
           })
           sseSend(res, 'done', result)
@@ -317,6 +338,48 @@ export function semanticEnhanceStreamRoute({ llm, routes }) {
 
 // 工作区文件检索：@ 文件引用补全的数据源。宿主注入 workspaceRoots（绝对路径数组）
 // 与可选 fs（测试注入内存实现）；缺省用 node:fs。只读、只列名，绝不读文件内容。
+// import 置于文件中部：本模块优先暴露协议常量与路由，node 内建模块依赖次之；
+// 产物构建器会剥除 import 行，位置不影响语义。
+import { readdirSync, statSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
+
+// 检索时跳过的目录：依赖/构建产物/版本库/虚拟环境——引用它们没有意义且拖慢遍历。
+const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__', '.venv'])
+
+// 深度受限的目录遍历：候选池上限 = limit × 4，排序后裁回 limit，
+// 保证大仓库下响应时间有界，不会全量扫描。
+function listWorkspaceFiles({ workspaceRoots, fs, query, limit }) {
+  const nodeFs = fs || { readdirSync, statSync }
+  const poolCap = limit * 4
+  const results = []
+  for (const root of workspaceRoots) {
+    const walk = dir => {
+      if (results.length >= poolCap) return // 超额即止，避免大仓库全量遍历
+      let entries
+      try { entries = nodeFs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+      for (const entry of entries) {
+        if (results.length >= poolCap) return
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue
+          walk(full)
+          continue
+        }
+        if (!entry.isFile()) continue
+        // 统一为 POSIX 风格相对路径：前端 @ 引用与排序都以这个字符串为准。
+        const rel = relative(root, full).split(sep).join('/')
+        if (query && !rel.toLowerCase().includes(query)) continue
+        results.push(rel)
+        if (results.length >= poolCap) return
+      }
+    }
+    walk(root)
+  }
+  // 短路径优先（靠近根的文件更可能是用户想引用的），再按字典序稳定输出
+  results.sort((a, b) => a.length - b.length || a.localeCompare(b))
+  return results.slice(0, limit)
+}
+
 export function workspaceFilesRoute({ workspaceRoots = [], fs = undefined } = {}) {
   const nodeFs = fs || undefined
   return {
@@ -331,43 +394,9 @@ export function workspaceFilesRoute({ workspaceRoots = [], fs = undefined } = {}
         const files = listWorkspaceFiles({ workspaceRoots, fs: nodeFs, query, limit })
         reply(res, 200, { files })
       } catch (error) {
+        // 文件检索失败不影响主流程：返回空列表 + 错误信息，前端菜单显示「无匹配」。
         reply(res, 200, { files: [], error: String(error?.message || error) })
       }
     },
   }
-}
-
-import { readdirSync, statSync } from 'node:fs'
-import { join, relative, sep } from 'node:path'
-
-const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__', '.venv'])
-
-function listWorkspaceFiles({ workspaceRoots, fs, query, limit }) {
-  const nodeFs = fs || { readdirSync, statSync }
-  const results = []
-  for (const root of workspaceRoots) {
-    const walk = dir => {
-      if (results.length >= limit * 4) return // 超额即止，避免大仓库全量遍历
-      let entries
-      try { entries = nodeFs.readdirSync(dir, { withFileTypes: true }) } catch { return }
-      for (const entry of entries) {
-        if (results.length >= limit * 4) return
-        const full = join(dir, entry.name)
-        if (entry.isDirectory()) {
-          if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue
-          walk(full)
-          continue
-        }
-        if (!entry.isFile()) continue
-        const rel = relative(root, full).split(sep).join('/')
-        if (query && !rel.toLowerCase().includes(query)) continue
-        results.push(rel)
-        if (results.length >= limit * 4) return
-      }
-    }
-    walk(root)
-  }
-  // 短路径优先（靠近根的文件更可能是用户想引用的），再按字典序稳定输出
-  results.sort((a, b) => a.length - b.length || a.localeCompare(b))
-  return results.slice(0, limit)
 }

@@ -1,0 +1,35 @@
+# dsh-promptkit CI：语法检查 → 构建 → 测试。
+# 产物（ui/client.js 等）已提交到 Git，这里额外校验「构建可复现」：
+# 若 npm run build 后产物有 diff，说明提交的产物与源码不同步，CI 失败。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check-build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Syntax check
+        run: npm run check
+
+      - name: Build (methods + ui + lite)
+        run: npm run build
+
+      - name: Reproducible build check
+        run: git diff --exit-code -- ui/ methods/ || (echo '::error::构建产物与源码不同步，请本地重新 npm run build 后提交' && exit 1)
+
+      - name: Test
+        run: npm test

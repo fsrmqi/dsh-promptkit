@@ -2116,24 +2116,55 @@ window.__ModuleLoader__.load({
             return true
           } catch (error) { setError(String(error?.message || error)); return false }
         }
+        // ── Vault 保存：唯一写入路径。body 是正文，provenance 记来源（增强/复盘/手动捕获）──
         const saveToVault = async (body, provenance = {}, titleOverride) => {
           if (!assetProvider) { setWarn('当前宿主未连接灵感库。'); return }
           try {
-            const item = await assetProvider.save({ id: vaultEditingId || undefined, title: titleOverride ?? vaultTitle, body, tags: vaultTags, note: vaultNote, type: vaultType, project: vaultProject, parentId: vaultParentId, thinkingKind: vaultThinkingKind, epistemicStatus: vaultEpistemicStatus, rationale: vaultRationale, nextAction: vaultNextAction, relatedIds: vaultRelatedIds, dialectic: vaultThinkingKind === 'dialectic' ? vaultDialectic : undefined, verification: vaultThinkingKind === 'assumption' || vaultEpistemicStatus === 'to_verify' ? vaultVerification : undefined, provenance: { ...provenance, ...(assetContextReceipt ? { contextAssetIds: assetContextReceipt.ids } : {}) } })
+            const item = await assetProvider.save({
+              id: vaultEditingId || undefined,
+              title: titleOverride ?? vaultTitle,
+              body,
+              tags: vaultTags,
+              note: vaultNote,
+              type: vaultType,
+              project: vaultProject,
+              parentId: vaultParentId,
+              thinkingKind: vaultThinkingKind,
+              epistemicStatus: vaultEpistemicStatus,
+              rationale: vaultRationale,
+              nextAction: vaultNextAction,
+              relatedIds: vaultRelatedIds,
+              dialectic: vaultThinkingKind === 'dialectic' ? vaultDialectic : undefined,
+              verification: vaultThinkingKind === 'assumption' || vaultEpistemicStatus === 'to_verify' ? vaultVerification : undefined,
+              // 注入思考卡上下文时记录来源卡 id，形成「卡 → 增强 → 新卡」的可追溯链。
+              provenance: { ...provenance, ...(assetContextReceipt ? { contextAssetIds: assetContextReceipt.ids } : {}) },
+            })
             const action = vaultEditingId ? '已更新' : '已保存'
-            setVaultTitle(''); setVaultTags(''); setVaultNote(''); setVaultBody(''); setVaultParentId(''); setVaultEditingId(''); setVaultFormOpen(false); setVaultThinkingKind('conclusion'); setVaultEpistemicStatus('inferred'); setVaultRationale(''); setVaultNextAction(''); setVaultRelatedIds([]); setVaultDialectic({ thesis: '', antithesis: '', synthesis: '' }); setVaultVerification({ status: 'pending', evidence: '', checkedAt: 0 })
+            // 保存成功后重置捕获表单（保持派生/编辑语义字段一并清空，避免污染下一次捕获）。
+            setVaultTitle(''); setVaultTags(''); setVaultNote(''); setVaultBody(''); setVaultParentId('')
+            setVaultEditingId(''); setVaultFormOpen(false); setVaultThinkingKind('conclusion')
+            setVaultEpistemicStatus('inferred'); setVaultRationale(''); setVaultNextAction('')
+            setVaultRelatedIds([]); setVaultDialectic({ thesis: '', antithesis: '', synthesis: '' })
+            setVaultVerification({ status: 'pending', evidence: '', checkedAt: 0 })
             setNotice(`${action}「${item.title}」。`)
             return item
           } catch (error) { setError(String(error?.message || error)); return null }
         }
+        // Vault 条目 → 消息框。mode='append' 追加在草稿后 / 'replace' 整条替换；
+        // /pk 斜杠调用等价于替换（当前草稿只是命令本身）。
         const useVaultItem = async (item, mode = 'append') => {
           if (!item?.body) return
           const current = composer?.getDraft?.() || ''
           const slashInvocation = current.match(/^\/pk(?:\s+.*|:.*)?$/i)
           // 模板变量：条目含 {{var}} 时先弹补值面板，用户确认后再写入（追加或替换语义不变）。
-          if (templateVariables(item.body).length) { setVariableFill({ item, mode, current, slashInvocation, values: {} }); setSlashOpen(false); return }
+          if (templateVariables(item.body).length) {
+            setVariableFill({ item, mode, current, slashInvocation, values: {} })
+            setSlashOpen(false)
+            return
+          }
           await applyVaultItem(item, mode, current, slashInvocation)
         }
+        // 变量补值确认后的实际写入；与 useVaultItem 共用，values 为 {{name}} → 文本映射。
         const applyVaultItem = async (item, mode, current, slashInvocation, values) => {
           const filled = fillTemplateVariables(item.body, values || {})
           const next = slashInvocation ? filled : mode === 'replace' ? filled : withPrefix(current, filled)
@@ -2195,11 +2226,31 @@ window.__ModuleLoader__.load({
           setVaultOpen(false)
         }
         const deriveVaultItem = item => {
-          setVaultTitle(`${item.title} · 变体`); setVaultBody(item.body); setVaultTags((item.tags || []).join(', ')); setVaultType(item.type || 'prompt'); setVaultProject(item.project || ''); setVaultParentId(item.id); setVaultEditingId(''); setVaultFormOpen(true); setVaultThinkingKind(item.thinkingKind || 'conclusion'); setVaultEpistemicStatus(item.epistemicStatus || 'inferred'); setVaultRationale(item.rationale || ''); setVaultNextAction(item.nextAction || ''); setVaultRelatedIds(item.relatedIds || []); setVaultDialectic(item.dialectic || { thesis: '', antithesis: '', synthesis: '' }); setVaultVerification(item.verification || { status: 'pending', evidence: '', checkedAt: 0 })
+          setVaultTitle(`${item.title} · 变体`); setVaultBody(item.body)
+          setVaultTags((item.tags || []).join(', ')); setVaultType(item.type || 'prompt')
+          setVaultProject(item.project || ''); setVaultParentId(item.id); setVaultEditingId('')
+          setVaultFormOpen(true)
+          // 派生保留父卡的认识元数据；保存时 parentId 已设置，版本对比随之可用。
+          setVaultThinkingKind(item.thinkingKind || 'conclusion')
+          setVaultEpistemicStatus(item.epistemicStatus || 'inferred')
+          setVaultRationale(item.rationale || ''); setVaultNextAction(item.nextAction || '')
+          setVaultRelatedIds(item.relatedIds || [])
+          setVaultDialectic(item.dialectic || { thesis: '', antithesis: '', synthesis: '' })
+          setVaultVerification(item.verification || { status: 'pending', evidence: '', checkedAt: 0 })
           setNotice(`已载入「${item.title}」作为派生版本；编辑后保存即可保留来源关系。`)
         }
         const editVaultItem = item => {
-          setVaultEditingId(item.id); setVaultTitle(item.title); setVaultBody(item.body); setVaultTags((item.tags || []).join(', ')); setVaultNote(item.note || ''); setVaultType(item.type || 'prompt'); setVaultProject(item.project || ''); setVaultParentId(item.parentId || ''); setVaultFormOpen(true); setVaultThinkingKind(item.thinkingKind || 'conclusion'); setVaultEpistemicStatus(item.epistemicStatus || 'inferred'); setVaultRationale(item.rationale || ''); setVaultNextAction(item.nextAction || ''); setVaultRelatedIds(item.relatedIds || []); setVaultDialectic(item.dialectic || { thesis: '', antithesis: '', synthesis: '' }); setVaultVerification(item.verification || { status: 'pending', evidence: '', checkedAt: 0 })
+          setVaultEditingId(item.id)
+          setVaultTitle(item.title); setVaultBody(item.body)
+          setVaultTags((item.tags || []).join(', ')); setVaultNote(item.note || '')
+          setVaultType(item.type || 'prompt'); setVaultProject(item.project || '')
+          setVaultParentId(item.parentId || ''); setVaultFormOpen(true)
+          setVaultThinkingKind(item.thinkingKind || 'conclusion')
+          setVaultEpistemicStatus(item.epistemicStatus || 'inferred')
+          setVaultRationale(item.rationale || ''); setVaultNextAction(item.nextAction || '')
+          setVaultRelatedIds(item.relatedIds || [])
+          setVaultDialectic(item.dialectic || { thesis: '', antithesis: '', synthesis: '' })
+          setVaultVerification(item.verification || { status: 'pending', evidence: '', checkedAt: 0 })
           setNotice(`正在编辑「${item.title}」。`)
         }
         const copyVaultItem = async item => {
@@ -2395,6 +2446,7 @@ window.__ModuleLoader__.load({
           setNudgeKitEnabled(next, storageKey('nudge.enabled.v1'))
           if (!next) { setNudgeQueue([]); setActiveNudge(null) }
         }
+        // 手动选方法 → 组装 → 填入消息框（与增强不同：直接按方法结构生成，不经过改写）。
         const composeIntoInput = async choice => {
           if (!choice || !composer) return
           const source = useConversationContext ? activeMessages : []
@@ -2403,6 +2455,7 @@ window.__ModuleLoader__.load({
           try {
             const conversationDraft = selectedConversationDraft(source)
             const explicitRequirement = requirement.trim()
+            // 问题的取值优先级：补充要求 > 已选对话的最后一条用户消息 > 当前草稿。
             const question = explicitRequirement || conversationDraft.question || draft.trim()
             let facts = [explicitRequirement && conversationDraft.question ? `对话中的原始问题：${conversationDraft.question}` : '', conversationDraft.facts].filter(Boolean).join('\n')
             if (useMemoryContext && searchMemory) {
@@ -2414,8 +2467,17 @@ window.__ModuleLoader__.load({
             setUndoDraft({ before: draft, after: next })
             composer.write(next)
             rememberMethod(choice, question)
-            setMethodUsage(value => { const nextUsage = { ...value, [choice.id]: Number(value[choice.id] || 0) + 1 }; try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}; return nextUsage })
-            setRecentMethodIds(value => { const nextRecent = [choice.id, ...value.filter(id => id !== choice.id)].slice(0, 3); try { window.localStorage.setItem(storageKey('recent-methods.v1'), JSON.stringify(nextRecent)) } catch {}; return nextRecent })
+            // 用法计数与最近方法：本地持久化，驱动「常用 3 个」排序与方法收集进度。
+            setMethodUsage(value => {
+              const nextUsage = { ...value, [choice.id]: Number(value[choice.id] || 0) + 1 }
+              try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}
+              return nextUsage
+            })
+            setRecentMethodIds(value => {
+              const nextRecent = [choice.id, ...value.filter(id => id !== choice.id)].slice(0, 3)
+              try { window.localStorage.setItem(storageKey('recent-methods.v1'), JSON.stringify(nextRecent)) } catch {}
+              return nextRecent
+            })
             setNotice(`已按“${choice.title}”${source.length ? `整理 ${source.length} 条消息并` : ''}填入输入框，可编辑后发送。`)
             setOpen(false)
           } catch (error) { setError(String(error?.message || error)) }
@@ -2456,15 +2518,19 @@ window.__ModuleLoader__.load({
           finally { setLoading(false) }
         }
         const cancelEnhance = () => { setNotice('正在取消语义增强…'); enhancer?.cancel() }
+        // ── 增强主流程：把改写结果写入消息框（绝不自动发送）──────
+        // 入口分流：/import 卡片导入 → 语义档（模型改写）→ 轻量档（本地零 Token）。
         const enhanceIntoInput = async () => {
           setMemoryReceipt(null)
           const source = draft.trim()
           if (!source) { setWarn('请先在输入框中写入原始请求。'); return }
+          // 分流 1：/import 命令或 Obsidian 卡片格式 → 走私有方法导入而非增强。
           const importSource = source.replace(/^\/import\b\s*/i, '')
           if (/^\/import\b/i.test(source) || /^(?:---\n[\s\S]*?\n---\n)?#\s+[^\n]+[\s\S]*?## Prompt\s*\n/.test(source)) {
             if (await importCard(importSource)) composer?.write('')
             return
           }
+          // 有选区时只增强选中的片段；否则整条草稿。
           const selection = composer.getSelection?.()
           const original = selection?.text || draft
           if (original.trim().length > 3000) { setWarn(`草稿过长（${original.trim().length} 字符），建议精简到 3000 字符以内再增强。`); return }
@@ -2476,6 +2542,7 @@ window.__ModuleLoader__.load({
             composer?.write(text)
             return text
           }
+          // 分流 2：语义档 —— 模型改写（流式优先、五维诊断、知识区入区、技能引用修复）。
           if (enhancementKind === 'semantic') {
             if (!enhancer) { setNotice('未注入语义增强模型（enhancer），仅支持轻量增强。'); return }
             setLoading(true)
@@ -2483,9 +2550,28 @@ window.__ModuleLoader__.load({
             setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
             streamStartRef.current = Date.now()
             try {
+              // 组装增强上下文：补充要求 + 对话参考 + 思考卡（待验证内容会被指令降权）+ @文件说明。
               const contextAssets = vaultItems.filter(item => assetContextIds.includes(item.id))
-              const assetContextText = contextAssets.length ? ['思考卡上下文（请区分事实、推断和待验证假设；不要把待核实或已被推翻的内容表述为事实或结论）：', ...contextAssets.map((item, index) => [`[${index + 1}] ${item.title}`, `类型：${item.thinkingKind || 'conclusion'}；认识状态：${item.epistemicStatus || 'inferred'}${item.verification ? `；验证结果：${item.verification.status}` : ''}`, item.verification?.evidence ? `验证证据：${item.verification.evidence}` : '', item.rationale ? `为什么重要：${item.rationale}` : '', item.nextAction ? `下一步：${item.nextAction}` : '', `内容：${item.body}`].filter(Boolean).join('\n'))].join('\n\n') : ''
-              let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', assetContextText, referencedFiles.length ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。` : ''].filter(Boolean).join('\n\n')
+              const assetContextText = contextAssets.length ? [
+                '思考卡上下文（请区分事实、推断和待验证假设；不要把待核实或已被推翻的内容表述为事实或结论）：',
+                ...contextAssets.map((item, index) => [
+                  `[${index + 1}] ${item.title}`,
+                  `类型：${item.thinkingKind || 'conclusion'}；认识状态：${item.epistemicStatus || 'inferred'}${item.verification ? `；验证结果：${item.verification.status}` : ''}`,
+                  item.verification?.evidence ? `验证证据：${item.verification.evidence}` : '',
+                  item.rationale ? `为什么重要：${item.rationale}` : '',
+                  item.nextAction ? `下一步：${item.nextAction}` : '',
+                  `内容：${item.body}`,
+                ].filter(Boolean).join('\n')),
+              ].join('\n\n') : ''
+              let extra = [
+                requirement.trim(),
+                selectedContextText ? `对话参考：\n${selectedContextText}` : '',
+                assetContextText,
+                // @文件引用只传路径清单：内容由 DSH @file 在发送后读取，改写不得编造其内容。
+                referencedFiles.length
+                  ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。`
+                  : '',
+              ].filter(Boolean).join('\n\n')
               let remembered = ''
               if (useMemoryContext && searchMemory) {
                 remembered = memoryPreview.status === 'ready' && memoryPreview.query === original ? memoryPreview.text : await loadMemory(original)
@@ -2493,7 +2579,16 @@ window.__ModuleLoader__.load({
               }
               const template = matchedMethod ? await methodProvider.getTemplate(matchedMethod.id) : null
               const methodPayload = matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined
-              const enhanceOptions = { draft: original, extra, lang: detectLanguage(original), kind: 'semantic', strength: enhanceStrength, hasContext: Boolean(selectedContextText || remembered || assetContextText), method: methodPayload }
+              // hasContext 驱动 host 的双策略：有上下文 → 提炼意图顺势润色；无 → 结构模板。
+              const enhanceOptions = {
+                draft: original,
+                extra,
+                lang: detectLanguage(original),
+                kind: 'semantic',
+                strength: enhanceStrength,
+                hasContext: Boolean(selectedContextText || remembered || assetContextText),
+                method: methodPayload,
+              }
               // 流式优先：enhancer.enhanceStream 可用时逐段上屏；宿主未实现（旧 glue/纯浏览器
               // adapter）自动退回 enhancer.enhance，行为与非流式完全一致。
               let body = null
@@ -2517,10 +2612,17 @@ window.__ModuleLoader__.load({
               setEnhanceDiagnosis(body.diagnosis || null)
               // 诊断闭环第 1 步：认识缺口自动入「知识区」暂存（不是存卡！）。
               // 用户稍后在知识区里逐条审阅，主动决定存为假设卡或忽略。
-              if (body.diagnosis) enqueueDiagnosisFindings(body.diagnosis, String(original || '').trim().slice(0, 120), matchedMethod?.title || '')
+              if (body.diagnosis) {
+                enqueueDiagnosisFindings(body.diagnosis, String(original || '').trim().slice(0, 120), matchedMethod?.title || '')
+              }
               // 技能引用修复：草稿里的 /xxx 记号在改写中丢失时，原样补回末尾而不是静默消失。
               const repaired = restoreLostSkillMentions(original, body.prompt)
-              if (repaired) setSkillRestore({ lost: skillMentions(original).filter(name => !skillMentions(body.prompt).includes(name)), restored: repaired })
+              if (repaired) {
+                setSkillRestore({
+                  lost: skillMentions(original).filter(name => !skillMentions(body.prompt).includes(name)),
+                  restored: repaired,
+                })
+              }
               const after = applyEnhanced(repaired || body.prompt)
               setUndoDraft({ before: selection?.draft || original, after })
               rememberMethod(matchedMethod, original)
@@ -2529,7 +2631,13 @@ window.__ModuleLoader__.load({
               setMemoryReceipt(useMemoryContext ? { used: Boolean(remembered), text: remembered, sources: memoryPreview.query === original ? memoryPreview.sources : [] } : null)
               setAssetContextReceipt(contextAssets.length ? { ids: contextAssets.map(item => item.id), titles: contextAssets.map(item => item.title) } : null)
               setOutcomePending({ kind: 'semantic', method: matchedMethod?.title })
-              if (matchedMethod) setMethodUsage(value => { const nextUsage = { ...value, [matchedMethod.id]: Number(value[matchedMethod.id] || 0) + 1 }; try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}; return nextUsage })
+              if (matchedMethod) {
+                setMethodUsage(value => {
+                  const nextUsage = { ...value, [matchedMethod.id]: Number(value[matchedMethod.id] || 0) + 1 }
+                  try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}
+                  return nextUsage
+                })
+              }
               pushNudges([
                 matchedMethod ? { type: 'awaken', methodId: matchedMethod.id, methodTitle: matchedMethod.title } : null,
                 { type: 'vault', methodId: matchedMethod?.id, methodTitle: matchedMethod?.title, body: after, draftTitle: deriveVaultTitle(original, matchedMethod) }
@@ -2546,6 +2654,7 @@ window.__ModuleLoader__.load({
             }
             return
           }
+          // 分流 3：轻量档 —— 本地规则模板整形，零 Token、零模型调用。
           const plan = enhancementPlan
           if (plan.tooShort) { setNotice('输入过短，未做增强，可直接发送。'); return }
           const after = applyEnhanced(plan.prompt)
@@ -2641,7 +2750,9 @@ window.__ModuleLoader__.load({
           ...knowledgeInbox.slice().reverse().map(entry => h('div', { key: entry.id, style: { padding: '9px', border: `1px solid ${C.amberLine}`, borderRadius: '8px', background: C.amberTint, display: 'grid', gap: '5px' } }, [
             h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' } }, [
               h('span', { key: 'tag', style: { display: 'inline-block', padding: '1px 8px', borderRadius: '999px', background: C.amber, color: '#fff', fontSize: '10px', fontWeight: 800, whiteSpace: 'nowrap' } }, entry.label),
-              h('span', { key: 'meta', style: { color: C.muted, fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, entry.method ? `${entry.method} · ` : '' + new Date(entry.at).toLocaleDateString()),
+              h('span', { key: 'meta', style: { color: C.muted, fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                // 方法名与日期分别拼接：原来的 `?:` + 字符串连接混用会吞掉日期分隔符。
+                [entry.method ? `${entry.method} · ` : '', new Date(entry.at).toLocaleDateString()].join('')),
             ]),
             h('div', { key: 'finding', style: { color: C.slate, fontSize: '11px', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, entry.finding),
             h('div', { key: 'draft', style: { color: C.muted, fontSize: '10px', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `原草稿：${entry.draft || '（空）'}`),
@@ -2656,6 +2767,8 @@ window.__ModuleLoader__.load({
           const parent = item.parentId ? vaultById.get(item.parentId) : null
           return h('div', { style: { marginTop: '7px', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surfaceAlt, fontSize: '10px', lineHeight: 1.45 } }, parent ? [h('strong', { key: 'title', style: { color: C.teal } }, `与「${parent.title}」对比`), h('div', { key: 'grid', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', marginTop: '5px' } }, [h('div', { key: 'old', style: { whiteSpace: 'pre-wrap', color: C.muted, maxHeight: '96px', overflow: 'auto' } }, parent.body), h('div', { key: 'new', style: { whiteSpace: 'pre-wrap', color: C.ink, maxHeight: '96px', overflow: 'auto' } }, item.body)])] : '此资产没有可比较的父版本。')
         }
+        // 资产卡链接式按钮的统一样式：无边框 teal 文字，破坏性动作单独覆盖颜色。
+        const linkBtnStyle = { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 }
         const vaultPanel = assetProvider ? h('aside', { key: 'vault-panel', ref: panelRef, role: 'dialog', 'aria-label': '灵感库', style: { position: 'fixed', top: 0, right: 0, width: 'min(390px, calc(100vw - 24px))', height: '100vh', overflowY: 'auto', padding: '18px', boxSizing: 'border-box', borderLeft: `1px solid ${C.tealLine}`, background: C.surface, boxShadow: '-16px 0 38px var(--pk-shadow-lg)', zIndex: 20002, display: 'grid', alignContent: 'start', gap: '10px' } }, [
           h('div', { key: 'head', style: { display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: '10px', position: 'relative', zIndex: 1 } }, [
             // 左侧圆形控制沿用灵感库的 teal 主题；保留 macOS 式位置语义，但不引入突兀的红色。
@@ -2729,7 +2842,25 @@ window.__ModuleLoader__.load({
             expandedVaultId === item.id && item.verification ? h('div', { key: 'verification', style: { marginTop: '4px', color: verificationColor[item.verification.status] || C.slate, fontSize: '10px', lineHeight: 1.4 } }, `验证：${verificationLabel[item.verification.status] || '待验证'}${item.verification.evidence ? ` · ${item.verification.evidence}` : ''}`) : null,
             expandedVaultId === item.id && item.dialectic ? h('div', { key: 'dialectic', style: { marginTop: '4px', color: C.slate, fontSize: '10px', lineHeight: 1.4 } }, `观点：${item.dialectic.thesis || '—'} · 反观点：${item.dialectic.antithesis || '—'} · 综合：${item.dialectic.synthesis || '—'}`) : null,
             h('div', { key: 'body', style: { marginTop: '5px', color: C.slate, fontSize: '11px', lineHeight: 1.45, ...(expandedVaultId === item.id ? { maxHeight: '240px', overflow: 'auto' } : { maxHeight: '34px', overflow: 'hidden' }) } }, h(LatexText, { text: item.body, block: true })),
-            expandedVaultId === item.id ? h('div', { key: 'actions', style: { display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '7px' } }, [h('button', { key: 'append', onClick: () => useVaultItem(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '追加'), h('button', { key: 'context', disabled: !assetContextIds.includes(item.id) && assetContextIds.length >= 3, onClick: () => toggleAssetContext(item.id), style: { border: 0, background: 'transparent', color: assetContextIds.includes(item.id) ? C.teal : C.slate, cursor: !assetContextIds.includes(item.id) && assetContextIds.length >= 3 ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 800 } }, assetContextIds.includes(item.id) ? '✓ 用于增强' : '用于增强'), item.nextAction ? h('button', { key: 'next', onClick: () => runNextAction(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '执行下一步') : null, h('button', { key: 'replace', onClick: () => useVaultItem(item, 'replace'), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '填充'), h('button', { key: 'edit', onClick: () => editVaultItem(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '编辑'), h('button', { key: 'derive', onClick: () => deriveVaultItem(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '派生'), h('button', { key: 'relations', onClick: () => { setVaultTab('graph'); setVaultGraphFocusId(item.id) }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '关系'), item.parentId ? h('button', { key: 'compare', onClick: () => setVaultCompareId(value => value === item.id ? '' : item.id), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, vaultCompareId === item.id ? '收起对比' : '版本对比') : null, h('button', { key: 'copy', onClick: () => copyVaultItem(item), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '复制'), h('button', { key: 'delete', onClick: () => assetProvider.remove(item.id), style: { marginLeft: 'auto', border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px' } }, '删除')]) : null,
+            // 展开态操作行：统一的链接式按钮（teal 文字按钮），只读 + 可变动作混排。
+            expandedVaultId === item.id ? h('div', { key: 'actions', style: { display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '7px' } }, [
+              h('button', { key: 'append', onClick: () => useVaultItem(item), style: linkBtnStyle }, '追加'),
+              // 「用于增强」上限 3 张：过多上下文会稀释模型注意力。
+              h('button', {
+                key: 'context',
+                disabled: !assetContextIds.includes(item.id) && assetContextIds.length >= 3,
+                onClick: () => toggleAssetContext(item.id),
+                style: { border: 0, background: 'transparent', color: assetContextIds.includes(item.id) ? C.teal : C.slate, cursor: !assetContextIds.includes(item.id) && assetContextIds.length >= 3 ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 800 },
+              }, assetContextIds.includes(item.id) ? '✓ 用于增强' : '用于增强'),
+              item.nextAction ? h('button', { key: 'next', onClick: () => runNextAction(item), style: linkBtnStyle }, '执行下一步') : null,
+              h('button', { key: 'replace', onClick: () => useVaultItem(item, 'replace'), style: linkBtnStyle }, '填充'),
+              h('button', { key: 'edit', onClick: () => editVaultItem(item), style: linkBtnStyle }, '编辑'),
+              h('button', { key: 'derive', onClick: () => deriveVaultItem(item), style: linkBtnStyle }, '派生'),
+              h('button', { key: 'relations', onClick: () => { setVaultTab('graph'); setVaultGraphFocusId(item.id) }, style: linkBtnStyle }, '关系'),
+              item.parentId ? h('button', { key: 'compare', onClick: () => setVaultCompareId(value => value === item.id ? '' : item.id), style: linkBtnStyle }, vaultCompareId === item.id ? '收起对比' : '版本对比') : null,
+              h('button', { key: 'copy', onClick: () => copyVaultItem(item), style: linkBtnStyle }, '复制'),
+              h('button', { key: 'delete', onClick: () => assetProvider.remove(item.id), style: { ...linkBtnStyle, marginLeft: 'auto', color: C.red } }, '删除'),
+            ]) : null,
             vaultCompareId === item.id ? versionDiff(item) : null,
             ])) : h('div', { key: 'empty', style: { ...S.empty, padding: '22px 12px', fontSize: '12px', display: 'grid', gap: '10px', justifyItems: 'start' } }, [
               h('div', { key: 'tip', style: { color: C.muted, lineHeight: 1.5 } }, '还没有灵感资产。保存一条草稿或选中片段开始积累。'),
@@ -2833,8 +2964,7 @@ window.__ModuleLoader__.load({
         const DIAGNOSIS_GAP_FIELDS = [
           { key: 'hidden_premise', label: '隐含前提', hint: '草稿默认了哪些未言明的假设' },
           { key: 'falsifiability', label: '不可证伪要求', hint: '哪些要求无法被观察或测试判定' },
-        ]
-        // 第 1 步（自动）：增强完成时发现入区。查重按「维度+草稿指纹」——同一草稿的
+        ]  // 第 1 步（自动）：增强完成时发现入区。查重按「维度+草稿指纹」——同一草稿的
         // 同一缺口不重复入区；区满（KNOWLEDGE_INBOX_MAX 条）时挤掉最旧的未处理项。
         const enqueueDiagnosisFindings = (diagnosis, draftFingerprint, methodTitle) => {
           const added = []
