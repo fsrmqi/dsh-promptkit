@@ -190,6 +190,9 @@ export async function streamEnhanceWithCurrentSessionModel({ llm, route, session
     maxTokens: Math.max(1200, Math.min(Math.round(source.length * STRENGTH_BUDGET[normalizedStrength] * 2), 6000)),
     sessionId,
     purpose: 'dsh-promptkit-semantic-enhance',
+    // 关闭思考：结构化改写不需要推理，且思考会耗尽 maxTokens 导致正文为空
+    // （真机冒烟实测：思考型模型默认 thinking 开启，26s 内无任何正文输出）。
+    reasoningEffort: 'off',
     ...(signal ? { signal } : {}),
   })) {
     if (chunk.type === 'text-delta') {
@@ -253,11 +256,20 @@ function withRequestGuards(req, res, handler) {
   if (!sessionId) { reply(res, 400, { error: 'session_id_required' }); return Promise.resolve() }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
+  // 客户端断开检测必须挂在 res 上：Node ≥26 在 POST body 读完即触发 req 'close'，
+  // 挂 req 会把每个正常请求都立刻 abort，进而被 catch 误报为「模型响应超时」。
+  // res 'close' 在连接提前断开（客户端取消）时才会触发。
   const abort = () => controller.abort()
-  req.on('close', abort)
+  // 测试/嵌入式宿主可能传入无事件能力的 res 桩：此时跳过断开联动，仅保留 30s 超时。
+  if (typeof res.on === 'function' && typeof res.off === 'function') {
+    res.on('close', abort)
+    var offAbort = () => res.off('close', abort)
+  } else {
+    var offAbort = () => {}
+  }
   return handler(sessionId, controller).finally(() => {
     clearTimeout(timeout)
-    req.off('close', abort)
+    offAbort()
   })
 }
 

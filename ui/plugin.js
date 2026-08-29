@@ -23,8 +23,10 @@ export function apply(ctx) {
     ctx.on('agent/disposed', ({ agent }) => routes.delete(String(agent.session.id)))
     return () => routes.clear()
   }, 'dsh-promptkit session model routes')
-  // 工作区根目录：优先取 DSH 注入的项目根，取不到时安全降级为空（文件菜单自动隐藏）。
-  const workspaceRoots = [ctx.project?.root, ctx.workspace?.root, process.cwd()].filter(Boolean)
+  // 工作区根目录 = dsh 进程启动目录（cordis ctx 未提供 project/workspace 服务，
+  // 访问未声明属性会直接抛 "cannot get property without inject" 拖垮整棵插件树）。
+  // 在项目根目录启动 dsh web 时，@ 文件引用即可检索该项目文件。
+  const workspaceRoots = [process.cwd()].filter(Boolean)
   ctx.effect(() => ctx.webServer.register(semanticEnhanceRoute({ llm: ctx.llm, routes })), 'dsh-promptkit semantic enhancement')
   ctx.effect(() => ctx.webServer.register(semanticEnhanceStreamRoute({ llm: ctx.llm, routes })), 'dsh-promptkit semantic enhancement (stream)')
   ctx.effect(() => ctx.webServer.register(workspaceFilesRoute({ workspaceRoots })), 'dsh-promptkit workspace files')

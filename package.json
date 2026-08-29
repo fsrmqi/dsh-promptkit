@@ -65,16 +65,15 @@
     "test": "node --test"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-chat"
+        "@deepseek-ai/dsh-client-ui-conversation"
       ]
-    },
-    "bundle": {
-      "patch": "./cordis.patch.yml"
     }
   },
   "devDependencies": {
