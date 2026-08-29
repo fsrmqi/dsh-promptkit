@@ -276,8 +276,13 @@ test('灵感库关闭：抽屉内「引用已选对话」后点 ×，主面板�
     messages,
   }))
   await tick()
-  // 主面板打开 → 勾选最近消息 → 打开灵感库抽屉
+  // 主面板打开 → 切到「手动选方法」（「选择最近」按钮只在 method 模式的摘要条渲染）
+  // → 勾选最近消息 → 打开灵感库抽屉
   container.querySelector('.pk-fab').dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+  await tick()
+  const methodTab = [...container.querySelectorAll('button')].find(b => b.textContent.trim() === '手动选方法')
+  assert.ok(methodTab, '主面板应有「手动选方法」切换')
+  methodTab.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
   const pickBtn = [...container.querySelectorAll('button')].find(b => /选择最近/.test(b.textContent))
   assert.ok(pickBtn, '主面板应出现「选择最近」按钮')

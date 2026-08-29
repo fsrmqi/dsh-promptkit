@@ -67,6 +67,87 @@
       }
     }
 
+    // 模板变量：Vault 条目里的 {{name}} 占位符。返回去重后的变量名列表（保留首次出现顺序）。
+    function templateVariables(body) {
+      const seen = new Set()
+      const names = []
+      for (const match of String(body || '').matchAll(/\{\{\s*([A-Za-z_][\w-]*)\s*\}\}/g)) {
+        if (seen.has(match[1])) continue
+        seen.add(match[1])
+        names.push(match[1])
+      }
+      return names
+    }
+
+    // 用 values 填充 {{name}}；未提供值的变量保留原样（用户可发送前手填）。
+    // values 是 { name: value } 映射；未知变量一律不动，避免误伤普通花括号文本。
+    function fillTemplateVariables(body, values = {}) {
+      return String(body || '').replace(/\{\{\s*([A-Za-z_][\w-]*)\s*\}\}/g, (raw, name) => {
+        const value = values[name]
+        return value == null || String(value).trim() === '' ? raw : String(value)
+      })
+    }
+
+    // 草稿里的 skill 引用记号：行首或空白后的 /tdd、/code-review 这类斜杠命令。
+    // 排除 /pk（本插件自己的命名空间）和纯路径（含 . 或以字母数字段连接的文件名特征）。
+    function skillMentions(draft) {
+      const seen = new Set()
+      const skills = []
+      for (const match of String(draft || '').matchAll(/(?:^|\s)(\/[A-Za-z][\w-]{0,30})(?=\s|$)/g)) {
+        const name = match[1]
+        if (name.toLowerCase() === '/pk' || seen.has(name)) continue
+        seen.add(name)
+        skills.push(name)
+      }
+      return skills
+    }
+
+    // 语义增强输出解析（host/client 共用）：把模型输出拆成 { diagnosis, prompt }。
+    // 诊断行协议：[DIAG] <dimension>: <一句话>，之后 ===PROMPT=== 分隔改写正文。
+    // 诊断缺失（旧模型/旧指令/未开诊断）时 diagnosis 为 null，prompt 原样返回。
+    // DIAGNOSIS_DIMENSIONS 与 host 的指令同源；键序即客户端展示顺序。
+    const DIAGNOSIS_DIMENSIONS = ['concept_clarity', 'hidden_premise', 'falsifiability', 'actionability', 'context_fit']
+    function parseEnhanceOutput(raw) {
+      const text = String(raw || '')
+      const diagnosis = {}
+      let prompt = text
+      const marker = text.includes('===PROMPT===') ? '===PROMPT===' : null
+      const diagPart = marker ? text.slice(0, text.indexOf(marker)) : ''
+      for (const match of diagPart.matchAll(/\[DIAG\]\s*(\w+)\s*[:：]\s*(.+)/g)) {
+        if (DIAGNOSIS_DIMENSIONS.includes(match[1])) diagnosis[match[1]] = match[2].trim()
+      }
+      if (marker) prompt = text.slice(text.indexOf(marker) + marker.length)
+      prompt = prompt.trim()
+      const hasDiagnosis = DIAGNOSIS_DIMENSIONS.every(key => diagnosis[key])
+      return { diagnosis: hasDiagnosis ? diagnosis : null, prompt }
+    }
+
+    // 改写后 skill 引用丢失检查：before 里有、after 里没有的引用，原样补到末尾。
+    // 返回 null 表示无需修复（所有引用都保留了），调用方可据此跳过。
+    function restoreLostSkillMentions(before, after) {
+      const lost = skillMentions(before).filter(name => !skillMentions(after).includes(name))
+      if (!lost.length) return null
+      return `${String(after || '').trimEnd()}\n\n## 技能引用\n\n${lost.join('、')}（改写时请保留这些技能调用记号）`
+    }
+
+    // 语义增强输出的轻量分段：模型可能已经输出 Markdown 结构；这里只把无结构的
+    // 连续文本按空行切段，供流式面板逐段上屏。有 Markdown 标题/列表的段落原样保留。
+    function splitOutputSegments(text) {
+      return String(text || '')
+        .split(/\n{2,}/)
+        .map(part => part.trim())
+        .filter(Boolean)
+    }
+
+    // 自动增强的发送拦截判定：只在「普通 Enter、无修饰键、草稿非空、开关开启」时拦截。
+    // Shift+Enter（换行）、⌘/Ctrl+Enter、IME 组合输入中的 Enter 一律放行，绝不吞发送。
+    function shouldInterceptSend({ event, draft, enabled }) {
+      if (!enabled) return false
+      if (!event || event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false
+      if (event.isComposing || event.keyCode === 229) return false
+      return Boolean(String(draft || '').trim())
+    }
+
     function methodChoice(methods, title) { return methods.find(item => item.title === title) }
 
     function detectLanguage(text) {
@@ -205,4 +286,4 @@ function conversationMessages(snapshot, limit = 12) {
   return messages
 }
 
-export { safeText, snapshotNodes, conversationDraft, conversationMessages, list, obj, cleanSummary, cleanContext, cleanConversationText, fileMentions, selectedConversationDraft, methodChoice, detectLanguage, TEMPLATE_LABELS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }
+export { safeText, snapshotNodes, conversationDraft, conversationMessages, list, obj, cleanSummary, cleanContext, cleanConversationText, fileMentions, templateVariables, fillTemplateVariables, skillMentions, restoreLostSkillMentions, splitOutputSegments, shouldInterceptSend, parseEnhanceOutput, DIAGNOSIS_DIMENSIONS, selectedConversationDraft, methodChoice, detectLanguage, TEMPLATE_LABELS, buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods }

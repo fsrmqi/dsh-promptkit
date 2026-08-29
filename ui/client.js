@@ -187,6 +187,11 @@ window.__ModuleLoader__.load({
             arrowRight: 'M5 12h14M13 6l6 6-6 6',
             plus: 'M12 5v14M5 12h14',
             settings: 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z',
+            file: 'M14 3v5h5M6 3h8l5 5v13H6zM8 13h8M8 17h5',
+            undo: 'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
+            variable: 'M8 4C5 8 5 16 8 20M16 4c3 4 3 12 0 16M9.5 9.5 12 12l-2.5 2.5M14.5 9.5 12 12l2.5 2.5',
+            shield: 'M12 3l8 3v6c0 4.5-3.2 7.7-8 9-4.8-1.3-8-4.5-8-9V6l8-3zM9 12l2 2 4-4',
+            gauge: 'M12 13l4-4M4.5 19a9 9 0 1 1 15 0M12 21h.01',
           }
           const Icon = ({ name, size = 14, style, strokeWidth = 1.7 }) => h('svg', { viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true', style }, ICON_PATHS[name] ? h('path', { d: ICON_PATHS[name] }) : null)
           function Panel({ title, hint, children, style }) { return h('section', { style: { ...S.panel, ...style } }, [h('div', { key: 'h', style: S.head }, [h('h2', { key: 't', style: S.h2 }, title), h('span', { key: 'i', style: S.hint }, hint)]), children]) }
@@ -333,6 +338,87 @@ window.__ModuleLoader__.load({
               unresolved: pick(/待确认|需要确认|未知|未决|还需|下一步|TBD/),
               source_count: users.length + assistants.length,
             }
+          }
+
+          // 模板变量：Vault 条目里的 {{name}} 占位符。返回去重后的变量名列表（保留首次出现顺序）。
+          function templateVariables(body) {
+            const seen = new Set()
+            const names = []
+            for (const match of String(body || '').matchAll(/\{\{\s*([A-Za-z_][\w-]*)\s*\}\}/g)) {
+              if (seen.has(match[1])) continue
+              seen.add(match[1])
+              names.push(match[1])
+            }
+            return names
+          }
+
+          // 用 values 填充 {{name}}；未提供值的变量保留原样（用户可发送前手填）。
+          // values 是 { name: value } 映射；未知变量一律不动，避免误伤普通花括号文本。
+          function fillTemplateVariables(body, values = {}) {
+            return String(body || '').replace(/\{\{\s*([A-Za-z_][\w-]*)\s*\}\}/g, (raw, name) => {
+              const value = values[name]
+              return value == null || String(value).trim() === '' ? raw : String(value)
+            })
+          }
+
+          // 草稿里的 skill 引用记号：行首或空白后的 /tdd、/code-review 这类斜杠命令。
+          // 排除 /pk（本插件自己的命名空间）和纯路径（含 . 或以字母数字段连接的文件名特征）。
+          function skillMentions(draft) {
+            const seen = new Set()
+            const skills = []
+            for (const match of String(draft || '').matchAll(/(?:^|\s)(\/[A-Za-z][\w-]{0,30})(?=\s|$)/g)) {
+              const name = match[1]
+              if (name.toLowerCase() === '/pk' || seen.has(name)) continue
+              seen.add(name)
+              skills.push(name)
+            }
+            return skills
+          }
+
+          // 语义增强输出解析（host/client 共用）：把模型输出拆成 { diagnosis, prompt }。
+          // 诊断行协议：[DIAG] <dimension>: <一句话>，之后 ===PROMPT=== 分隔改写正文。
+          // 诊断缺失（旧模型/旧指令/未开诊断）时 diagnosis 为 null，prompt 原样返回。
+          // DIAGNOSIS_DIMENSIONS 与 host 的指令同源；键序即客户端展示顺序。
+          const DIAGNOSIS_DIMENSIONS = ['concept_clarity', 'hidden_premise', 'falsifiability', 'actionability', 'context_fit']
+          function parseEnhanceOutput(raw) {
+            const text = String(raw || '')
+            const diagnosis = {}
+            let prompt = text
+            const marker = text.includes('===PROMPT===') ? '===PROMPT===' : null
+            const diagPart = marker ? text.slice(0, text.indexOf(marker)) : ''
+            for (const match of diagPart.matchAll(/\[DIAG\]\s*(\w+)\s*[:：]\s*(.+)/g)) {
+              if (DIAGNOSIS_DIMENSIONS.includes(match[1])) diagnosis[match[1]] = match[2].trim()
+            }
+            if (marker) prompt = text.slice(text.indexOf(marker) + marker.length)
+            prompt = prompt.trim()
+            const hasDiagnosis = DIAGNOSIS_DIMENSIONS.every(key => diagnosis[key])
+            return { diagnosis: hasDiagnosis ? diagnosis : null, prompt }
+          }
+
+          // 改写后 skill 引用丢失检查：before 里有、after 里没有的引用，原样补到末尾。
+          // 返回 null 表示无需修复（所有引用都保留了），调用方可据此跳过。
+          function restoreLostSkillMentions(before, after) {
+            const lost = skillMentions(before).filter(name => !skillMentions(after).includes(name))
+            if (!lost.length) return null
+            return `${String(after || '').trimEnd()}\n\n## 技能引用\n\n${lost.join('、')}（改写时请保留这些技能调用记号）`
+          }
+
+          // 语义增强输出的轻量分段：模型可能已经输出 Markdown 结构；这里只把无结构的
+          // 连续文本按空行切段，供流式面板逐段上屏。有 Markdown 标题/列表的段落原样保留。
+          function splitOutputSegments(text) {
+            return String(text || '')
+              .split(/\n{2,}/)
+              .map(part => part.trim())
+              .filter(Boolean)
+          }
+
+          // 自动增强的发送拦截判定：只在「普通 Enter、无修饰键、草稿非空、开关开启」时拦截。
+          // Shift+Enter（换行）、⌘/Ctrl+Enter、IME 组合输入中的 Enter 一律放行，绝不吞发送。
+          function shouldInterceptSend({ event, draft, enabled }) {
+            if (!enabled) return false
+            if (!event || event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false
+            if (event.isComposing || event.keyCode === 229) return false
+            return Boolean(String(draft || '').trim())
           }
 
           function methodChoice(methods, title) { return methods.find(item => item.title === title) }
@@ -590,10 +676,19 @@ window.__ModuleLoader__.load({
         get loading() { return false }
 
         /**
-         * @param {{ draft:string, extra?:string, lang?:string, kind?:'light'|'semantic', method?:object }} input
-         * @returns {Promise<{ prompt:string, model?:string }>}
+         * @param {{ draft:string, extra?:string, lang?:string, kind?:'light'|'semantic',
+         *           strength?:'low'|'mid'|'high', hasContext?:boolean, method?:object }} input
+         * @returns {Promise<{ prompt:string, model?:string, diagnosis?:object|null }>}
          */
         async enhance(input) { throw new Error('Enhancer.enhance() 未实现') }
+
+        /**
+         * 可选实现：流式增强。组件检测到此方法时走逐段上屏；
+         * 未实现或中途失败（非 AbortError）时组件自动退回 enhance()。
+         * @param {typeof input & { onDelta?:(text:string)=>void }} input
+         * @returns {Promise<{ prompt:string, model?:string, diagnosis?:object|null }>}
+         */
+        async enhanceStream(input) { throw new Error('Enhancer.enhanceStream() 未实现') }
 
         /** 取消进行中的增强 */
         cancel() {}
@@ -977,14 +1072,22 @@ window.__ModuleLoader__.load({
 
         get loading() { return this._abort !== null }
 
-        async enhance({ draft, extra, kind, method }) {
+        async enhance({ draft, extra, kind, method, strength, hasContext }) {
           // kind === 'light' 时建议由宿主复用 lib/utils 的 planPromptEnhancement（零 Token）；
           // 此处示例实现统一的语义改写路径。
           this._abort = new AbortController()
           try {
+            const strengthRule = strength === 'low'
+              ? '只做措辞与结构润色，篇幅接近原文，不展开内容。'
+              : strength === 'high'
+                ? '充分展开背景、步骤与验收标准，篇幅约为草稿的 3 倍。'
+                : '标准结构化整理，输出紧凑（约 1.5 倍原文）。'
+            const contextRule = hasContext
+              ? '会话上下文已提供：先提炼真实意图，再顺着草稿原有表达润色，不要重复追问上下文已给出的信息。'
+              : '只使用草稿里已有的信息，缺失关键信息用【待确认：…】标出。'
             const instruction = method?.template
-              ? `按「${method.title}」的方法结构改写以下提示词。方法模板：\n\n${method.template}`
-              : '改写以下提示词，使其更清晰、可执行。'
+              ? `按「${method.title}」的方法结构改写以下提示词。方法模板：\n\n${method.template}\n\n${strengthRule}${contextRule}`
+              : `改写以下提示词，使其更清晰、可执行。${strengthRule}${contextRule}`
             const res = await fetch(this.endpoint, {
               method: 'POST',
               headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` },
@@ -1595,7 +1698,10 @@ window.__ModuleLoader__.load({
       //   messages       (可选) [{ id, role:'user'|'assistant', text }]：当前对话，供「加对话」参考
       //   searchMemory   (可选) (query) => Promise<string>：项目记忆检索，供「加项目记忆」档位
       //   nudgeEnabled   (可选) boolean：宿主级行为助推总开关，默认 true；与 localStorage 开关为「与」关系
-      function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, storagePrefix = 'promptkit.', nudgeEnabled = true }) {
+      //   searchFiles    (可选) (query) => Promise<string[] | null>：工作区文件检索，供 @ 文件引用补全；
+      //                  返回 null 表示宿主未提供文件服务，@ 菜单入口自动隐藏
+      //   onSubmitDraft  (可选) (text) => void | Promise：宿主「发送当前草稿」钩子；注入后启用「发送前自动增强」
+      function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, searchFiles, onSubmitDraft, storagePrefix = 'promptkit.', nudgeEnabled = true }) {
         const storageKey = name => `${storagePrefix}quick-action.${name}`
         const msgs = list(messages)
         const [draft, setDraft] = React.useState(() => composer?.getDraft?.() || '')
@@ -1710,6 +1816,25 @@ window.__ModuleLoader__.load({
         const [assetContextReceipt, setAssetContextReceipt] = React.useState(null)
         const [slashOpen, setSlashOpen] = React.useState(false)
         const [slashActiveIndex, setSlashActiveIndex] = React.useState(0)
+        // ── 语义增强强度档位（低=润色 / 中=标准 / 高=充分展开），仅语义档生效 ──
+        const [enhanceStrength, setEnhanceStrength] = React.useState(() => { try { return window.localStorage.getItem(storageKey('enhance.strength.v1')) || 'mid' } catch { return 'mid' } })
+        React.useEffect(() => { try { window.localStorage.setItem(storageKey('enhance.strength.v1'), enhanceStrength) } catch {} }, [enhanceStrength])
+        // ── 五维诊断结果（clarity/completeness/constraints/verifiability/context_fit）──
+        const [enhanceDiagnosis, setEnhanceDiagnosis] = React.useState(null)
+        // ── 流式预览：增强产出逐段上屏，应用前不落草稿 ──
+        const [streamState, setStreamState] = React.useState(null) // null | { phase:'waiting'|'streaming'|'done', segments:[], elapsedMs }
+        const streamStartRef = React.useRef(0)
+        // ── 发送前自动增强（需宿主注入 onSubmitDraft 才可用）；持久化开关 ──
+        const [autoEnhanceEnabled, setAutoEnhanceEnabled] = React.useState(() => { try { return window.localStorage.getItem(storageKey('auto-enhance.enabled.v1')) === 'true' } catch { return false } })
+        React.useEffect(() => { try { window.localStorage.setItem(storageKey('auto-enhance.enabled.v1'), String(autoEnhanceEnabled)) } catch {} }, [autoEnhanceEnabled])
+        const [autoEnhanceBusy, setAutoEnhanceBusy] = React.useState(false)
+        // ── @ 文件引用补全菜单 ──
+        const [fileMenu, setFileMenu] = React.useState(null) // null | { query, files, status:'loading'|'ready'|'empty'|'unavailable', activeIndex }
+        const fileMenuRequestId = React.useRef(0)
+        // ── 模板变量填充（Vault 条目含 {{var}} 时弹出补值面板）──
+        const [variableFill, setVariableFill] = React.useState(null) // null | { item, values:{} }
+        // ── 技能引用修复提示：改写丢失 /xxx 时给出「补回」操作 ──
+        const [skillRestore, setSkillRestore] = React.useState(null) // null | { lost:[], restored:text }
         const {
           vaultTitle, setVaultTitle, vaultTags, setVaultTags, vaultNote, setVaultNote, vaultBody, setVaultBody,
           vaultProject, setVaultProject, vaultParentId, setVaultParentId, vaultEditingId, setVaultEditingId,
@@ -1790,6 +1915,85 @@ window.__ModuleLoader__.load({
           if (!assetProvider || !match) { setSlashOpen(false); return }
           setVaultSearch(String(match[1] ?? match[2] ?? '').trim()); setSlashActiveIndex(0); setSlashOpen(true)
         }, [draft, assetProvider])
+        // ── @ 文件引用补全：光标前的 @word 触发；检索经 searchFiles（宿主注入）──
+        const detectFileQuery = text => {
+          // 取最后一个非空白字符段：以 @ 开头则视为文件引用输入中（排除粘贴保护标记 \u2060）。
+          const tail = String(text || '').match(/(^|\s)@([^\s@]*)$/)
+          return tail ? tail[2] : null
+        }
+        React.useEffect(() => {
+          if (!searchFiles) { setFileMenu(null); return undefined }
+          const query = detectFileQuery(draft)
+          if (query == null) { setFileMenu(null); return undefined }
+          const requestId = ++fileMenuRequestId.current
+          setFileMenu(prev => ({ query, files: prev?.query === query ? prev.files : [], status: 'loading', activeIndex: 0 }))
+          let alive = true
+          const timer = setTimeout(() => {
+            Promise.resolve(searchFiles(query)).then(files => {
+              if (!alive || fileMenuRequestId.current !== requestId) return
+              if (files === null || files === undefined) setFileMenu(null) // 宿主未提供文件服务
+              else setFileMenu({ query, files: list(files), status: files.length ? 'ready' : 'empty', activeIndex: 0 })
+            }).catch(() => { if (alive && fileMenuRequestId.current === requestId) setFileMenu(null) })
+          }, 140) // 防抖：避免逐键打 @ 时高频请求
+          return () => { alive = false; clearTimeout(timer) }
+        }, [draft, searchFiles])
+        const insertFileMention = path => {
+          const current = String(draft || '')
+          const next = current.replace(/(^|\s)@[^\s@]*$/, (prefix => `${prefix}@${path} `))
+          composer?.write(next)
+          setFileMenu(null)
+          setNotice(`已插入 @${path}；发送后由 DSH @file 读取该文件。`)
+        }
+        // @ 菜单键盘导航：window 捕获阶段吞键，防止 DSH 把 Enter 解释为发送。
+        React.useEffect(() => {
+          if (!fileMenu) return undefined
+          const onKeydown = event => {
+            const consume = () => { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.() }
+            if (event.key === 'Escape') { consume(); setFileMenu(null); return }
+            if (event.key === 'ArrowDown') { consume(); setFileMenu(menu => menu ? { ...menu, activeIndex: Math.min(menu.files.length - 1, menu.activeIndex + 1) } : menu); return }
+            if (event.key === 'ArrowUp') { consume(); setFileMenu(menu => menu ? { ...menu, activeIndex: Math.max(0, menu.activeIndex - 1) } : menu); return }
+            if (event.key === 'Enter' && fileMenu.files[fileMenu.activeIndex]) { consume(); insertFileMention(fileMenu.files[fileMenu.activeIndex]) }
+          }
+          window.addEventListener('keydown', onKeydown, true)
+          return () => window.removeEventListener('keydown', onKeydown, true)
+        }, [fileMenu, composer])
+        // ── 发送前自动增强（fail-safe）──────
+        // 仅当：宿主注入了 onSubmitDraft（能完成「发送」这个动作）、开关开启、enhancer 可用。
+        // 拦截的是普通 Enter（无修饰键、非 IME 组合）；判定不成立一律放行原生流程，绝不吞发送。
+        // 自动增强失败/超时/取消 → 调 onSubmitDraft 发送原文，对话不中断。
+        const autoEnhanceRef = React.useRef({ enabled: false, draft: '', busy: false })
+        autoEnhanceRef.current = { enabled: autoEnhanceEnabled && Boolean(onSubmitDraft) && Boolean(enhancer), draft, busy: autoEnhanceBusy || loading }
+        React.useEffect(() => {
+          if (!onSubmitDraft) return undefined
+          const onKeydown = event => {
+            const guard = autoEnhanceRef.current
+            if (!shouldInterceptSend({ event, draft: guard.draft, enabled: guard.enabled }) || guard.busy) return
+            const original = guard.draft
+            // 捕获阶段先于 React/宿主根处理器；放行路径（未命中守卫）零影响。
+            event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.()
+            setAutoEnhanceBusy(true)
+            setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
+            streamStartRef.current = Date.now()
+            ;(async () => {
+              try {
+                const body = await enhancer.enhance({ draft: original, lang: detectLanguage(original), kind: 'semantic', strength: enhanceStrength, hasContext: false })
+                const repaired = restoreLostSkillMentions(original, body.prompt)
+                await onSubmitDraft(repaired || body.prompt)
+                setNotice(`发送前已自动增强${body.model ? `（${body.model}）` : ''}。`)
+              } catch (error) {
+                if (error?.name === 'AbortError') { setNotice('自动增强已取消，原文未发送；可手动发送或重试。'); return }
+                // fail-safe：增强失败不阻塞发送，原文照发。
+                await onSubmitDraft(original)
+                setWarn(`自动增强失败（${String(error?.message || error)}），已发送原文。`)
+              } finally {
+                setAutoEnhanceBusy(false)
+                setStreamState(null)
+              }
+            })()
+          }
+          window.addEventListener('keydown', onKeydown, true)
+          return () => window.removeEventListener('keydown', onKeydown, true)
+        }, [onSubmitDraft, enhancer, enhanceStrength])
         React.useEffect(() => {
           if (!open || methods.length) return
           setLoading(true)
@@ -1915,7 +2119,13 @@ window.__ModuleLoader__.load({
           if (!item?.body) return
           const current = composer?.getDraft?.() || ''
           const slashInvocation = current.match(/^\/pk(?:\s+.*|:.*)?$/i)
-          const next = slashInvocation ? item.body : mode === 'replace' ? item.body : withPrefix(current, item.body)
+          // 模板变量：条目含 {{var}} 时先弹补值面板，用户确认后再写入（追加或替换语义不变）。
+          if (templateVariables(item.body).length) { setVariableFill({ item, mode, current, slashInvocation, values: {} }); setSlashOpen(false); return }
+          await applyVaultItem(item, mode, current, slashInvocation)
+        }
+        const applyVaultItem = async (item, mode, current, slashInvocation, values) => {
+          const filled = fillTemplateVariables(item.body, values || {})
+          const next = slashInvocation ? filled : mode === 'replace' ? filled : withPrefix(current, filled)
           composer?.write(next)
           await assetProvider?.markUsed?.(item.id)
           setUndoDraft({ before: draft, after: next })
@@ -2258,6 +2468,9 @@ window.__ModuleLoader__.load({
           if (enhancementKind === 'semantic') {
             if (!enhancer) { setNotice('未注入语义增强模型（enhancer），仅支持轻量增强。'); return }
             setLoading(true)
+            setEnhanceDiagnosis(null)
+            setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
+            streamStartRef.current = Date.now()
             try {
               const contextAssets = vaultItems.filter(item => assetContextIds.includes(item.id))
               const assetContextText = contextAssets.length ? ['思考卡上下文（请区分事实、推断和待验证假设；不要把待核实或已被推翻的内容表述为事实或结论）：', ...contextAssets.map((item, index) => [`[${index + 1}] ${item.title}`, `类型：${item.thinkingKind || 'conclusion'}；认识状态：${item.epistemicStatus || 'inferred'}${item.verification ? `；验证结果：${item.verification.status}` : ''}`, item.verification?.evidence ? `验证证据：${item.verification.evidence}` : '', item.rationale ? `为什么重要：${item.rationale}` : '', item.nextAction ? `下一步：${item.nextAction}` : '', `内容：${item.body}`].filter(Boolean).join('\n'))].join('\n\n') : ''
@@ -2268,8 +2481,33 @@ window.__ModuleLoader__.load({
                 if (remembered) extra = [extra, `项目记忆：${remembered}`].filter(Boolean).join('\n\n')
               }
               const template = matchedMethod ? await methodProvider.getTemplate(matchedMethod.id) : null
-              const body = await enhancer.enhance({ draft: original, extra, lang: detectLanguage(original), kind: 'semantic', method: matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined })
-              const after = applyEnhanced(body.prompt)
+              const methodPayload = matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined
+              const enhanceOptions = { draft: original, extra, lang: detectLanguage(original), kind: 'semantic', strength: enhanceStrength, hasContext: Boolean(selectedContextText || remembered || assetContextText), method: methodPayload }
+              // 流式优先：enhancer.enhanceStream 可用时逐段上屏；宿主未实现（旧 glue/纯浏览器
+              // adapter）自动退回 enhancer.enhance，行为与非流式完全一致。
+              let body = null
+              if (typeof enhancer.enhanceStream === 'function') {
+                try {
+                  let rawText = ''
+                  body = await enhancer.enhanceStream({ ...enhanceOptions, onDelta: delta => {
+                    rawText += String(delta || '')
+                    // 诊断行先于正文到达：流式期间增量解析 [DIAG]，诊断卡先亮起来；
+                    // 预览段过滤 [DIAG]/===PROMPT=== 标记行，只上屏真正的改写内容。
+                    const partial = parseEnhanceOutput(rawText)
+                    if (partial.diagnosis) setEnhanceDiagnosis(partial.diagnosis)
+                    setStreamState(prev => prev ? { ...prev, phase: 'streaming', segments: splitOutputSegments(partial.prompt) } : prev)
+                  } })
+                } catch (streamError) {
+                  if (streamError?.name === 'AbortError') throw streamError
+                  body = null // 流式链路异常退回非流式；错误在非流式分支统一处理
+                }
+              }
+              if (!body) body = await enhancer.enhance(enhanceOptions)
+              setEnhanceDiagnosis(body.diagnosis || null)
+              // 技能引用修复：草稿里的 /xxx 记号在改写中丢失时，原样补回末尾而不是静默消失。
+              const repaired = restoreLostSkillMentions(original, body.prompt)
+              if (repaired) setSkillRestore({ lost: skillMentions(original).filter(name => !skillMentions(body.prompt).includes(name)), restored: repaired })
+              const after = applyEnhanced(repaired || body.prompt)
               setUndoDraft({ before: selection?.draft || original, after })
               rememberMethod(matchedMethod, original)
               recordUsage({ kind: 'semantic', method: matchedMethod?.title })
@@ -2288,7 +2526,10 @@ window.__ModuleLoader__.load({
               else if (error?.timeout) setError(`${error.message}（可稍后重试）`)
               else setError(String(error?.message || error))
             }
-            finally { setLoading(false) }
+            finally {
+              setLoading(false)
+              setStreamState(prev => prev ? { ...prev, phase: 'done', elapsedMs: Date.now() - streamStartRef.current } : null)
+            }
             return
           }
           const plan = enhancementPlan
@@ -2484,6 +2725,16 @@ window.__ModuleLoader__.load({
               ? [h('div', { key: 'meta', style: { marginBottom: '3px' } }, `将把当前 ${draft.trim().length} 个字符交给模型改写。`), autoMethods.length ? h('div', { key: 'method', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', color: C.teal } }, [h('span', { key: 'label' }, '自动匹配：'), ...autoMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setEnhancementMethodId(method.id), style: { border: `1px solid ${matchedMethod?.id === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '999px', background: matchedMethod?.id === method.id ? C.tealTintDeep : C.surface, color: C.teal, cursor: 'pointer', padding: '3px 7px', fontSize: '10px', fontWeight: 800 } }, matchedMethod?.id === method.id ? [h(Icon, { key: 'ck', name: 'check', size: 11, style: { marginRight: '2px' } }), method.title] : `改用 ${method.title}`))]) : h('div', { key: 'method', style: { color: C.muted } }, '未强行套用方法，只做结构化改写。'), h('div', { key: 'lang', style: { color: C.muted } }, `检测语言：${enhancementLang === 'en' ? '英文（输出与输入一致）' : enhancementLang === 'mixed' ? '中英混合（输出与输入一致）' : '中文'}。`), draft.trim().length > 3000 ? h('div', { key: 'warn', style: { marginTop: '3px', color: C.amber } }, '草稿超过 3000 字符，建议精简后再增强。') : null]
               : [h('strong', { key: 'method', style: { color: C.teal } }, enhancementPlan.tooShort ? '输入过短，直接使用原文' : enhancementPlan.label ? `拟采用：${enhancementPlan.label}` : '拟采用：轻量整理'), h('div', { key: 'reason', style: { marginTop: '3px' } }, enhancementPlan.reason), referencedFiles.length ? h('div', { key: 'files', style: { marginTop: '3px', color: C.teal } }, `保留 @ 文件引用：${referencedFiles.map(path => `@${path}`).join('、')}`) : null, enhancementPlan.signals?.length ? h('div', { key: 'signals', style: { marginTop: '3px' } }, `识别信号：${enhancementPlan.signals.join('、')}`) : null, enhancementPlan.conflicts?.length ? h('div', { key: 'conflicts', style: { marginTop: '3px', color: C.amber } }, `方法冲突：${enhancementPlan.conflicts.map(item => `${item.label || item.title}（命中“${item.signals.join('、')}”）`).join('；')}，采用「${enhancementPlan.label || enhancementPlan.method}」。`) : null, h('div', { key: 'size', style: { marginTop: '3px', color: C.muted } }, `预计 ${enhancementPlan.prompt.length} 字符。`)]
               : '当前输入框为空，请先写下原始请求。'
+        // 增强强度档位（仅语义档）：低=润色 / 中=标准（默认）/ 高=充分展开。
+        const strengthNode = enhancementKind === 'semantic' ? h('div', { key: 'strength', style: { marginTop: '7px', display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' } }, [
+          h('span', { key: 'label', style: { color: C.muted, fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' } }, [h(Icon, { key: 'ic', name: 'gauge', size: 12 }), '强度']),
+          ...[['low', '低 · 润色'], ['mid', '中 · 标准'], ['high', '高 · 展开']].map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => setEnhanceStrength(id), style: { border: `1px solid ${enhanceStrength === id ? C.tealLineActive : C.tealLine}`, borderRadius: '999px', background: enhanceStrength === id ? C.tealTintDeep : C.surface, color: enhanceStrength === id ? C.teal : C.slate, cursor: 'pointer', padding: '3px 8px', fontSize: '10px', fontWeight: 800 } }, enhanceStrength === id ? [h(Icon, { key: 'ck', name: 'check', size: 11, style: { marginRight: '2px' } }), label] : label)),
+        ]) : null
+        // 发送前自动增强开关：仅在宿主注入 onSubmitDraft 时展示（否则没有可靠发送通道）。
+        const autoEnhanceNode = onSubmitDraft && enhancer ? h('label', { key: 'auto-enhance', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '8px', padding: '8px 10px', border: `1px solid ${autoEnhanceEnabled ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: autoEnhanceEnabled ? C.tealTint : C.surface, cursor: 'pointer', fontSize: '11px', color: C.slate } }, [
+          h('span', { key: 'text' }, [h('strong', { key: 't', style: { color: autoEnhanceEnabled ? C.teal : C.slate } }, '发送前自动增强'), h('div', { key: 'd', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, autoEnhanceEnabled ? '普通 Enter 发送前先改写草稿；失败自动发原文，不阻塞。' : '开启后按普通 Enter 时先增强再发送；Shift+Enter 换行不受影响。')]),
+          h('input', { key: 'cb', type: 'checkbox', checked: autoEnhanceEnabled, onChange: event => setAutoEnhanceEnabled(event.target.checked), style: { accentColor: C.teal, cursor: 'pointer', flexShrink: 0 } }),
+        ]) : null
         const stepperSteps = [['选方式', '轻量或语义档'], ['加要求', '补充要求、对话或记忆'], ['看预览', '对比改前与改后']]
         const stepperStep = !draft.trim() ? 1 : (!requirement.trim() && !useConversationContext && !useMemoryContext) ? 2 : 3
         const stepperNode = h('div', { key: 'stepper', style: { display: 'flex', gap: '8px', marginTop: '12px' } }, stepperSteps.map((label, i) => { const n = i + 1; const done = n < stepperStep; const active = n === stepperStep; return h('div', { key: label, style: { display: 'flex', alignItems: 'center', gap: '6px', flex: 1 } }, [h('span', { key: 'num', style: { width: '18px', height: '18px', flexShrink: 0, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 800, background: done || active ? C.teal : 'transparent', border: `1px solid ${done || active ? C.teal : C.tealLine}`, color: done || active ? C.surface : C.muted } }, n), h('span', { key: 'lbl', style: { fontSize: '11px', fontWeight: active ? 800 : 600, color: active ? C.teal : done ? C.slate : C.muted, whiteSpace: 'nowrap' } }, label), i < 2 ? h('span', { key: 'ln', style: { flex: 1, height: '1px', minWidth: '8px', background: done ? C.teal : C.divide } }, null) : null]) }))
@@ -2533,13 +2784,33 @@ window.__ModuleLoader__.load({
         const enhancerKindSection = h('div', { key: 'enhancer-kind-section', style: { marginTop: '10px' } }, [h('div', { key: 'kind', style: { display: 'grid', gridTemplateColumns: `repeat(${enhancementKinds.length},minmax(0,1fr))`, gap: '6px' } }, enhancementKinds.map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => setEnhancementKind(id), style: { padding: '7px', border: `1px solid ${enhancementKind === id ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: enhancementKind === id ? C.tealTintDeep : C.surface, color: enhancementKind === id ? C.teal : C.slate, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, label))), h('div', { key: 'description', style: { marginTop: '7px', color: C.slate, fontSize: '12px', lineHeight: 1.5 } }, enhancementKind === 'semantic' ? `模型会改写草稿${useConversationContext ? '，并引用已选对话' : ''}${useMemoryContext ? '，并检索项目记忆' : ''}。` : useMemoryContext ? '项目记忆已准备，但轻量档不会读取；切换到语义档后可预览并注入。' : '本地保守增强，最多采用一种合适方法，不产生额外模型调用。')])
         const memorySourceLabels = sources => sources?.length ? h('div', { style: { marginTop: '6px', display: 'grid', gap: '3px', color: C.muted } }, sources.map((source, index) => h('div', { key: `${source.kind}:${index}` }, `来源：${source.label}`))) : null
         const assetContextNode = assetContextIds.length ? h('div', { style: { marginTop: '9px', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', lineHeight: 1.45 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } }, [h('strong', { key: 'title', style: { color: C.teal } }, `思考卡上下文（${assetContextIds.length}/3）`), h('button', { key: 'clear', onClick: () => setAssetContextIds([]), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '10px' } }, '清除')]), h('div', { key: 'items', style: { marginTop: '4px', color: C.slate } }, vaultItems.filter(item => assetContextIds.includes(item.id)).map(item => `• ${item.title}（${epistemicLabel[item.epistemicStatus] || '推断'}）`).join('\n')), h('div', { key: 'hint', style: { marginTop: '4px', color: C.muted } }, '仅在“语义 · 模型”增强时注入；发送前可随时移除。')]) : null
-        const enhancerPanel = h('details', { key: 'enhancer', open: true, style: { marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [h('summary', { key: 'title', style: { fontSize: '13px', color: C.ink, cursor: 'pointer', fontWeight: 800, display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [h('span', { key: 't' }, '决策摘要'), h('span', { key: 'hint', style: { fontSize: '11px', color: C.muted, fontWeight: 600 } }, mode === 'enhance' && draft.trim() ? (enhancementKind === 'light' ? (enhancementPlan.tooShort ? '直接采用原文' : `拟采用：${enhancementPlan.label || '轻量整理'}`) : '语义档 · 待模型改写') : '')]), useMemoryContext && enhancementKind === 'semantic' ? h('div', { key: 'memory-preview', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [h('strong', { key: 'label', style: { color: C.teal } }, '项目记忆预览'), h('button', { key: 'preview', className: 'pk-btn', disabled: memoryPreview.status === 'loading' || draft.trim().length < 8, onClick: () => loadMemory(draft).catch(() => {}), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, memoryPreview.status === 'loading' ? '检索中…' : '检索')]), memoryPreview.status === 'ready' ? h('div', { key: 'text', style: { marginTop: '6px', whiteSpace: 'pre-wrap' } }, [memoryPreview.text, memorySourceLabels(memoryPreview.sources)]) : memoryPreview.status === 'empty' ? h('div', { key: 'empty', style: { marginTop: '6px', color: C.muted } }, '未命中可用项目记忆。') : memoryPreview.status === 'error' ? h('div', { key: 'error', style: { marginTop: '6px', color: C.red } }, memoryPreview.text) : h('div', { key: 'hint', style: { marginTop: '6px', color: C.muted } }, draft.trim().length < 8 ? '草稿至少 8 个字符后可检索。' : '先预览命中的摘要，再决定是否交给模型。')]) : null, memoryReceipt ? h('div', { key: 'memory-receipt', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${memoryReceipt.used ? C.tealLine : C.amberLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, memoryReceipt.used ? [h('div', { key: 'text' }, `本次已注入项目记忆摘要：${memoryReceipt.text}`), memorySourceLabels(memoryReceipt.sources)] : '本次未注入项目记忆：未命中可用摘要。') : null, enhancementKind === 'light' ? h('div', { key: 'summary', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [methodSummaryNode, diffPreview, costNode, signalsNode]) : h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode)])
+        // ── 流式增强预览：阶段提示 + 分段上屏 + 用时 ──
+        const streamPanel = streamState ? h('div', { key: 'stream-panel', role: 'status', 'aria-live': 'polite', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, fontSize: '11px', lineHeight: 1.5 } }, [
+          h('div', { key: 'phase', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: C.teal, fontWeight: 800 } }, [
+            h('span', null, streamState.phase === 'waiting' ? '等待模型响应…' : streamState.phase === 'streaming' ? '正在输出优化稿…' : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`),
+            loading ? h('button', { key: 'cancel', onClick: cancelEnhance, style: { border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '取消') : null,
+          ]),
+          streamState.segments.length ? h('div', { key: 'segments', style: { marginTop: '6px', display: 'grid', gap: '6px', maxHeight: '180px', overflowY: 'auto' } }, streamState.segments.map((segment, index) => h('div', { key: index, style: { padding: '6px 8px', borderRadius: '6px', background: C.surfaceAlt, color: C.slate, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, segment))) : null,
+        ]) : null
+        // ── 五维诊断展示（哲学启发式量表）：概念清晰/隐含前提/可证伪性/可行动性/语境契合 ──
+        // 标签与 host 的 DIAGNOSIS_LABELS 保持同一键序；流式期间诊断行先于正文到达，
+        // enhanceDiagnosis 增量填充时诊断卡先亮起来，用户先看到「体检结果」再看改写。
+        const DIAGNOSIS_LABELS = { concept_clarity: '概念清晰', hidden_premise: '隐含前提', falsifiability: '可证伪性', actionability: '可行动性', context_fit: '语境契合' }
+        const diagnosisNode = enhanceDiagnosis ? h('details', { key: 'diagnosis', open: true, style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', lineHeight: 1.5 } }, [h('summary', { key: 'sum', style: { color: C.teal, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'gauge', size: 12 }), '五维诊断', matchedMethod ? h('span', { key: 'hint', style: { color: C.muted, fontWeight: 600 } }, ` · ${matchedMethod.title} 侧重`) : null]), h('div', { key: 'rows', style: { marginTop: '6px', display: 'grid', gap: '3px' } }, Object.entries(DIAGNOSIS_LABELS).map(([key, label]) => h('div', { key, style: { color: C.slate } }, [h('strong', { key: 'l', style: { color: C.teal } }, `${label}：`), enhanceDiagnosis[key] || '—'])))]) : null
+        // ── 技能引用修复：改写丢失 /xxx 时提示可一键补回 ──
+        const skillRestoreNode = skillRestore ? h('div', { key: 'skill-restore', role: 'status', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.amberLine}`, borderRadius: '8px', background: C.amberTint, fontSize: '11px', lineHeight: 1.5, display: 'flex', alignItems: 'center', gap: '8px' } }, [
+          h(Icon, { key: 'ic', name: 'shield', size: 13, style: { color: C.amber, flexShrink: 0 } }),
+          h('span', { key: 'text', style: { flex: 1, color: C.slate } }, `改写丢失了技能引用：${skillRestore.lost.join('、')}`),
+          h('button', { key: 'fix', onClick: () => { composer?.write(skillRestore.restored); setUndoDraft(prev => prev ? { ...prev, after: skillRestore.restored } : prev); setSkillRestore(null); setNotice('已把丢失的技能引用补回草稿末尾。') }, style: { border: 0, borderRadius: '7px', background: C.amber, color: '#fff', padding: '5px 10px', cursor: 'pointer', fontSize: '11px', fontWeight: 800, flexShrink: 0 } }, '补回'),
+          h('button', { key: 'dismiss', onClick: () => setSkillRestore(null), style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px', flexShrink: 0 } }, '忽略'),
+        ]) : null
+        const enhancerPanel = h('details', { key: 'enhancer', open: true, style: { marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [h('summary', { key: 'title', style: { fontSize: '13px', color: C.ink, cursor: 'pointer', fontWeight: 800, display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [h('span', { key: 't' }, '决策摘要'), h('span', { key: 'hint', style: { fontSize: '11px', color: C.muted, fontWeight: 600 } }, mode === 'enhance' && draft.trim() ? (enhancementKind === 'light' ? (enhancementPlan.tooShort ? '直接采用原文' : `拟采用：${enhancementPlan.label || '轻量整理'}`) : '语义档 · 待模型改写') : '')]), useMemoryContext && enhancementKind === 'semantic' ? h('div', { key: 'memory-preview', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [h('strong', { key: 'label', style: { color: C.teal } }, '项目记忆预览'), h('button', { key: 'preview', className: 'pk-btn', disabled: memoryPreview.status === 'loading' || draft.trim().length < 8, onClick: () => loadMemory(draft).catch(() => {}), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, memoryPreview.status === 'loading' ? '检索中…' : '检索')]), memoryPreview.status === 'ready' ? h('div', { key: 'text', style: { marginTop: '6px', whiteSpace: 'pre-wrap' } }, [memoryPreview.text, memorySourceLabels(memoryPreview.sources)]) : memoryPreview.status === 'empty' ? h('div', { key: 'empty', style: { marginTop: '6px', color: C.muted } }, '未命中可用项目记忆。') : memoryPreview.status === 'error' ? h('div', { key: 'error', style: { marginTop: '6px', color: C.red } }, memoryPreview.text) : h('div', { key: 'hint', style: { marginTop: '6px', color: C.muted } }, draft.trim().length < 8 ? '草稿至少 8 个字符后可检索。' : '先预览命中的摘要，再决定是否交给模型。')]) : null, memoryReceipt ? h('div', { key: 'memory-receipt', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${memoryReceipt.used ? C.tealLine : C.amberLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, memoryReceipt.used ? [h('div', { key: 'text' }, `本次已注入项目记忆摘要：${memoryReceipt.text}`), memorySourceLabels(memoryReceipt.sources)] : '本次未注入项目记忆：未命中可用摘要。') : null, enhancementKind === 'light' ? h('div', { key: 'summary', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [methodSummaryNode, diffPreview, costNode, signalsNode]) : h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode), enhancementKind === 'semantic' ? streamPanel : null, diagnosisNode, skillRestoreNode])
         const vw = viewport?.width || (typeof window !== 'undefined' ? window.innerWidth : 1024)
         const wide = vw >= 620
         const panelW = Math.min(wide ? 640 : 440, vw - 32)
         const panelLeft = floatingPanelLeft(position.x, vw, panelW)
         const panelOffset = panelLeft - position.x
-        const enhanceBody = h('div', { key: 'enhance-body', style: { display: 'grid', gridTemplateColumns: wide ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)', gap: '10px', alignItems: 'start', animation: 'pk-fade .2s ease' } }, [h('div', { key: 'config', style: { minWidth: 0 } }, [enhancerKindSection, draftStatusNode, requirementNode, contextLevelNode, contextNode, assetContextNode]), h('div', { key: 'preview', style: { minWidth: 0 } }, [enhancerPanel])])
+        const enhanceBody = h('div', { key: 'enhance-body', style: { display: 'grid', gridTemplateColumns: wide ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)', gap: '10px', alignItems: 'start', animation: 'pk-fade .2s ease' } }, [h('div', { key: 'config', style: { minWidth: 0 } }, [enhancerKindSection, draftStatusNode, requirementNode, contextLevelNode, contextNode, assetContextNode, strengthNode, autoEnhanceNode]), h('div', { key: 'preview', style: { minWidth: 0 } }, [enhancerPanel])])
         // 方法收集进度（助推③）：本地计数的唯一真源为 methodUsage，此处仅派生展示数据，
         // 不额外写存储。usedIds 去重后用于「已用 N / 总数」进度，助长收集动量。
         const usageSum = Object.values(methodUsage || {}).reduce((sum, n) => sum + Number(n || 0), 0)
@@ -2683,7 +2954,26 @@ window.__ModuleLoader__.load({
               vaultOpen ? vaultPanel : null,
             ]) : null
         const slashMenu = slashOpen ? h('div', { key: 'slash-menu', role: 'listbox', style: { position: 'fixed', right: '76px', bottom: '86px', width: 'min(360px, calc(100vw - 32px))', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20004 } }, [h('div', { key: 'label', style: { padding: '4px 6px 7px', color: C.muted, fontSize: '11px' } }, `灵感库 · /pk ${vaultSearch} · ↑↓ 选择，Enter 插入`), ...(slashMatches.length ? slashMatches.map((item, index) => h('button', { key: item.id, role: 'option', 'aria-selected': index === slashActiveIndex, onClick: () => useVaultItem(item, 'replace'), style: { width: '100%', padding: '8px', border: 0, borderRadius: '7px', background: index === slashActiveIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer' } }, [h('strong', { key: 'title', style: { fontSize: '12px' } }, item.title), h('div', { key: 'meta', style: { marginTop: '2px', color: C.muted, fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, item.tags?.length ? `#${item.tags.join(' #')}` : item.type)])) : [h('div', { key: 'empty', style: { padding: '10px 6px', color: C.muted, fontSize: '11px' } }, '未找到匹配灵感；继续输入关键词或按 Esc。')])]) : null
-        return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
+        // ── @ 文件引用菜单：输入 @ 触发，↑↓ 导航，Enter/点击插入 ──
+        const fileMenuNode = fileMenu ? h('div', { key: 'file-menu', role: 'listbox', 'aria-label': '文件引用补全', style: { position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: '86px', width: 'min(400px, calc(100vw - 32px))', maxHeight: '260px', overflowY: 'auto', padding: '6px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20004 } }, [
+          h('div', { key: 'label', style: { padding: '3px 6px 7px', color: C.muted, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' } }, [h(Icon, { key: 'ic', name: 'file', size: 12 }), `文件引用 · @${fileMenu.query || '…'} · ↑↓ 选择，Enter 插入`]),
+          fileMenu.status === 'loading' ? h('div', { key: 'loading', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '正在检索工作区文件…') : null,
+          fileMenu.status === 'empty' ? h('div', { key: 'empty', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '未匹配到文件；继续输入路径关键词，或按 Esc 关闭。') : null,
+          ...fileMenu.files.map((path, index) => h('button', { key: path, role: 'option', 'aria-selected': index === fileMenu.activeIndex, onMouseEnter: () => setFileMenu(menu => menu ? { ...menu, activeIndex: index } : menu), onClick: () => insertFileMention(path), style: { width: '100%', padding: '7px 8px', border: 0, borderRadius: '7px', background: index === fileMenu.activeIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer', fontSize: '11px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, `@${path}`)),
+        ]) : null
+        // ── 模板变量补值面板：Vault 条目含 {{var}} 时弹出，确认后才写入草稿 ──
+        const variableFillNode = variableFill ? h('div', { key: 'variable-fill', role: 'dialog', 'aria-label': '填写模板变量', onClick: event => { if (event.target === event.currentTarget) setVariableFill(null) }, style: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 20005, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh', animation: 'pk-fade .15s ease' } }, h('div', { style: { width: 'min(400px, calc(100vw - 40px))', maxHeight: '70vh', overflowY: 'auto', padding: '14px', borderRadius: '12px', background: C.surface, border: `1px solid ${C.tealLine}`, boxShadow: C.shadowLg, display: 'grid', gap: '8px' } }, [
+          h('strong', { key: 'title', style: { fontSize: '13px' } }, `填写「${variableFill.item.title}」的变量`),
+          ...templateVariables(variableFill.item.body).map(name => h('label', { key: name, style: { display: 'grid', gap: '3px', fontSize: '11px', color: C.slate } }, [
+            `{{${name}}}`,
+            h('textarea', { value: variableFill.values[name] || '', onChange: event => setVariableFill(state => ({ ...state, values: { ...state.values, [name]: event.target.value } })), placeholder: `填入 ${name}（留空则保留占位符）`, style: { ...workbenchStyle.input, minHeight: '44px', resize: 'vertical', fontSize: '11px' } }),
+          ])),
+          h('div', { key: 'actions', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' } }, [
+            h('button', { key: 'cancel', onClick: () => setVariableFill(null), style: { ...workbenchStyle.action } }, '取消'),
+            h('button', { key: 'ok', onClick: () => { const payload = variableFill; setVariableFill(null); void applyVaultItem(payload.item, payload.mode, payload.current, payload.slashInvocation, payload.values) }, style: { ...workbenchStyle.actionPrimary } }, '填入消息框'),
+          ]),
+        ])) : null
+        return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, fileMenuNode, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
       }
 
 
@@ -2692,6 +2982,7 @@ window.__ModuleLoader__.load({
       // 职责：把 PromptStudio / QuickEnhancer 以 DSH 插槽形式注册，并用默认 adapter 装配。
       //
       // 语义增强经 node 半区复用当前会话的模型路由；浏览器端不保存 API Key 或模型配置。
+      // 语义增强默认走 SSE 流式路由；路由 404（旧 host）时自动降级为非流式 JSON 路由。
 
       const promptkitMethodProvider = new StaticMethodProvider()
       const promptkitAssetProvider = new StaticAssetProvider()
@@ -2717,17 +3008,29 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // @ 文件引用补全：经 node 半区的 workspace-files 路由检索工作区文件。
+      // 返回 null 表示服务不可用（旧 host 未注册路由），UI 据此隐藏文件菜单入口。
+      async function promptkitSearchFiles(query) {
+        const url = new URL('/dsh-promptkit/workspace-files', window.location.origin)
+        url.searchParams.set('q', query)
+        url.searchParams.set('limit', '20')
+        const response = await fetch(url).catch(() => null)
+        if (!response || !response.ok) return null
+        const body = await response.json().catch(() => ({}))
+        return Array.isArray(body.files) ? body.files : []
+      }
+
       class DshSessionEnhancer {
         constructor(getSessionId) { this.getSessionId = getSessionId; this.controller = null }
         get loading() { return !!this.controller }
-        async enhance({ draft, extra, lang, method }) {
+        async enhance({ draft, extra, lang, method, strength, hasContext }) {
           this.controller?.abort()
           this.controller = new AbortController()
           try {
             const response = await fetch(`/dsh-promptkit/semantic-enhance?session_id=${encodeURIComponent(this.getSessionId())}`, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ draft, extra, lang, method }),
+              body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose: true }),
               signal: this.controller.signal,
             })
             const body = await response.json().catch(() => ({}))
@@ -2736,6 +3039,61 @@ window.__ModuleLoader__.load({
               throw new Error(body.next_action || body.error || '基于草稿改造失败')
             }
             return body
+          } finally { this.controller = null }
+        }
+        // SSE 流式增强：onDelta 逐段回调（含诊断行）；resolve 值与 enhance() 一致。
+        // 404/501（旧 host 未注册流式路由）时抛 fallback 错误，调用方退回非流式。
+        async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = true, onDelta }) {
+          this.controller?.abort()
+          this.controller = new AbortController()
+          const signal = this.controller.signal
+          try {
+            const response = await fetch(`/dsh-promptkit/semantic-enhance/stream?session_id=${encodeURIComponent(this.getSessionId())}`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose }),
+              signal,
+            })
+            if (response.status === 404 || response.status === 501) {
+              const error = new Error('stream_unavailable')
+              error.fallback = true
+              throw error
+            }
+            if (!response.ok || !response.body) {
+              const body = await response.json().catch(() => ({}))
+              if (response.status === 504) throw Object.assign(new Error(body.next_action || '模型响应超时，请稍后重试。'), { timeout: true })
+              throw new Error(body.next_action || body.error || '流式增强不可用')
+            }
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+            let final = null
+            let errorMessage = ''
+            for (;;) {
+              const { value, done } = await reader.read()
+              if (done) break
+              buffer += decoder.decode(value, { stream: true })
+              const frames = buffer.split('\n\n')
+              buffer = frames.pop() || ''
+              for (const frame of frames) {
+                const lines = frame.split('\n')
+                const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim()
+                const dataLine = lines.find(line => line.startsWith('data:'))?.slice(5).trim()
+                if (!event || !dataLine) continue
+                const data = JSON.parse(dataLine)
+                if (event === 'delta') onDelta?.(data.text)
+                if (event === 'done') final = data
+                if (event === 'error') errorMessage = data.message || data.error || '流式增强失败'
+              }
+            }
+            if (errorMessage) throw new Error(errorMessage)
+            if (!final) throw new Error('流式增强连接中断。')
+            return final
+          } catch (error) {
+            if (error?.name === 'AbortError') throw error
+            if (error?.fallback || error?.timeout) throw error
+            // 流式链路异常（网络截断等）且尚无输出时提示可重试；调用方决定是否退回非流式。
+            throw error
           } finally { this.controller = null }
         }
         cancel() { this.controller?.abort(); this.controller = null }
@@ -2758,8 +3116,9 @@ window.__ModuleLoader__.load({
         const composer = React.useMemo(() => new DshDraftComposer(currentInput, inputActions), [currentInput, inputActions])
         const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
         const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
+        const searchFiles = React.useCallback(promptkitSearchFiles, [])
         React.useEffect(() => { composer.notify(currentInput?.draft ?? '') }, [currentInput?.draft, composer])
-        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory })
+        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory, searchFiles })
       }
 
       // 方法工坊宿主：写入新版输入机后交由 inputActions.submit() 发送。

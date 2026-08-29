@@ -13,14 +13,22 @@ export class OpenAIEnhancer extends Enhancer {
 
   get loading() { return this._abort !== null }
 
-  async enhance({ draft, extra, kind, method }) {
+  async enhance({ draft, extra, kind, method, strength, hasContext }) {
     // kind === 'light' 时建议由宿主复用 lib/utils 的 planPromptEnhancement（零 Token）；
     // 此处示例实现统一的语义改写路径。
     this._abort = new AbortController()
     try {
+      const strengthRule = strength === 'low'
+        ? '只做措辞与结构润色，篇幅接近原文，不展开内容。'
+        : strength === 'high'
+          ? '充分展开背景、步骤与验收标准，篇幅约为草稿的 3 倍。'
+          : '标准结构化整理，输出紧凑（约 1.5 倍原文）。'
+      const contextRule = hasContext
+        ? '会话上下文已提供：先提炼真实意图，再顺着草稿原有表达润色，不要重复追问上下文已给出的信息。'
+        : '只使用草稿里已有的信息，缺失关键信息用【待确认：…】标出。'
       const instruction = method?.template
-        ? `按「${method.title}」的方法结构改写以下提示词。方法模板：\n\n${method.template}`
-        : '改写以下提示词，使其更清晰、可执行。'
+        ? `按「${method.title}」的方法结构改写以下提示词。方法模板：\n\n${method.template}\n\n${strengthRule}${contextRule}`
+        : `改写以下提示词，使其更清晰、可执行。${strengthRule}${contextRule}`
       const res = await fetch(this.endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` },

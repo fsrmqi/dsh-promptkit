@@ -153,6 +153,8 @@ ${body}
     utils: {
       safeText, conversationDraft, conversationMessages, list, obj, fileMentions,
       cleanSummary, cleanContext, cleanConversationText, selectedConversationDraft,
+      templateVariables, fillTemplateVariables, skillMentions, restoreLostSkillMentions,
+      splitOutputSegments, shouldInterceptSend, parseEnhanceOutput, DIAGNOSIS_DIMENSIONS,
       methodChoice, detectLanguage, TEMPLATE_LABELS,
       buildSignatures, lightTemplate, classify, planPromptEnhancement, recommendMethods,
     },
