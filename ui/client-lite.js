@@ -3688,7 +3688,8 @@ window.__ModuleLoader__.load({
         cancel() { this.controller?.abort(); this.controller = null }
       }
 
-      // 桥接新版 DSH 会话输入框：InputState 由 useInput Hook 提供。
+      // 桥接 DSH 输入框：inputActions 由槽位体系注入（InputActions.setDraft / submit）。
+      // getDraft 读构造时传入的 draft 快照（新契约）或 useInput 订阅值（旧契约）。
       class DshDraftComposer {
         constructor(input, inputActions) { this.input = input; this.inputActions = inputActions; this.listeners = new Set() }
         getDraft() { return this.input?.draft ?? '' }
@@ -3697,16 +3698,26 @@ window.__ModuleLoader__.load({
         notify(draft) { for (const cb of this.listeners) cb(draft) }
       }
 
-      // 快捷助手宿主：新版 DSH 的 useInput 是草稿真源，useChat 提供键控对话快照。
-      function PromptkitQuickActionHost({ sessionId, useInput, useChat, inputActions }) {
-        const currentInput = useInput(value => value)
-        const chatSnapshot = useChat(value => value)
+      // 快捷助手宿主：适配两代 DSH 槽位契约。
+      //   0.1.2-alpha（InputZone）：props = { sessionId, session, input, useInput, inputActions }，
+      //     其中 session 是 ConversationSnapshot（含 nodes/order），input 是 InputState（含 draft）；
+      //     props 属点时快照，骨架重渲染自动带来最新值，无需订阅。
+      //   0.1.0-rc（旧）：props = { sessionId, useInput, useChat, inputActions }，经 hooks 订阅。
+      function PromptkitQuickActionHost(props) {
+        const { sessionId, session, input, useInput, useChat, inputActions } = props
+        // 草稿真源：新契约直接读 zone.input.draft；旧契约用 useInput hook 订阅。
+        const zonedDraft = input?.draft
+        const hookedInput = useInput ? useInput(value => value) : undefined
+        const draft = zonedDraft !== undefined ? zonedDraft : hookedInput?.draft
+        // 对话快照：新契约取 session（点时快照）；旧契约用 useChat hook 订阅。
+        const hookedChat = useChat ? useChat(value => value) : undefined
+        const chatSnapshot = session !== undefined ? session : hookedChat
         const messages = React.useMemo(() => conversationMessages(chatSnapshot), [chatSnapshot])
-        const composer = React.useMemo(() => new DshDraftComposer(currentInput, inputActions), [currentInput, inputActions])
+        const composer = React.useMemo(() => new DshDraftComposer({ draft }, inputActions), [draft, inputActions])
         const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
         const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
         const searchFiles = React.useCallback(promptkitSearchFiles, [])
-        React.useEffect(() => { composer.notify(currentInput?.draft ?? '') }, [currentInput?.draft, composer])
+        React.useEffect(() => { composer.notify(draft ?? '') }, [draft, composer])
         return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory, searchFiles })
       }
 

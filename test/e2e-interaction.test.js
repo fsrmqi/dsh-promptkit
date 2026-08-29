@@ -254,6 +254,37 @@ test('e2e：DSH 插槽挂载 —— 从键控 useChat 快照读取对话并注�
   assert.ok(rendered.includes('pk-fab'), '对话注入后应正常渲染')
 })
 
+test('e2e：DSH 0.1.2-alpha InputZone 契约 —— zone={session,input} 点时快照路径', () => {
+  const { plugin } = loadStandaloneE2E()
+  let quickActionHost
+  plugin.apply({
+    slots: {
+      inject: (name, callback) => {
+        if (name === 'conversation.input.right') quickActionHost = callback()
+        return () => {}
+      },
+      register: (entry, Component) => ({ entry, Component }),
+    },
+    sessions: { binding: () => null },
+  })
+  const session = {
+    sessionId: 'e2e-zone-1',
+    order: ['u1'],
+    nodes: new Map([
+      ['u1', { kind: 'user', content: [{ type: 'text', text: '请评审这段接口设计' }] }],
+    ]),
+  }
+  const element = React.createElement(quickActionHost.Component, {
+    sessionId: 'e2e-zone-1',
+    // 新契约：InputZone 点时快照（不经 hook 订阅）
+    session,
+    input: { draft: 'zone 草稿' },
+    inputActions: { setDraft: () => {} },
+  })
+  const rendered = renderToStaticMarkup(element)
+  assert.ok(rendered.includes('pk-fab'), 'InputZone 契约下应正常渲染')
+})
+
 test('e2e：浮动位置无持久化记录时使用屏幕右下默认值兜底', () => {
   const { plugin } = loadStandaloneE2E()
   let quickActionHost

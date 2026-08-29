@@ -187,12 +187,13 @@ export async function streamEnhanceWithCurrentSessionModel({ llm, route, session
     model: route.model,
     system,
     messages: [{ role: 'user', content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'dsh-promptkit' } }],
-    maxTokens: Math.max(1200, Math.min(Math.round(source.length * STRENGTH_BUDGET[normalizedStrength] * 2), 6000)),
+    // maxTokens 覆盖「思考 + 正文」：思考型模型（如 deepseek-v4 系）的推理会消耗同一预算，
+    // 上限给足以免思考吃光额度后正文为空（真机实测 1200 token 全被思考吃掉）。
+    maxTokens: Math.max(4000, Math.min(Math.round(source.length * STRENGTH_BUDGET[normalizedStrength] * 2 + 2000), 8000)),
     sessionId,
     purpose: 'dsh-promptkit-semantic-enhance',
-    // 关闭思考：结构化改写不需要推理，且思考会耗尽 maxTokens 导致正文为空
-    // （真机冒烟实测：思考型模型默认 thinking 开启，26s 内无任何正文输出）。
-    reasoningEffort: 'off',
+    // 注意：不要硬编码 reasoningEffort —— 部分模型/网关未声明支持 "off" 时会直接
+    // 拒绝请求（UNSUPPORTED_REASONING_EFFORT）；思考开销由上面的 maxTokens 预算兜底。
     ...(signal ? { signal } : {}),
   })) {
     if (chunk.type === 'text-delta') {
@@ -204,7 +205,9 @@ export async function streamEnhanceWithCurrentSessionModel({ llm, route, session
       onDelta?.(chunk.block.text)
     }
   }
-  if (!output.trim()) throw new Error('语义增强模型未返回文本。')
+  if (!output.trim()) {
+    throw new Error('语义增强模型未返回文本（模型可能只输出了思考内容）；请重试或改用非思考型模型。')
+  }
   const parsed = parseEnhanceOutput(output)
   return { ...parsed, model: route.model }
 }
@@ -255,7 +258,8 @@ function withRequestGuards(req, res, handler) {
   const sessionId = parseSession(req)
   if (!sessionId) { reply(res, 400, { error: 'session_id_required' }); return Promise.resolve() }
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 30_000)
+  // 90s：思考型模型（deepseek-v4 系）推理可占 30s+，30s 会把正常请求掐死在思考阶段。
+  const timeout = setTimeout(() => controller.abort(), 90_000)
   // 客户端断开检测必须挂在 res 上：Node ≥26 在 POST body 读完即触发 req 'close'，
   // 挂 req 会把每个正常请求都立刻 abort，进而被 catch 误报为「模型响应超时」。
   // res 'close' 在连接提前断开（客户端取消）时才会触发。
