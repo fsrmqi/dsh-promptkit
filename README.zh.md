@@ -8,258 +8,130 @@
 
 [English](README.md) · [简体中文](README.zh.md)
 
-> npm 包名 / 仓库名：**`dsh-promptkit`**
+> 把一段粗糙的草稿变成结构化、可直接执行的提示词——一键完成，就在 DeepSeek Harness 里。
 
-面向 DeepSeek Harness 与其他 React 宿主的开源 Prompt 增强工具。
-
-- **`QuickEnhancer`（对话快捷增强器）**：可悬浮或内嵌，用于轻量/语义草稿增强、方法建议与方法库操作。
-- **`PromptStudio`（方法工坊）**：高级手动工作台，用问题 / 事实 / 约束生成可编辑 Prompt；内置 21 个完整 Markdown 方法。
-- **灵感库（PromptKit Vault）**：在快捷增强器中本地保存当前草稿、选中片段和方法工坊成品；支持标签搜索、收藏、填充/追加/复制及 JSON 备份恢复。
-
-轻量增强完全本地、零 Token；独立 DSH 插件的语义增强复用当前会话模型且只回填草稿。两档都不会自动发送消息。
-
-## 安装
-
-### 方式一：npm（推荐，免编译权限）
+<!-- TODO: 录制 GIF 后替换：写草稿 → 一键增强 → 流式上屏 + 五维诊断，8 秒内 -->
+<!-- ![enhance-demo](docs/images/enhance-demo.gif) -->
 
 ```bash
 dsh plugin --profile web add dsh-promptkit
 ```
 
-### 方式二：GitHub（可钉 commit 实现可复现安装）
+装完即可用。写一段草稿，点 **✦ 增强**，得到一份结构化提示词——流式出现在预览面板，绝不自动发送。无需 API Key、无需配置：直接复用当前会话的模型。
+
+## 为什么是 PromptKit
+
+**✦ 一键增强，带诊断。** 改写之前，插件先从五个维度审视你的草稿（概念清晰 · 隐含前提 · 可证伪性 · 可行动性 · 语境契合）并给出结论。改写由诊断驱动——未定义的术语被显式定义，假设被标记，模糊要求变成可验证的验收表述。
+
+**🎯 21 个思考方法，自动匹配。** 内置完整的 Markdown 方法库（苏格拉底式提问、第一性原理、双向钢人论证、最小实验……）。增强器根据草稿的信号词自动选择——或在方法工坊里浏览全部方法。
+
+**📚 会闭环的灵感库。** 诊断发现（隐含前提、不可证伪要求）可存为「待验证」假设卡。之后补充证据完成验证；已验证的卡在后续增强中作为上下文注入。你的提示词质量会复利增长。
+
+**🔌 零配置、零遥测、零 Token 可选。** 语义增强复用会话模型；本地轻量模式完全离线可用。不主动触发就没有任何请求离开你的机器。
+
+**兼容性：** 同时支持 DSH `0.1.2-alpha.1+` 与旧版 `0.1.0-rc` 槽位契约，自动适配——两个版本的真实实例均已验证。
+
+<details>
+<summary><strong>更多能力</strong>（点击展开）</summary>
+
+- **PromptStudio（方法工坊）** — 高级工作台：浏览 21 个方法，填写事实/约束，发送前生成并预览结构化提示词。
+- **灵感库（Vault）** — 草稿与成品 Prompt 的本地库：搜索、收藏、项目分组、带版本对比的派生、JSON 备份恢复。
+- **流式输出** — 增强结果逐段流式进入预览面板，带用时徽章与取消按钮。
+- **强度三档** — 低（润色）/ 中（标准）/ 高（约 3 倍展开）篇幅预算。
+- **发送前自动增强** — 可选；拦截普通 Enter，任何失败自动回退发送原文，绝不阻塞发送。
+- **技能引用保留** — 改写丢失 `/tdd` 类技能记号时自动检测，一键补回。
+- **`@file` 补全** — 输入 `@` 检索工作区文件（只读文件名，不读内容）。
+- **`/pk` 快速插入** — 输入 `/pk 关键词` 弹出紧凑灵感候选菜单（方向键 + Enter），绝不抢占 DSH 原生命令。
+- **私有方法** — 粘贴 Obsidian 风格 Markdown 提示词卡；仅存本地，可导出 JSON。
+- **模板变量** — 灵感条目的 `{{name}}` 占位符在插入前弹出补值面板。
+
+</details>
+
+## 增强闭环
+
+```
+写一段粗糙草稿
+      │
+      ▼
+✦ 增强 ──► 五维诊断 ──► 模型改写（流式）
+      │                       │
+      │                       ▼
+      │              发现自动暂存到「知识区」
+      │                       │
+      │              你来决定：存为假设卡
+      │                       │
+      └────► 已验证的卡反哺后续增强 ◄┘
+```
+
+## 安装
+
+**npm（推荐）**
 
 ```bash
-# 最新版
-dsh plugin --profile web add github:fsrmqi/dsh-promptkit
+dsh plugin --profile web add dsh-promptkit
+```
 
-# 钉 commit（推荐生产环境）
+**GitHub（钉 commit，可复现安装）**
+
+```bash
 dsh plugin --profile web add github:fsrmqi/dsh-promptkit#<commit-sha>
 ```
 
-> **注意**：pnpm ≥ 10 安装 GitHub 依赖时会拒绝运行 `prepare` 脚本，需在 profile 的 `pnpm-workspace.yaml` 中 allowlist：
-> ```yaml
-> allowBuilds:
->   dsh-promptkit: true
-> ```
-> 本仓库已将构建产物（`ui/client.js`、`ui/embed.js`）提交到 Git，Git 安装可直接使用无需构建；allowlist 仅在新增 `prepare` 脚本时需要。
+> 构建产物已提交 Git——GitHub 安装开箱即用，无需本地构建。
 
-### 方式三：tarball（离线 / 审计场景）
+**tarball（离线 / 审计）**
 
 ```bash
-npm pack                    # 产出 dsh-promptkit-0.1.0.tgz
-dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
+npm pack && dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
 ```
 
-### 作为 npm 库使用
+安装后刷新浏览器：输入框旁出现 **✦ 增强**，会话页顶部出现「高级方法工坊」标签。
 
-```bash
-npm install dsh-promptkit
-```
+## 界面模式
 
-## 设计原则：单一代码源，双消费
+插件默认**极简模式**：草稿 → 增强 → 结果，屏幕上没有别的。成功增强 3 次后自动解锁完整界面（方法库、灵感库、统计、强度档位）。也可在 **设置 → 界面模式** 手动锁定。
 
-PromptKit 核心 **零依赖任何宿主**。它只定义三个解耦接口，开源版本提供默认实现，宿主可按契约自行替换：
+## 作为 npm 库使用
 
-| 接口 | 职责 | 开源默认实现 |
+核心零宿主依赖。四个解耦接口，宿主按契约替换实现：
+
+| 接口 | 职责 | 默认实现 |
 | --- | --- | --- |
-| `MethodProvider` | 方法源 / 组合 / 模板 / 收藏 / 同步历史 | `StaticMethodProvider`（内置 21 法 + 本地私有方法，localStorage 持久化，`storagePrefix` 可配） |
-| `Composer` | 写入目标输入框 | `TextareaComposer`（任意 textarea，含输入订阅） |
-| `Enhancer` | 语义增强的模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） |
-| `AssetProvider` | 灵感资产的保存、搜索、收藏与备份 | `StaticAssetProvider`（localStorage 持久化，`storagePrefix` 可配） |
-
-这样 **npm 库形态和宿主嵌入形态，共用同一份核心代码**——差别只在注入什么 adapter，绝不分叉成两份维护。PromptKit 对宿主零感知（Embed Protocol，见下文）。
-
-## 组件 Props
-
-两个组件的可选能力一律「未注入即隐藏对应 UI」：
-
-### `<PromptStudio />`
-
-| Prop | 必填 | 说明 |
-| --- | --- | --- |
-| `methodProvider` | ✅ | `MethodProvider` 实例 |
-| `messages` | | 当前对话 `[{ id, role: 'user'\|'assistant', text }]`，供「从当前对话提取」 |
-| `onSend` | | `(text) => Promise`，预览区出现「发送到当前会话」按钮 |
-| `composer` | | `Composer` 实例，预览区出现「写入输入框」按钮（另有始终可用的「复制 Prompt」） |
-| `getRecentSessions` | | `() => Promise<Array<{ intent?, summary? }>>`，显示「追加最近会话摘要」区块 |
-| `searchMemory` | | `(query) => Promise<string>`，显示「按自然语言搜索项目记忆」区块 |
-
-### `<QuickEnhancer />`
-
-| Prop | 必填 | 说明 |
-| --- | --- | --- |
-| `methodProvider` | ✅ | `MethodProvider` 实例 |
-| `composer` | ✅ | `Composer` 实例；生成 / 增强 / 撤销全部经它读写草稿 |
-| `enhancer` | | `Enhancer` 实例；未注入时仅保留「轻量 · 零 Token」档位 |
-| `messages` | | 当前对话数组，供「加对话」参考与消息选择 |
-| `searchMemory` | | `(query) => Promise<string>`，提供「加项目记忆」上下文档位 |
-| `assetProvider` | | `AssetProvider` 实例；启用本地灵感库、快速收藏与右侧管理抽屉 |
-
-## 用法
+| `MethodProvider` | 方法源 / 组装 / 模板 / 历史 | `StaticMethodProvider`（21 内置 + 私有方法） |
+| `Composer` | 读写目标输入框 | `TextareaComposer` |
+| `Enhancer` | 语义模型调用 | `OpenAIEnhancer`（任意 OpenAI 兼容端点） |
+| `AssetProvider` | 灵感库保存 / 搜索 / 备份 | `StaticAssetProvider` |
 
 ```js
-import {
-  PromptStudio, QuickEnhancer,
-  StaticMethodProvider, StaticAssetProvider, TextareaComposer, OpenAIEnhancer,
-} from 'dsh-promptkit'
+import { PromptStudio, QuickEnhancer, StaticMethodProvider, StaticAssetProvider, TextareaComposer } from 'dsh-promptkit'
 
 const methodProvider = new StaticMethodProvider()
 const assetProvider = new StaticAssetProvider()
 const composer = new TextareaComposer(document.querySelector('textarea'))
 
-<PromptStudio methodProvider={methodProvider} assetProvider={assetProvider} composer={composer} />
-<QuickEnhancer
-  methodProvider={methodProvider}
-  assetProvider={assetProvider}
-  composer={composer}
-  enhancer={new OpenAIEnhancer({ endpoint, apiKey, model })}
-  messages={messages}
-/>
+<QuickEnhancer methodProvider={methodProvider} assetProvider={assetProvider} composer={composer} messages={messages} />
 ```
 
-### 运行示例
+未注入的能力对应 UI 自动隐藏——完整 props 契约见 [docs/EMBED.md](docs/EMBED.md)。
 
-```bash
-cd promptkit
-python3 -m http.server 8080
-# 浏览器打开 http://localhost:8080/examples/basic/
-```
+## 嵌入其他宿主（Embed Protocol v1）
 
-示例页面用 importmap 直连 `src/`（React 走 esm.sh CDN），无需构建步骤。
+任何 React 宿主都可以通过标准产物 `ui/embed.js` 组合 PromptKit 组件：IIFE 只暴露 `PromptKit` 命名空间，`pk-*` 视觉命名空间与宿主主题隔离。契约由测试锁定。详见 **[docs/EMBED.md](docs/EMBED.md)**。
 
-## 目录结构
+## 隐私
 
-```
-dsh-promptkit/
-├── src/
-│   ├── core/        # 三接口定义（MethodProvider / Composer / Enhancer）
-│   ├── lib/         # 通用纯函数（utils.js：分类链 / planPromptEnhancement / conversationMessages / ...）
-│   ├── methods/     # 开源方法库（builtin.js → 动态加载 builtin.json，21 个 Markdown 方法）
-│   ├── adapters/    # 默认实现（StaticMethodProvider / TextareaComposer / OpenAIEnhancer）
-│   ├── ui/          # 组件（foundation.js 基础设施 + studio.js + quick-enhancer.js）
-│   └── index.js     # 公共入口（npm 库形态）
-├── methods/         # 21 个 Markdown 方法库（带 frontmatter + 完整 prompt 正文）
-│   ├── builtin.json # 构建产物（scripts/build-methods.mjs 从 Markdown 解析生成，勿手改）
-│   ├── 决策/        # 双向钢人论证、用最小实验替代空想
-│   ├── 学习/        # 事实核查、双层解释法、反向拆解、横纵分析法、论文深度拆解
-│   ├── 解决问题/    # 专家会诊、第一性原理、跨领域借解
-│   ├── 认识你自己/  # 人生设计术、挖掘隐藏天赋
-│   ├── 问清问题/    # 苏格拉底式提问
-│   ├── 技术开发/    # 技术方案设计、代码评审、接口文档生成
-│   └── 数据分析/    # 数据分析与验证
-├── dsh/             # 独立 DSH 插件 glue（standalone-glue.js：插槽注册 + 默认 adapter 装配）
-├── scripts/         # build-methods.mjs（md → builtin.json）+ build-client.mjs（零依赖浏览器端构建器：standalone + embed 两产物）
-├── ui/client.js     # 生成的独立 DSH 浏览器视图（勿手改，npm run build:ui 产出）
-├── ui/embed.js      # 生成的标准嵌入产物（Embed Protocol v1，勿手改，供其他插件消费）
-├── docs/EMBED.md    # 嵌入协议标准（宿主接入指南）
-├── test/            # embed 契约测试（最小宿主环境执行 ui/embed.js，锁定协议面）
-├── examples/basic/  # 零构建可运行 demo（importmap + esm.sh）
-├── LICENSE          # MIT
-└── package.json     # 包与 DSH bundle manifest
-```
-
-## DSH 插件架构
-
-`ui/` 子包声明浏览器端 `dsh.client` manifest，DSH Web App 的 ModuleLoader 自动发现并加载 `ui/client.js`：
-
-- **内置 21 个 Markdown 方法**（`StaticMethodProvider`，全本地、零后端，prompt 正文随包内联）；
-- **快捷助手**挂在 `conversation.input.right`；**方法工坊**挂在 `conversation.view`，标签为「高级方法工坊」；
-- 「写入消息框」桥接 DSH 会话输入框（`conversation.input.right` 注入的 `inputActions`），「发送到当前会话」走 DSH 会话 API；
-- **语义增强**（模型改写草稿）：复用当前 DSH 会话已经选定的模型路由，由插件 Node 半区调用 Harness 的 LLM 服务；无需填写 API Key 或 endpoint，结果仅回填输入框、不自动发送。当前会话尚未建立模型路由时，先正常发送一次消息即可。
-- **上下文 adapter**：`@文件` 引用会被保留但不会由 PromptKit 读取文件内容；项目记忆由可选 `searchMemory` adapter 提供。
-- **灵感库**：默认动作是「收藏当前草稿」，完整搜索、项目筛选、派生与备份位于右侧抽屉；资产仅保存在浏览器 localStorage。
-- **快捷调用**：使用 `/pk 关键词` 或 `/pk:关键词` 打开灵感候选，`↑↓` 选择、Enter 插入、Esc 关闭。只处理 `/pk` 命名空间，绝不抢占 DSH 的原生命令。
-
-构建产物 `ui/client.js` 为单文件 lazy-CJS 工厂（`window.__ModuleLoader__.load`），由 `scripts/build-client.mjs` 从 `src/` 剥离 ESM 语法拼接生成——**组件代码只有一份源码**，npm 库形态与 DSH 插件形态共用。
-
-## 嵌入其他插件（Embed Protocol v1）
-
-任何 Web 应用或插件宿主都可以组合 dsh-promptkit 的方法工坊与对话增强器，**dsh-promptkit 对宿主零感知**：
-
-- 标准产物 `ui/embed.js`：IIFE 私有化全部内部符号，仅暴露 `PromptKit` 命名空间（组件 / 方法源 / 基类 / utils），唯一前提是宿主闭包提供 `React`；
-- 视觉命名空间 `pk-*` 独立于宿主主题，多个宿主实例同装互不覆盖；
-- 宿主自持集成脚本与 adapter（方法源 / 草稿读写 / 模型调用），按 props 契约装配组件；
-- 契约有测试锁定（`test/embed.test.js`，7 项），协议面只增不改。
-
-完整契约与接入步骤见 **[docs/EMBED.md](docs/EMBED.md)**。
-
-## 宿主对接（写哪些 adapter）
-
-以任意宿主为例，经 `PromptKit` 命名空间接入同一份核心：
-
-```js
-// 拼接 ui/embed.js 后，宿主闭包内可用 PromptKit（详见 docs/EMBED.md）
-
-// 1) 方法源：直接用内置 21 方法（storagePrefix 隔离不同宿主的数据）
-const methodProvider = new PromptKit.StaticMethodProvider({ storagePrefix: 'my-host.' })
-//    或继承基类桥接宿主自己的方法源：
-//    class HostMethodProvider extends PromptKit.MethodProvider { async list() { ... } }
-
-// 2) 写入目标：桥接宿主的消息输入框
-class HostComposer extends PromptKit.Composer {
-  getDraft() { return /* 读取宿主输入框当前草稿 */ }
-  write(text) { /* 写入宿主输入框 */ }
-  onChange(cb) { return /* 订阅草稿变化，返回取消订阅函数 */ }
-}
-
-// 3) 模型调用（可选）：桥接宿主后端或直连 OpenAI 兼容端点
-class HostEnhancer extends PromptKit.Enhancer {
-  async enhance({ draft, extra, lang, kind, method }) { /* 宿主模型调用 */ }
-  cancel() { /* 透传 AbortController */ }
-}
-
-// 4) 对话上下文：宿主会话快照 → messages 数组
-const messages = PromptKit.utils.conversationMessages(/* 宿主会话数据 */)
-```
-
-### 方法库来源
-
-21 个 Markdown 方法（带 frontmatter 元数据：场景、用途、标签、触发词、可选强触发词）。`prompt` 字段提取正文「## Prompt」代码块作为干净模板（剥离文章叙述；无代码块时回退为完整正文）。用户填入问题/事实/约束后，以「本次任务输入」结构块追加在模板之后生成最终 Prompt——模板中的【…】占位符原样保留作为方法对模型的填写指令，不做正则替换；组合时会在末尾追加一句提示语，向模型声明【…】是填写指示符而非字面占位，实际内容以「本次任务输入」为准。
-
-新增方法：在 `methods/` 下新建 Markdown 文件（frontmatter 格式同现有），然后 `npm run build:methods` 重新生成 `methods/builtin.json`（`scripts/build-methods.mjs` 解析 frontmatter + 正文；`mode`/`outcome` 在脚本内 `OVERRIDES` 表维护），再 `npm run build:ui` 把新方法内联到 `ui/client.js`。直接 `npm run build` 一条命令完成全部三步。
-
-### 我的私有方法
-
-在快捷增强器的「高级设置」中，可直接粘贴一张 Obsidian 风格 Markdown Prompt 卡片。它会从 frontmatter / 标题 / `## Prompt` 代码块提取方法并仅保存在当前浏览器的 localStorage；不会读取、扫描或上传 Obsidian 笔记库。私有方法可导出为 JSON，并以追加方式恢复备份；它们会和 21 个开源方法一起参与搜索与自动匹配，但不会写入仓库或发布包。
-
-### 灵感库与快捷调用
-
-高频路径是「收藏当前草稿 → 下次 `/pk 关键词` 调用 → 插入后再编辑」。收藏会立即落到本地灵感库；需要管理资产时再打开右侧抽屉。资产可编辑标题、标签、项目和正文；「派生」会创建关联父版本的新资产，并可在抽屉内查看正文对比。`/pk` 是 PromptKit 专用命名空间，例如 `/pk 接口评审` 或 `/pk:接口评审`，不会影响 DSH 的 `/ces` 等原生命令。候选菜单中使用 `↑↓` 选择、Enter 插入到草稿、Esc 取消；插入不会自动发送消息。
-
-灵感资产也可以是一张“思考卡”：用「问题、目标、事实、假设、决策、方法、结论、行动、辩证卡」描述它是什么；以「已证实、推断、待核实、个人偏好」说明认识状态；再补充“为什么重要”和“下一步行动”。辩证卡可保存观点、反观点与当前综合；资产可显式关联，抽屉中的“关系”视图会展示父版本与关联资产。
-
-需要让思考卡影响模型时，在灵感库中选中最多 3 张「用于增强」。快捷增强器会列出待注入卡片和认识状态；只有用户选择「语义 · 模型」后才把它们组成可见上下文包注入。保存结果时会记录本次使用的思考卡来源。
-
-待核实的假设可记录验证状态（待验证、已证实、已被推翻、暂无结论）、证据和验证时间。语义增强会明确看到这些状态，尤其不会把已被推翻的前提当作事实。
-
-## 权限与隐私
-
-| 访问项 | 用途 | 可关闭 |
+| 访问 | 用途 | 可关闭 |
 | --- | --- | --- |
-| `window.localStorage` | 收藏、同步方法历史、私有方法、灵感资产和可选本地使用信号 | 清除 localStorage 即清空，无服务端持久化 |
-| 目标输入框（Composer） | 「写入输入框」按钮把生成的 Prompt 填入当前草稿 | 不点按钮不触发 |
-| 当前会话（onSend） | 「发送到当前会话」按钮把 Prompt 作为消息发出 | 不点按钮不触发 |
-| `fetch` | 用户点击语义增强时调用本地插件桥接；Node 半区复用当前会话模型 | 不点击则不发起请求 |
+| `localStorage` | 灵感库、收藏、历史、可选的本地使用信号 | 清除 localStorage；无服务端存储 |
+| 目标输入框 | 把生成的提示词填入草稿 | 仅点击时触发 |
+| `fetch` | 仅语义增强走本地插件桥 | 不触发就没有请求 |
 
-**零遥测**：本插件不会向第三方发送分析或使用数据。本地用法计数和反馈在启用或记录后仅保存于 localStorage，可在 UI 中清除。
+**零遥测。** 不向第三方发送任何数据；使用信号（默认关闭）永远留在浏览器内。
 
-## 支持环境与兼容性
+## 参与贡献
 
-| 环境 | 要求 |
-| --- | --- |
-| DeepSeek Harness | Developer Preview（`@deepseek-ai/dsh` 0.1.2-alpha.1 及以上；不再支持旧 rc 版） |
-| Node.js | ≥ 18（构建脚本使用 `node --test`） |
-| 浏览器 | Chrome 90+ / Firefox 88+ / Safari 14+（需支持 ES Modules + `AbortController`） |
-| React | ≥ 17（peer dependency，宿主环境需提供） |
+欢迎 Issue 与 PR——见 [CONTRIBUTING.md](CONTRIBUTING.md)。新增思考方法只需在 `methods/` 下放一个 Markdown 文件（frontmatter + `## Prompt` 块）并运行 `npm run build`。
 
-> **兼容性声明**（2026-08-28）：DeepSeek Harness 处于 Developer Preview 阶段，接口可能不兼容变更。本插件面向 `@deepseek-ai/dsh` 0.1.2-alpha.1+ 的 `useInput` / `useChat` 客户端契约，并基于 `dsh.client` manifest（`platform: "web"`）和 `conversation.view` / `conversation.input.right` 插槽开发。
-
-## 贡献
-
-欢迎提交 Issue 和 PR。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-新增思考方法只需在 `methods/` 下新建 Markdown 文件，然后 `npm run build` 重新生成——详见 [方法库来源](#方法库来源) 章节。
-
-## License
+## 许可证
 
 MIT

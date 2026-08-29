@@ -31,6 +31,11 @@ function setupDom() {
   return dom
 }
 
+// 预置完整模式：灵感库入口等深度功能只在完整模式渲染，回归测试聚焦完整路径。
+function presetFullMode(W, prefix) {
+  try { W.localStorage.setItem(`${prefix}quick-action.display-mode.v1`, 'full') } catch {}
+}
+
 function loadEmbed(W) {
   const embedSrc = readFileSync(resolve(ROOT, 'ui/embed.js'), 'utf8')
   return (new Function('React', 'document', 'window', 'console', `${embedSrc}\nreturn PromptKit`))(React, W.document, W, console)
@@ -69,6 +74,7 @@ function interceptAtBody(W, on) {
 const tick = (ms = 60) => new Promise(r => setTimeout(r, ms))
 
 async function mountKit(W, PromptKit, providers) {
+  presetFullMode(W, 'vault-close-test.')
   const container = W.document.createElement('div')
   container.className = 'test-root'
   W.document.body.appendChild(container)
@@ -268,6 +274,7 @@ test('灵感库关闭：抽屉内「引用已选对话」后点 ×，主面板�
   container.className = 'test-root'
   W.document.body.appendChild(container)
   const root = createRoot(container)
+  presetFullMode(W, 'vault-close-test.')
   root.render(React.createElement(PromptKit.QuickEnhancer, {
     methodProvider: providers.methodProvider,
     assetProvider: providers.assetProvider,

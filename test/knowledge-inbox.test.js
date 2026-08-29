@@ -88,6 +88,8 @@ function stubEnhancer() {
 const tick = (ms = 60) => new Promise(r => setTimeout(r, ms))
 
 async function mountKit(W, PromptKit, providers, enhancer) {
+  // 知识区入口在完整模式渲染；测试聚焦完整路径
+  try { W.localStorage.setItem('knowledge-test.quick-action.display-mode.v1', 'full') } catch {}
   const container = W.document.createElement('div')
   container.className = 'test-root'
   W.document.body.appendChild(container)

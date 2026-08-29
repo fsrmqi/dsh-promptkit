@@ -8,248 +8,129 @@
 
 [English](README.md) · [简体中文](README.zh.md)
 
-> npm package / repo name: **`dsh-promptkit`**
+> Turn a rough draft into a structured, executable prompt — in one click, inside DeepSeek Harness.
 
-An open-source prompt enhancement toolkit for DeepSeek Harness and other React hosts.
-
-- **`QuickEnhancer`** — A floatable or inline component for lightweight or semantic draft enhancement, method suggestions, and method-library actions.
-- **`PromptStudio`** — The advanced manual workspace for browsing methods and composing a structured prompt. It ships with 21 complete Markdown methods (frontmatter metadata + full prompt body).
-- **PromptKit Vault** — A local library for saving drafts, snippets, and finished prompts; it supports search, favorites, project grouping, derivation, and JSON backup.
-
-Lightweight enhancement is local and zero-token. In the standalone DSH plugin, semantic enhancement reuses the current session model and writes back to the draft; neither mode sends a message automatically.
-
-## Installation
-
-### Option 1: npm (recommended, no build permission needed)
+<!-- TODO: 录制 GIF 后替换：写草稿 → 一键增强 → 流式上屏 + 五维诊断，8 秒内 -->
+<!-- ![enhance-demo](docs/images/enhance-demo.gif) -->
 
 ```bash
 dsh plugin --profile web add dsh-promptkit
 ```
 
-### Option 2: GitHub (pin a commit for reproducible installs)
+That's it. Write a draft, hit **✦ Enhance**, get a structured prompt back — streaming into a preview panel, never auto-sent. No API key, no config: it reuses the model of your current session.
+
+## Why PromptKit
+
+**✦ One-click enhancement with diagnosis.** Before rewriting, the plugin examines your draft on five dimensions (clarity · hidden premises · falsifiability · actionability · context fit) and shows the verdict. The rewrite is driven by the diagnosis — undefined terms get defined, assumptions get flagged, vague requirements become testable ones.
+
+**🎯 21 thinking methods, matched automatically.** A built-in library of complete Markdown methods (Socratic questioning, first principles, steel-man, minimal experiments…). The enhancer picks one based on your draft's signal words — or browse the full library in the Method Studio.
+
+**📚 A vault that closes the loop.** Diagnosis findings (hidden premises, unfalsifiable requirements) can be saved as "to-verify" assumption cards. Verify them later; checked-in cards feed future enhancements as context. Your prompt quality compounds.
+
+**🔌 Zero-config, zero-telemetry, zero-token option.** Semantic enhancement rides your session's model. A local, zero-token lightweight mode works fully offline. Nothing leaves your machine unless you trigger it.
+
+**Compatibility:** works on DSH `0.1.2-alpha.1+` **and** adapts automatically to the older `0.1.0-rc` slot contracts — verified on real instances of both.
+
+<details>
+<summary><strong>More capabilities</strong> (click to expand)</summary>
+
+- **PromptStudio** — the advanced workspace: browse 21 methods, fill in facts/constraints, compose and preview a structured prompt before sending.
+- **PromptKit Vault** — local library for drafts and finished prompts: search, favorites, project grouping, derivation with version diff, JSON backup/restore.
+- **Streaming output** — enhancement results stream segment-by-segment into a preview panel with elapsed-time badge and cancel button.
+- **Strength levels** — low (polish) / mid (standard) / high (expand ~3x) length budgets.
+- **Auto-enhance before send** — optional; intercepts plain Enter, falls back to the original draft on any failure, never blocks a send.
+- **Skill-mention preservation** — `/tdd`-style skill tokens lost in rewriting are detected and restored with one click.
+- **`@file` completion** — type `@` to search workspace files (read-only name listing; content untouched).
+- **`/pk` quick insert** — type `/pk keywords` for a compact vault candidate menu (arrow keys + Enter), never touching DSH-native commands.
+- **Private methods** — paste Obsidian-style Markdown prompt cards; stored locally only, exportable as JSON.
+- **Template variables** — `{{name}}` placeholders in vault items prompt a fill-in panel before insertion.
+
+</details>
+
+## The enhancement loop
+
+```
+write a rough draft
+      │
+      ▼
+✦ Enhance ──► five-dimension diagnosis ──► model rewrite (streaming)
+      │                                            │
+      │                                            ▼
+      │                            findings auto-staged in the Knowledge tab
+      │                                            │
+      │                              you decide: save as assumption card
+      │                                            │
+      └──────────────► verified cards feed future enhancements ◄┘
+```
+
+## Installation
+
+**npm (recommended)**
 
 ```bash
-# latest
-dsh plugin --profile web add github:fsrmqi/dsh-promptkit
+dsh plugin --profile web add dsh-promptkit
+```
 
-# pinned commit (recommended for production)
+**GitHub (pin a commit for reproducible installs)**
+
+```bash
 dsh plugin --profile web add github:fsrmqi/dsh-promptkit#<commit-sha>
 ```
 
-> **Note**: pnpm ≥ 10 refuses to run `prepare` scripts for GitHub dependencies by default. You need to allowlist it in the profile's `pnpm-workspace.yaml`:
-> ```yaml
-> allowBuilds:
->   dsh-promptkit: true
-> ```
-> Build artifacts (`ui/client.js`, `ui/embed.js`) are already committed to Git, so Git installs work out of the box without building. The allowlist is only needed if a `prepare` script is added later.
+> Build artifacts are committed to Git — GitHub installs work out of the box without building.
 
-### Option 3: tarball (offline / audit scenarios)
+**tarball (offline / audit)**
 
 ```bash
-npm pack                    # produces dsh-promptkit-0.1.0.tgz
-dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
+npm pack && dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
 ```
 
-### As an npm library
+After installing, refresh the browser. You'll find **✦ Enhance** beside the composer and **Advanced Method Studio** as a conversation tab.
 
-```bash
-npm install dsh-promptkit
-```
+## Interface modes
 
-## Design Principle: Single Source, Dual Consumption
+The plugin ships in a **simple mode** by default: draft → enhance → result, nothing else on screen. After 3 successful enhancements it automatically unlocks the full interface (method library, vault, statistics, strength levels). You can lock either mode in **Settings → Interface mode**.
 
-PromptKit's core **depends on zero hosts**. It defines three decoupled interfaces; the open-source version provides default implementations, and hosts can swap them via the contract:
+## Using it as an npm library
 
-| Interface | Responsibility | Open-source Default |
+The core depends on zero hosts. Four decoupled interfaces; hosts swap implementations via the contract:
+
+| Interface | Responsibility | Default |
 | --- | --- | --- |
-| `MethodProvider` | Method source / composition / template / favorites / synchronized history | `StaticMethodProvider` (21 built-in methods + local private methods, localStorage persistence, configurable `storagePrefix`) |
-| `Composer` | Write to a target input box | `TextareaComposer` (any textarea, with input subscription) |
-| `Enhancer` | Semantic model call for enhancement | `OpenAIEnhancer` (any OpenAI-compatible endpoint) |
-| `AssetProvider` | Save, search, favorite, and back up inspiration assets | `StaticAssetProvider` (localStorage persistence, configurable `storagePrefix`) |
-
-This way, **the npm library form and the host-embedded form share the exact same core code** — the only difference is which adapter you inject. No forked maintenance. PromptKit is host-agnostic (Embed Protocol, see below).
-
-## Component Props
-
-Both components hide UI for capabilities that are not injected:
-
-### `<PromptStudio />`
-
-| Prop | Required | Description |
-| --- | --- | --- |
-| `methodProvider` | ✅ | `MethodProvider` instance |
-| `messages` | | Current conversation `[{ id, role: 'user'\|'assistant', text }]`, for "extract from current conversation" |
-| `onSend` | | `(text) => Promise`, shows a "Send to current session" button in the preview |
-| `composer` | | `Composer` instance, shows a "Write to input box" button in the preview ("Copy Prompt" is always available) |
-| `getRecentSessions` | | `() => Promise<Array<{ intent?, summary? }>>`, shows an "Append recent session summary" block |
-| `searchMemory` | | `(query) => Promise<string>`, shows a "Search project memory by natural language" block |
-| `assetProvider` | | `AssetProvider` instance, enabling Vault saves from generated prompts |
-
-### `<QuickEnhancer />`
-
-| Prop | Required | Description |
-| --- | --- | --- |
-| `methodProvider` | ✅ | `MethodProvider` instance |
-| `composer` | ✅ | `Composer` instance; all generate / enhance / undo operations read/write drafts through it |
-| `enhancer` | | `Enhancer` instance; when not injected, only the "Lightweight · Zero Token" tier remains |
-| `messages` | | Current conversation array, for "add conversation" reference and message selection |
-| `searchMemory` | | `(query) => Promise<string>`, provides the optional "add project memory" context slot |
-| `assetProvider` | | `AssetProvider` instance; enables quick capture and the Vault drawer |
-
-## Usage
+| `MethodProvider` | Method source / composition / templates / history | `StaticMethodProvider` (21 built-ins + private methods) |
+| `Composer` | Read/write a target input box | `TextareaComposer` |
+| `Enhancer` | Semantic model call | `OpenAIEnhancer` (any OpenAI-compatible endpoint) |
+| `AssetProvider` | Vault save / search / backup | `StaticAssetProvider` |
 
 ```js
-import {
-  PromptStudio, QuickEnhancer,
-  StaticMethodProvider, StaticAssetProvider, TextareaComposer, OpenAIEnhancer,
-} from 'dsh-promptkit'
+import { PromptStudio, QuickEnhancer, StaticMethodProvider, StaticAssetProvider, TextareaComposer } from 'dsh-promptkit'
 
 const methodProvider = new StaticMethodProvider()
 const assetProvider = new StaticAssetProvider()
 const composer = new TextareaComposer(document.querySelector('textarea'))
 
-<PromptStudio methodProvider={methodProvider} assetProvider={assetProvider} composer={composer} />
-<QuickEnhancer
-  methodProvider={methodProvider}
-  assetProvider={assetProvider}
-  composer={composer}
-  enhancer={new OpenAIEnhancer({ endpoint, apiKey, model })}
-  messages={messages}
-/>
+<QuickEnhancer methodProvider={methodProvider} assetProvider={assetProvider} composer={composer} messages={messages} />
 ```
 
-### Running the example
+Components hide UI for capabilities that are not injected — see the full props contract in [docs/EMBED.md](docs/EMBED.md).
 
-```bash
-cd promptkit
-python3 -m http.server 8080
-# Open http://localhost:8080/examples/basic/ in browser
-```
+## Embedding in other hosts (Embed Protocol v1)
 
-The example page uses importmap to load `src/` directly (React via esm.sh CDN), no build step required.
+Any React host can compose PromptKit's components via the standard artifact `ui/embed.js`: an IIFE that only exposes the `PromptKit` namespace, with the `pk-*` visual namespace isolated from host themes. Contract locked by tests. See **[docs/EMBED.md](docs/EMBED.md)**.
 
-## Directory Structure
+## Privacy
 
-```
-dsh-promptkit/
-├── src/
-│   ├── core/        # Three interface definitions (MethodProvider / Composer / Enhancer)
-│   ├── lib/         # Pure utility functions (utils.js: category chain / planPromptEnhancement / conversationMessages / ...)
-│   ├── methods/     # Open method library (builtin.js → dynamically loads builtin.json, 21 Markdown methods)
-│   ├── adapters/    # Default implementations (StaticMethodProvider / TextareaComposer / OpenAIEnhancer)
-│   ├── ui/          # Components (foundation.js infrastructure + studio.js + quick-enhancer.js)
-│   └── index.js     # Public entry point (npm library form)
-├── methods/         # 21 Markdown method library (with frontmatter + full prompt body)
-│   ├── builtin.json # Build artifact (scripts/build-methods.mjs parses Markdown → json, do not edit by hand)
-│   ├── 决策/        # Steel-man / Devil's advocate, Replace speculation with minimal experiments
-│   ├── 学习/        # Fact check, Double-layer explanation, Reverse decomposition, Horizontal-vertical analysis, Paper deep-dive
-│   ├── 解决问题/    # Expert panel, First principles, Cross-domain borrowing
-│   ├── 认识你自己/  # Life design, Uncover hidden talents
-│   ├── 问清问题/    # Socratic questioning
-│   ├── 技术开发/    # Technical design, Code review, API doc generation
-│   └── 数据分析/    # Data analysis & verification
-├── dsh/             # Standalone DSH plugin glue (standalone-glue.js: slot registration + default adapter wiring)
-├── scripts/         # build-methods.mjs (md → builtin.json) + build-client.mjs (zero-dependency browser builder: standalone + embed)
-├── ui/client.js     # Generated standalone DSH browser view (do not edit, produced by npm run build:ui)
-├── ui/embed.js      # Generated standard embed artifact (Embed Protocol v1, do not edit, consumed by other plugins)
-├── docs/EMBED.md    # Embed protocol standard (host integration guide)
-├── test/            # Embed contract tests (run ui/embed.js in minimal host vm, lock protocol surface)
-├── examples/basic/  # Zero-build runnable demo (importmap + esm.sh)
-├── LICENSE          # MIT
-└── package.json     # Package and DSH bundle manifest
-```
-
-## DSH Plugin Architecture
-
-The `ui/` subpackage declares the browser-side `dsh.client` manifest. DSH Web App's ModuleLoader discovers and loads `ui/client.js`:
-
-- **21 built-in Markdown methods** (`StaticMethodProvider`, fully local, zero backend, prompt bodies inlined with the package);
-- **QuickEnhancer** mounts on `conversation.input.right`; **PromptStudio** mounts on `conversation.view` as “Advanced Method Studio”;
-- "Write to message box" bridges DSH conversation input (`inputActions` injected by `conversation.input.right`), "Send to current session" goes through DSH session API;
-- **Semantic enhancement** (model rewrites draft): reuses the current DSH session's selected model route through the plugin's Node half and Harness LLM service. It requires no API key or endpoint, only fills the input box, and asks the user to send one normal message first if the session has not established a model route yet.
-- **Context adapters**: `@file` references are preserved without reading file content; project memory is optional and uses a host-provided `searchMemory` adapter.
-- **Vault**: quick capture saves the current draft locally; search, project grouping, derivation, and backup live in a separate right-side drawer.
-- **Quick invocation**: `/pk query` or `/pk:query` opens a compact Vault candidate list. Use arrow keys to select, Enter to insert, and Esc to dismiss. Only the `/pk` namespace is intercepted, so DSH-native slash commands remain untouched.
-
-The build artifact `ui/client.js` is a single-file lazy-CJS factory (`window.__ModuleLoader__.load`), generated by `scripts/build-client.mjs` from `src/` by stripping ESM syntax — **component code has only one source**, shared between npm library form and DSH plugin form.
-
-## Embedding in Other Hosts (Embed Protocol v1)
-
-Any web app or plugin host can compose dsh-promptkit's PromptStudio and QuickEnhancer — **dsh-promptkit is host-agnostic**:
-
-- Standard artifact `ui/embed.js`: IIFE privatizes all internal symbols, only exposes the `PromptKit` namespace (components / method sources / base classes / utils). The only prerequisite is `React` in the host closure;
-- Visual namespace `pk-*` is independent from host themes, multiple host instances installed together won't override each other;
-- Hosts own their integration scripts and adapters (method source / draft read-write / model calls), assembling components via props contract;
-- Contract is locked by tests (`test/embed.test.js`, 7 cases), protocol surface only grows, never breaks.
-
-Full contract and integration steps see **[docs/EMBED.md](docs/EMBED.md)**.
-
-## Host Integration (Which Adapters to Write)
-
-Take any host as an example, access the same core via the `PromptKit` namespace:
-
-```js
-// After concatenating ui/embed.js, PromptKit is available in the host closure (see docs/EMBED.md)
-
-// 1) Method source: use built-in 21 methods directly (storagePrefix isolates data for different hosts)
-const methodProvider = new PromptKit.StaticMethodProvider({ storagePrefix: 'my-host.' })
-//    Or extend the base class to bridge host's own method source:
-//    class HostMethodProvider extends PromptKit.MethodProvider { async list() { ... } }
-
-// 2) Write target: bridge host's message input box
-class HostComposer extends PromptKit.Composer {
-  getDraft() { return /* read current draft from host input box */ }
-  write(text) { /* write to host input box */ }
-  onChange(cb) { return /* subscribe to draft changes, return unsubscribe function */ }
-}
-
-// 3) Model call (optional): bridge host backend or connect directly to OpenAI-compatible endpoint
-class HostEnhancer extends PromptKit.Enhancer {
-  async enhance({ draft, extra, lang, kind, method }) { /* host model call */ }
-  cancel() { /* pass through AbortController */ }
-}
-
-// 4) Conversation context: host session snapshot → messages array
-const messages = PromptKit.utils.conversationMessages(/* host session data */)
-```
-
-### Method Library Source
-
-21 Markdown methods (with frontmatter metadata: scenario, purpose, tags, trigger words, and optional strong trigger words). The `prompt` field extracts the `## Prompt` code block from the body as a clean template (strips article narration; falls back to full body when no code block). After user fills in problem/facts/constraints, a "Current task input" structured block is appended after the template to form the final prompt — placeholders like 【…】 in the template are preserved as instructions for the model to fill in, no regex substitution.
-
-To add a new method: create a new Markdown file under `methods/` (same frontmatter format as existing ones), then `npm run build:methods` to regenerate `methods/builtin.json` (`scripts/build-methods.mjs` parses frontmatter + body; `mode`/`outcome` maintained in the `OVERRIDES` table inside the script), then `npm run build:ui` to inline the new method into `ui/client.js`. `npm run build` does all three steps in one command.
-
-### Personal methods
-
-The QuickEnhancer “Advanced settings” panel accepts pasted Obsidian-style Markdown prompt cards. It extracts frontmatter, the title, and the `## Prompt` code block, then stores the resulting private method only in the current browser's localStorage. It never scans, reads, or uploads an Obsidian vault. Private methods can be exported as JSON and restored by appending a backup; they participate in search and automatic matching but are never added to the public repository or package.
-
-## Permissions & Privacy
-
-| Access | Purpose | Can Disable |
+| Access | Purpose | Can disable |
 | --- | --- | --- |
-| `window.localStorage` | Favorites, synchronized method history, private methods, and optional local-only usage signals | Clear localStorage to wipe, no server-side persistence |
-| Target input box (Composer) | "Write to input box" button fills generated prompt into current draft | Only triggers when clicked |
-| Current session (onSend) | "Send to current session" button sends prompt as a message | Only triggers when clicked |
-| `fetch` | Calls the local plugin bridge only when the user selects semantic enhancement; the Node half reuses the current session model | No request until selected |
+| `localStorage` | Vault, favorites, history, optional local-only usage signals | Clear localStorage; no server persistence |
+| Target input box | Fills generated prompt into your draft | Only on click |
+| `fetch` | Local plugin bridge for semantic enhancement only | No request until triggered |
 
-**Zero telemetry**: This package sends no analytics or usage data to third parties. Local usage counts and feedback, when enabled or recorded, stay in localStorage and can be cleared in the UI.
-
-## Supported Environments & Compatibility
-
-| Environment | Requirement |
-| --- | --- |
-| DeepSeek Harness | Developer Preview (`@deepseek-ai/dsh` 0.1.2-alpha.1 or above; older rc releases are not supported) |
-| Node.js | ≥ 18 (build scripts use `node --test`) |
-| Browser | Chrome 90+ / Firefox 88+ / Safari 14+ (requires ES Modules + `AbortController`) |
-| React | ≥ 17 (peer dependency, provided by host environment) |
-
-> **Compatibility Note** (2026-08-28): DeepSeek Harness is in Developer Preview and may make incompatible interface changes. This plugin targets the `useInput` / `useChat` client contracts in `@deepseek-ai/dsh` 0.1.2-alpha.1+, along with the `dsh.client` manifest and `conversation.view` / `conversation.input.right` slots.
+**Zero telemetry.** Nothing is sent to third parties; usage signals (off by default) never leave the browser.
 
 ## Contributing
 
-Issues and PRs are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
-
-To add a new thinking method, just create a new Markdown file under `methods/`, then `npm run build` to regenerate — see the [Method Library Source](#method-library-source) section for details.
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). To add a thinking method, drop a Markdown file under `methods/` (frontmatter + a `## Prompt` block) and run `npm run build`.
 
 ## License
 
