@@ -69,7 +69,9 @@ function concat(files, { customStrip = {} = {} } = {}) {
   return out
 }
 
-/** embed 与 standalone 共用的模块清单（不含 glue / 不含缩进）。 */
+/** embed 与 standalone 共用的模块清单（不含 glue / 不含缩进）。
+ *  顺序即依赖顺序：构建器剥除 import 后按此序拼接，后出现的文件可以引用先出现的符号。
+ *  quick-enhancer/ 子组件必须全部排在 quick-enhancer.js（主组件）之前。 */
 const MODULES = [
   ['src/ui/foundation.js', 'dsh-promptkit foundation（C / GlobalStyle / Icon / S / workbenchStyle，pk-* 视觉命名空间）'],
   ['src/ui/promptkit-events.js', 'dsh-promptkit UI 事件与存储命名空间'],
@@ -87,7 +89,15 @@ const MODULES = [
   ['src/ui/quick-enhancer-vault-state.js', 'dsh-promptkit QuickEnhancer: Vault 状态容器'],
   ['src/ui/use-floating-launcher.js', 'dsh-promptkit QuickEnhancer: 浮动入口拖动'],
   ['src/ui/nudge-metrics.js', 'dsh-promptkit NudgeMetrics：行为助推埋点本地消费端 + 宿主级开关'],
-  ['src/ui/quick-enhancer.js', 'dsh-promptkit 组件: ConversationQuickAction（快捷助手）'],
+  // —— QuickEnhancer 子组件（use hook 最先，叶子 UI 其次，容器最后）——
+  ['src/ui/quick-enhancer/use-knowledge-inbox.js', 'QuickEnhancer 子组件: useKnowledgeInbox（知识区暂存 hook）'],
+  ['src/ui/quick-enhancer/diagnosis-section.js', 'QuickEnhancer 子组件: DiagnosisSection（五维诊断卡）'],
+  ['src/ui/quick-enhancer/knowledge-tab.js', 'QuickEnhancer 子组件: KnowledgeTab（知识区审阅列表）'],
+  ['src/ui/quick-enhancer/file-menu.js', 'QuickEnhancer 子组件: FileMenuNode / VariableFillNode（@菜单 + 变量补值）'],
+  ['src/ui/quick-enhancer/context-overlay.js', 'QuickEnhancer 子组件: ContextOverlay（对话参考弹层）'],
+  ['src/ui/quick-enhancer/vault-asset-card.js', 'QuickEnhancer 子组件: VaultAssetCard（灵感资产卡）'],
+  ['src/ui/quick-enhancer/enhance-panel.js', 'QuickEnhancer 子组件: EnhancerPanel（决策摘要/强度/自动增强/流式）'],
+  ['src/ui/quick-enhancer.js', 'dsh-promptkit 组件: ConversationQuickAction（快捷助手主组件）'],
 ]
 
 // ---------- 产物一：独立 DSH 浏览器视图 ui/client.js ----------
