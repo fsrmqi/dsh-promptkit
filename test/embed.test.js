@@ -32,7 +32,7 @@ function minimalHost() {
   const sandbox = {
     React,
     window,
-    document: { querySelector: () => null },
+    document: { compatMode: 'CSS1Compat', querySelector: () => null },
     fetch: () => Promise.reject(new Error('not called')),
     AbortController,
     CustomEvent: class { constructor(type, init = {}) { this.type = type; this.detail = init.detail } },

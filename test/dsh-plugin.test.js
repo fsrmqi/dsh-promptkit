@@ -2,6 +2,21 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { apply } from '../ui/plugin.js'
 
+test('DSH 文件路由：从宿主会话 header 解析目录，不读取浏览器指定路径', async () => {
+  const registered = []
+  const lookups = []
+  apply({ effect: fn => fn(), on: () => () => {}, llm: {},
+    sessions: { get(id) { lookups.push(id); return undefined } },
+    webServer: { register(route) { registered.push(route); return () => {} } },
+  })
+  const route = registered.find(value => value.path.endsWith('workspace-files'))
+  const res = { writeHead(status) { this.status = status }, end(text) { this.body = JSON.parse(text) } }
+  await route.handler({ method: 'GET', url: '/dsh-promptkit/workspace-files?session_id=missing&root=/etc' }, res)
+  assert.deepEqual(lookups, ['missing'])
+  assert.equal(res.status, 404)
+  assert.deepEqual(res.body.files, [])
+})
+
 test('DSH node half：会话模型路由可驱动语义增强桥接', async () => {
   const listeners = new Map()
   const registered = []

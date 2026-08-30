@@ -39,7 +39,7 @@ function loadE2E() {
   const sandbox = {
     React,
     window,
-    document: { querySelector: () => null, getElementById: () => null, createElement: () => ({ head: null }), head: null },
+    document: { compatMode: 'CSS1Compat', querySelector: () => null, getElementById: () => null, createElement: () => ({ head: null }), head: null },
     navigator: { clipboard: { writeText: async () => {} } },
     CustomEvent: class { constructor(type, init = {}) { this.type = type; this.detail = init.detail } },
     AbortController,
@@ -179,7 +179,7 @@ function loadStandaloneE2E() {
   const sandbox = {
     React,
     window,
-    document: { querySelector: () => null, getElementById: () => null, createElement: () => ({ head: null }), head: null },
+    document: { compatMode: 'CSS1Compat', querySelector: () => null, getElementById: () => null, createElement: () => ({ head: null }), head: null },
     navigator: { clipboard: { writeText: async () => {} } },
     CustomEvent: class { constructor(type, init = {}) { this.type = type; this.detail = init.detail } },
     AbortController,
