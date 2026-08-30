@@ -8,6 +8,8 @@
 
 [English](README.md) · [简体中文](README.zh.md)
 
+Repository version: **0.2.1** (local release preparation; publishing has not been performed). [Upgrade history and migration notes (Chinese)](docs/UPGRADE-HISTORY.md) · [Technical changelog](CHANGELOG.md)
+
 > Turn a rough draft into a structured, executable prompt — in one click, inside DeepSeek Harness.
 
 <!-- TODO: 录制 GIF 后替换：写草稿 → 一键增强 → 流式上屏 + 五维诊断，8 秒内 -->
@@ -17,7 +19,7 @@
 dsh plugin --profile web add dsh-promptkit
 ```
 
-That's it. Write a draft, hit **✦ Enhance**, get a structured prompt back — streaming into a preview panel, never auto-sent. No API key, no config: it reuses the model of your current session.
+Write a draft, hit **✦ Enhance**, and receive a structured prompt in the preview panel, then in the composer without sending it. PromptKit needs no separate API key: semantic enhancement reuses a model already configured in DSH. If the session has no model route, it reports that requirement. Local lightweight enhancement needs no model.
 
 ## Why PromptKit
 
@@ -27,9 +29,9 @@ That's it. Write a draft, hit **✦ Enhance**, get a structured prompt back — 
 
 **📚 A vault that closes the loop.** Diagnosis findings (hidden premises, unfalsifiable requirements) can be saved as "to-verify" assumption cards. Verify them later; checked-in cards feed future enhancements as context. Your prompt quality compounds.
 
-**🔌 Zero-config, zero-telemetry, zero-token option.** Semantic enhancement rides your session's model. A local, zero-token lightweight mode works fully offline. Nothing leaves your machine unless you trigger it.
+**🔌 Zero telemetry, with a zero-token option.** Local lightweight enhancement works offline. Semantic enhancement sends the draft and selected context to the host's configured model service. File completion and optional project-memory searches make requests when those features are used.
 
-**Compatibility:** works on DSH `0.1.2-alpha.1+` **and** adapts automatically to the older `0.1.0-rc` slot contracts — verified on real instances of both.
+**Compatibility:** verified on a real DSH `0.1.2-alpha.1` instance. The older `0.1.0-rc` slot adapter is covered by simulated contract tests; this does not establish real-instance compatibility for every older release.
 
 <details>
 <summary><strong>More capabilities</strong> (click to expand)</summary>
@@ -38,9 +40,9 @@ That's it. Write a draft, hit **✦ Enhance**, get a structured prompt back — 
 - **PromptKit Vault** — local library for drafts and finished prompts: search, favorites, project grouping, derivation with version diff, JSON backup/restore.
 - **Streaming output** — enhancement results stream segment-by-segment into a preview panel with elapsed-time badge and cancel button.
 - **Strength levels** — low (polish) / mid (standard) / high (expand ~3x) length budgets.
-- **Auto-enhance before send** — optional; intercepts plain Enter, falls back to the original draft on any failure, never blocks a send.
-- **Skill-mention preservation** — `/tdd`-style skill tokens lost in rewriting are detected and restored with one click.
-- **`@file` completion** — type `@` to search workspace files (read-only name listing; content untouched).
+- **Auto-enhance before send** — available when a custom host provides `onSubmitDraft` and `composer.isInputTarget()`. Intercepts only the composer's plain Enter; enhancement failure may send the original once, but send failure is never retried. Cancellation or a changed draft prevents sending. The standalone DSH plugin does not wire this send hook by default.
+- **Skill-mention preservation** — lost `/tdd`-style tokens are restored automatically. Dismissing the notice does not rewrite the draft again.
+- **`@file` completion** — searches the current session's workspace by file name without reading content. Entry, depth, and time limits bound indexing; incomplete results are labeled.
 - **`/pk` quick insert** — type `/pk keywords` for a compact vault candidate menu (arrow keys + Enter), never touching DSH-native commands.
 - **Private methods** — paste Obsidian-style Markdown prompt cards; stored locally only, exportable as JSON.
 - **Template variables** — `{{name}}` placeholders in vault items prompt a fill-in panel before insertion.
@@ -82,14 +84,14 @@ dsh plugin --profile web add github:fsrmqi/dsh-promptkit#<commit-sha>
 **tarball (offline / audit)**
 
 ```bash
-npm pack && dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
+npm pack && dsh plugin --profile web add ./dsh-promptkit-0.2.1.tgz
 ```
 
-After installing, refresh the browser. You'll find **✦ Enhance** beside the composer and **Advanced Method Studio** as a conversation tab.
+After installing, refresh the browser. You'll find **✦ Enhance** beside the composer and **Advanced Method Studio** as a conversation tab. Node-side changes also require the host to reload the plugin or restart DSH; refreshing the page alone may keep cached server code. Registry installs select a published version; use a tarball to test this checkout. See the [upgrade steps](docs/UPGRADE-HISTORY.md#v021).
 
 ## Interface modes
 
-The plugin ships in a **simple mode** by default: draft → enhance → result, nothing else on screen. After 3 successful enhancements it automatically unlocks the full interface (method library, vault, statistics, strength levels). You can lock either mode in **Settings → Interface mode**.
+The plugin defaults to **simple mode**, prioritizing draft → enhance → result. After 3 successful enhancements it expands the full interface (method library, vault, statistics, strength levels). You can lock either mode in **Settings → Interface mode**. Onboarding stores only progress from 0 to 3, independently of optional detailed statistics; failures and cancellations do not count.
 
 ## Using it as an npm library
 
@@ -103,7 +105,7 @@ The core depends on zero hosts. Four decoupled interfaces; hosts swap implementa
 | `AssetProvider` | Vault save / search / backup | `StaticAssetProvider` |
 
 ```js
-import { PromptStudio, QuickEnhancer, StaticMethodProvider, StaticAssetProvider, TextareaComposer } from 'dsh-promptkit'
+import { PromptStudio, QuickEnhancer, StaticMethodProvider, StaticAssetProvider, TextareaComposer } from 'dsh-promptkit/browser'
 
 const methodProvider = new StaticMethodProvider()
 const assetProvider = new StaticAssetProvider()
@@ -112,7 +114,7 @@ const composer = new TextareaComposer(document.querySelector('textarea'))
 <QuickEnhancer methodProvider={methodProvider} assetProvider={assetProvider} composer={composer} messages={messages} />
 ```
 
-Components hide UI for capabilities that are not injected — see the full props contract in [docs/EMBED.md](docs/EMBED.md).
+Missing optional capabilities are hidden or degraded. Bundlers supporting the `browser` condition can also import the root package; its default Node entry additionally exports DSH registration. Runtime requirements are Node 18+ / React 17+; source development and tests use Node 24.15+. See the [embed contract](docs/EMBED.md) and [verified upgrade combinations](docs/UPGRADE-HISTORY.md#v021).
 
 ## Embedding in other hosts (Embed Protocol v1)
 
@@ -122,11 +124,12 @@ Any React host can compose PromptKit's components via the standard artifact `ui/
 
 | Access | Purpose | Can disable |
 | --- | --- | --- |
-| `localStorage` | Vault, favorites, history, optional local-only usage signals | Clear localStorage; no server persistence |
-| Target input box | Fills generated prompt into your draft | Only on click |
-| `fetch` | Local plugin bridge for semantic enhancement only | No request until triggered |
+| `localStorage` | Vault, diagnosis inbox, favorites, history, preferences, onboarding progress, optional detailed statistics | Detailed statistics default off; back up assets before clearing browser data |
+| Target input box | Buttons or shortcuts apply results; custom hosts can explicitly wire automatic sending | Without a send hook, only the draft is changed; asynchronous writes check for newer edits |
+| Local plugin requests | Semantic bridge, file-name completion, optional project-memory search | Triggered by the corresponding feature; file search does not read content |
+| Configured model endpoint | Processes semantic drafts and selected context | Use lightweight mode to avoid model calls |
 
-**Zero telemetry.** Nothing is sent to third parties; usage signals (off by default) never leave the browser.
+**Zero telemetry.** Usage statistics are not uploaded. Semantic enhancement is not offline: the configured model service may be external, so review drafts and selected context for sensitive information. Project-memory and custom-adapter data handling depends on the host implementation.
 
 ## Contributing
 

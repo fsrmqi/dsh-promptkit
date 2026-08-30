@@ -1,12 +1,13 @@
 {
   "name": "dsh-promptkit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "开源的 Prompt 构建与增强工具包：方法工坊（Studio）+ 对话快捷增强器（QuickEnhancer）。内置 21 个 Markdown 思考方法（含技术开发/数据分析等场景卡 + frontmatter + prompt 正文），可作为 npm 库嵌入，也可直接安装为 DSH 浏览器插件。",
   "type": "module",
   "main": "src/index.js",
-  "module": "src/index.js",
+  "module": "src/browser.js",
   "exports": {
-    ".": "./src/index.js",
+    ".": { "browser": "./src/browser.js", "default": "./src/index.js" },
+    "./browser": "./src/browser.js",
     "./client": "./ui/client.js",
     "./client-lite": "./ui/client-lite.js",
     "./ui": "./ui/plugin.js",
@@ -57,7 +58,7 @@
     "react": ">=17"
   },
   "scripts": {
-    "check": "node --check src/index.js && node --check src/ui/foundation.js && node --check src/ui/studio.js && node --check src/ui/quick-enhancer-vault-state.js && node --check src/ui/use-floating-launcher.js && node --check src/ui/nudge-metrics.js && node --check src/ui/quick-enhancer.js && node --check src/lib/utils.js && node --check src/core/method-provider.js && node --check src/core/asset-provider.js && node --check src/core/composer.js && node --check src/core/enhancer.js && node --check src/methods/builtin.js && node --check src/adapters/static-method-provider.js && node --check src/adapters/static-asset-provider.js && node --check src/adapters/textarea-composer.js && node --check src/adapters/openai-enhancer.js && node --check dsh/semantic-enhance.js && node --check ui/plugin.js",
+    "check": "node scripts/check.mjs",
     "build:ui": "node scripts/build-client.mjs",
     "build:ui:lite": "node scripts/build-client.mjs --lite",
     "build": "npm run check && npm run build:methods && npm run build:ui && npm run build:ui:lite",

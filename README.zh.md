@@ -8,6 +8,8 @@
 
 [English](README.md) · [简体中文](README.zh.md)
 
+当前仓库版本：**0.2.1**（本地版本收口，尚未执行发布）。[升级记录：每版功能与注意事项](docs/UPGRADE-HISTORY.md) · [技术变更清单](CHANGELOG.md)
+
 > 把一段粗糙的草稿变成结构化、可直接执行的提示词——一键完成，就在 DeepSeek Harness 里。
 
 <!-- TODO: 录制 GIF 后替换：写草稿 → 一键增强 → 流式上屏 + 五维诊断，8 秒内 -->
@@ -17,7 +19,7 @@
 dsh plugin --profile web add dsh-promptkit
 ```
 
-装完即可用。写一段草稿，点 **✦ 增强**，得到一份结构化提示词——流式出现在预览面板，绝不自动发送。无需 API Key、无需配置：直接复用当前会话的模型。
+写一段草稿，点 **✦ 增强**，得到一份结构化提示词——流式出现在预览面板，完成后填入消息框，不自动发送。PromptKit 无需单独配置 API Key，语义增强复用 DSH 已配置的会话模型；没有模型路由时会提示先建立会话模型路由。本地轻量增强不需要模型。
 
 ## 为什么是 PromptKit
 
@@ -27,9 +29,9 @@ dsh plugin --profile web add dsh-promptkit
 
 **📚 会闭环的灵感库。** 诊断发现（隐含前提、不可证伪要求）可存为「待验证」假设卡。之后补充证据完成验证；已验证的卡在后续增强中作为上下文注入。你的提示词质量会复利增长。
 
-**🔌 零配置、零遥测、零 Token 可选。** 语义增强复用会话模型；本地轻量模式完全离线可用。不主动触发就没有任何请求离开你的机器。
+**🔌 零遥测，支持零 Token 模式。** 本地轻量模式离线可用；语义增强会把草稿和选定上下文交给宿主配置的模型服务。文件补全、项目记忆检索按对应操作触发。
 
-**兼容性：** 同时支持 DSH `0.1.2-alpha.1+` 与旧版 `0.1.0-rc` 槽位契约，自动适配——两个版本的真实实例均已验证。
+**兼容性：** DSH `0.1.2-alpha.1` 已完成真机验证；保留旧版 `0.1.0-rc` 槽位适配，其覆盖来自模拟契约测试，不代表所有旧版本均已完成真机验证。
 
 <details>
 <summary><strong>更多能力</strong>（点击展开）</summary>
@@ -38,9 +40,9 @@ dsh plugin --profile web add dsh-promptkit
 - **灵感库（Vault）** — 草稿与成品 Prompt 的本地库：搜索、收藏、项目分组、带版本对比的派生、JSON 备份恢复。
 - **流式输出** — 增强结果逐段流式进入预览面板，带用时徽章与取消按钮。
 - **强度三档** — 低（润色）/ 中（标准）/ 高（约 3 倍展开）篇幅预算。
-- **发送前自动增强** — 可选；拦截普通 Enter，任何失败自动回退发送原文，绝不阻塞发送。
-- **技能引用保留** — 改写丢失 `/tdd` 类技能记号时自动检测，一键补回。
-- **`@file` 补全** — 输入 `@` 检索工作区文件（只读文件名，不读内容）。
+- **发送前自动增强** — 自定义宿主注入 `onSubmitDraft` 并实现 `composer.isInputTarget()` 后可选开启；只拦截消息框 Enter，增强失败可发送原文一次，发送失败不重试，取消或草稿变化时不发送。独立 DSH 插件未默认接入此发送钩子。
+- **技能引用保留** — 改写丢失 `/tdd` 类技能记号时自动检测并补回；关闭提示不会再次改写草稿。
+- **`@file` 补全** — 输入 `@` 检索当前会话工作区文件（只读文件名，不读内容）；索引有数量、深度和耗时上限，不完整时会提示。
 - **`/pk` 快速插入** — 输入 `/pk 关键词` 弹出紧凑灵感候选菜单（方向键 + Enter），绝不抢占 DSH 原生命令。
 - **私有方法** — 粘贴 Obsidian 风格 Markdown 提示词卡；仅存本地，可导出 JSON。
 - **模板变量** — 灵感条目的 `{{name}}` 占位符在插入前弹出补值面板。
@@ -82,14 +84,14 @@ dsh plugin --profile web add github:fsrmqi/dsh-promptkit#<commit-sha>
 **tarball（离线 / 审计）**
 
 ```bash
-npm pack && dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
+npm pack && dsh plugin --profile web add ./dsh-promptkit-0.2.1.tgz
 ```
 
-安装后刷新浏览器：输入框旁出现 **✦ 增强**，会话页顶部出现「高级方法工坊」标签。
+安装后刷新浏览器：输入框旁出现 **✦ 增强**，会话页顶部出现「高级方法工坊」标签。升级涉及 Node 插件时，还需通过宿主重载或重启 DSH，避免继续运行缓存的旧代码。npm 命令获取的是已发布版本；验证本仓库当前版本可使用 tarball。完整步骤见 [升级记录](docs/UPGRADE-HISTORY.md#v021)。
 
 ## 界面模式
 
-插件默认**极简模式**：草稿 → 增强 → 结果，屏幕上没有别的。成功增强 3 次后自动解锁完整界面（方法库、灵感库、统计、强度档位）。也可在 **设置 → 界面模式** 手动锁定。
+插件默认**极简模式**，优先展示草稿 → 增强 → 结果。成功增强 3 次后自动展开完整界面（方法库、灵感库、统计、强度档位），也可在 **设置 → 界面模式** 手动锁定。首次体验仅记录 0~3 次进度，不依赖默认关闭的详细统计；失败或取消不计数。
 
 ## 作为 npm 库使用
 
@@ -103,7 +105,7 @@ npm pack && dsh plugin --profile web add ./dsh-promptkit-0.1.0.tgz
 | `AssetProvider` | 灵感库保存 / 搜索 / 备份 | `StaticAssetProvider` |
 
 ```js
-import { PromptStudio, QuickEnhancer, StaticMethodProvider, StaticAssetProvider, TextareaComposer } from 'dsh-promptkit'
+import { PromptStudio, QuickEnhancer, StaticMethodProvider, StaticAssetProvider, TextareaComposer } from 'dsh-promptkit/browser'
 
 const methodProvider = new StaticMethodProvider()
 const assetProvider = new StaticAssetProvider()
@@ -112,7 +114,7 @@ const composer = new TextareaComposer(document.querySelector('textarea'))
 <QuickEnhancer methodProvider={methodProvider} assetProvider={assetProvider} composer={composer} messages={messages} />
 ```
 
-未注入的能力对应 UI 自动隐藏——完整 props 契约见 [docs/EMBED.md](docs/EMBED.md)。
+未注入的可选能力会隐藏或降级。支持 `browser` 条件的构建器也可导入根包；默认 Node 入口额外导出 DSH 插件注册能力。运行要求 Node 18+ / React 17+，源码开发测试使用 Node 24.15+。完整契约和已验证组合见 [嵌入协议](docs/EMBED.md) 与 [升级记录](docs/UPGRADE-HISTORY.md#v021)。
 
 ## 嵌入其他宿主（Embed Protocol v1）
 
@@ -122,11 +124,12 @@ const composer = new TextareaComposer(document.querySelector('textarea'))
 
 | 访问 | 用途 | 可关闭 |
 | --- | --- | --- |
-| `localStorage` | 灵感库、收藏、历史、可选的本地使用信号 | 清除 localStorage；无服务端存储 |
-| 目标输入框 | 把生成的提示词填入草稿 | 仅点击时触发 |
-| `fetch` | 仅语义增强走本地插件桥 | 不触发就没有请求 |
+| `localStorage` | 灵感库、诊断暂存、收藏、历史、偏好、首次体验进度与可选详细统计 | 详细统计默认关闭；清除浏览器数据会丢失本地资产，请先备份 |
+| 目标输入框 | 按按钮或快捷键填入结果；自定义宿主可显式接入自动发送 | 未接入发送钩子时只写草稿；异步写回前检查草稿是否变化 |
+| 本地插件请求 | 语义增强桥接、文件名检索、可选项目记忆检索 | 按对应功能触发，文件检索不读取正文 |
+| 配置的模型端点 | 处理语义增强的草稿和所选上下文 | 使用轻量模式可避免模型调用 |
 
-**零遥测。** 不向第三方发送任何数据；使用信号（默认关闭）永远留在浏览器内。
+**零遥测。** 不上传使用统计。语义增强不是离线处理：模型服务可能位于第三方，提交前应检查草稿和所选上下文中是否含敏感信息。项目记忆与自定义 adapter 的数据处理由宿主实现决定。
 
 ## 参与贡献
 
