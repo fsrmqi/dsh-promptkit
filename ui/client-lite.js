@@ -266,6 +266,80 @@ window.__ModuleLoader__.load({
       function studioBridgeStorageKey(prefix) { return `${eventPrefix(prefix)}studio.pending-draft.v1` }
       function nudgeEnabledStorageKey(prefix) { return `${eventPrefix(prefix)}quick-action.nudge.enabled.v1` }
 
+      /* ================= dsh-promptkit 模型输出协议 ================= */
+      // 模型输出协议：宿主、源码入口和浏览器产物共用同一解析与展示定义。
+      const DIAGNOSIS_LABELS = { concept_clarity: '概念清晰', hidden_premise: '隐含前提', falsifiability: '可证伪性', actionability: '可行动性', context_fit: '语境契合' }
+      const DIAGNOSIS_DIMENSIONS = Object.keys(DIAGNOSIS_LABELS)
+
+      // 只兼容明确的维度别名；不猜测或补写模型没有返回的诊断。
+      const DIAGNOSIS_ALIASES = { ...Object.fromEntries(Object.entries(DIAGNOSIS_LABELS).map(([key, label]) => [label, key])), '概念澄清': 'concept_clarity', '语境契合度': 'context_fit' }
+
+      /** 保留部分诊断，隔离协议行；diagnosisMeta 只含协议状态，不记录草稿或模型原文。 */
+      function parseEnhanceOutput(raw, { streaming = false } = {}) {
+        let text = String(raw || '').replace(/\r\n?/g, '\n')
+        // 仅拆包裹协议的外层围栏，普通代码提示词原样保留。
+        if (/^\s*```[^\n]*\n\s*(?:[-*]\s*)?\[diag\]/i.test(text)) {
+          text = text.replace(/^\s*```[^\n]*\n/, '').replace(/\n```\s*$/, '')
+        }
+        const marker = /^\s*={3}\s*PROMPT\s*={3}[ \t]*$/im.exec(text)
+        const hasLeadingDiagnosis = /^\s*(?:[-*]\s*)?\[diag\]/i.test(text)
+        const diagnostics = marker ? text.slice(0, marker.index) : hasLeadingDiagnosis ? text : ''
+        const found = {}
+        const warnings = new Set()
+        const remaining = []
+        let readingDiagnosis = true
+        for (const line of diagnostics.split('\n')) {
+          const match = /^\s*(?:[-*]\s*)?\[diag\]\s*([^:：]+)[:：]\s*(.*)$/i.exec(line)
+          if (match && readingDiagnosis) {
+            const name = match[1].trim().replace(/\*\*/g, '')
+            const normalized = name.toLowerCase().replace(/[ -]+/g, '_')
+            const key = DIAGNOSIS_DIMENSIONS.includes(normalized) ? normalized : DIAGNOSIS_ALIASES[name]
+            if (!key) warnings.add('unknown_dimension')
+            else if (match[2].trim()) {
+              if (found[key]) warnings.add('duplicate_dimension')
+              found[key] = match[2].trim()
+            }
+            continue
+          }
+          if (!marker && line.trim() && !/^\s*\[diag\]/i.test(line)) readingDiagnosis = false
+          // 不把无值或尚未传完的诊断行展示为改写正文。
+          if (!/^\s*(?:[-*]\s*)?\[diag\]/i.test(line)) remaining.push(line)
+        }
+        let prompt = marker ? text.slice(marker.index + marker[0].length) : hasLeadingDiagnosis ? remaining.join('\n') : text
+        if (streaming) {
+          const lines = prompt.split('\n')
+          const tail = lines.at(-1).trim().toUpperCase()
+          if (tail && ('[DIAG]'.startsWith(tail) || /^\[DIAG\]/.test(tail) || '===PROMPT==='.startsWith(tail))) lines.pop()
+          prompt = lines.join('\n')
+        }
+        const diagnosis = Object.fromEntries(DIAGNOSIS_DIMENSIONS.filter(key => found[key]).map(key => [key, found[key]]))
+        const missingDimensions = DIAGNOSIS_DIMENSIONS.filter(key => !found[key])
+        if (hasLeadingDiagnosis && !marker) warnings.add('missing_separator')
+        return {
+          diagnosis: Object.keys(diagnosis).length ? diagnosis : null,
+          prompt: prompt.trim(),
+          diagnosisMeta: { status: missingDimensions.length === 0 ? 'complete' : Object.keys(diagnosis).length ? 'partial' : 'missing', missingDimensions, warnings: [...warnings] },
+        }
+      }
+
+      /* ================= dsh-promptkit 诊断缺口分类与完整草稿键 ================= */
+      // 新协议明确区分检查通过与缺口；旧输出只过滤明确、完整的无问题表述。
+      function diagnosisFinding(value, dimension) {
+        const text = String(value || '').trim()
+        if (!text || /^\[OK\]/i.test(text)) return null
+        if (/^\[GAP\]/i.test(text)) return text.replace(/^\[GAP\]\s*/i, '').trim() || null
+        const plain = text.replace(/[。.!！；;]+$/, '').trim()
+        if (/^(?:无|没有|无问题|无明显问题|未发现问题|不适用|none|n\/a|no issues?)$/i.test(plain)) return null
+        if (dimension === 'hidden_premise' && /^(?:(?:无|没有|不存在|未发现)(?:明显的?|额外的?)?(?:隐含前提|隐含假设|未言明的假设)|no (?:hidden|unstated) (?:assumptions|premises)(?: found)?)$/i.test(plain)) return null
+        if (dimension === 'falsifiability' && /^(?:(?:所有|各项)?(?:要求|目标|验收条件|验收标准)?(?:均|都|已)?(?:可验证|可测试|可判定|可以验证|可以测试)|(?:all )?requirements are (?:testable|verifiable|falsifiable))$/i.test(plain)) return null
+        return text
+      }
+
+      // 使用完整文本的可逆键，避免短前缀或哈希碰撞把不同任务合并。
+      function diagnosisFingerprint(dimension, draft) {
+        return `${dimension}:v2:${JSON.stringify(String(draft || '').trim())}`
+      }
+
       /* ================= dsh-promptkit utils（纯函数 + 分类链 + DSH 快照转换） ================= */
       // 纯函数工具（从 Memory Center 抽取，通用、不含宿主私有逻辑）。
       // 组件只消费宿主无关的数据结构：messages = [{ id, role: 'user'|'assistant', text }]。
@@ -369,26 +443,6 @@ window.__ModuleLoader__.load({
               skills.push(name)
             }
             return skills
-          }
-
-          // 语义增强输出解析（host/client 共用）：把模型输出拆成 { diagnosis, prompt }。
-          // 诊断行协议：[DIAG] <dimension>: <一句话>，之后 ===PROMPT=== 分隔改写正文。
-          // 诊断缺失（旧模型/旧指令/未开诊断）时 diagnosis 为 null，prompt 原样返回。
-          // DIAGNOSIS_DIMENSIONS 与 host 的指令同源；键序即客户端展示顺序。
-          const DIAGNOSIS_DIMENSIONS = ['concept_clarity', 'hidden_premise', 'falsifiability', 'actionability', 'context_fit']
-          function parseEnhanceOutput(raw) {
-            const text = String(raw || '')
-            const diagnosis = {}
-            let prompt = text
-            const marker = text.includes('===PROMPT===') ? '===PROMPT===' : null
-            const diagPart = marker ? text.slice(0, text.indexOf(marker)) : ''
-            for (const match of diagPart.matchAll(/\[DIAG\]\s*(\w+)\s*[:：]\s*(.+)/g)) {
-              if (DIAGNOSIS_DIMENSIONS.includes(match[1])) diagnosis[match[1]] = match[2].trim()
-            }
-            if (marker) prompt = text.slice(text.indexOf(marker) + marker.length)
-            prompt = prompt.trim()
-            const hasDiagnosis = DIAGNOSIS_DIMENSIONS.every(key => diagnosis[key])
-            return { diagnosis: hasDiagnosis ? diagnosis : null, prompt }
           }
 
           // 改写后 skill 引用丢失检查：before 里有、after 里没有的引用，原样补到末尾。
@@ -646,6 +700,12 @@ window.__ModuleLoader__.load({
         /** @returns {{start:number,end:number,text:string,draft:string}|null} 当前选区（可选实现） */
         getSelection() { return null }
 
+        /** 自动增强仅拦截本输入框的发送键；宿主需显式识别目标节点。 */
+        isInputTarget(target) { return false }
+
+        /** 选区变化订阅（可选），让预览与执行使用同一个片段。 */
+        onSelectionChange(cb) { return () => {} }
+
         /** 用 text 替换给定选区；不支持选区的宿主可不实现。 */
         replaceSelection(text, selection = this.getSelection()) { this.write(text) }
 
@@ -680,11 +740,11 @@ window.__ModuleLoader__.load({
 
         /**
          * 可选实现：流式增强。组件检测到此方法时走逐段上屏；
-         * 未实现或中途失败（非 AbortError）时组件自动退回 enhance()。
+         * 仅抛出 fallback=true 且尚未输出时退回 enhance()；中途失败或取消不重复调用。
          * @param {typeof input & { onDelta?:(text:string)=>void }} input
          * @returns {Promise<{ prompt:string, model?:string, diagnosis?:object|null }>}
          */
-        async enhanceStream(input) { throw new Error('Enhancer.enhanceStream() 未实现') }
+        async enhanceStream(input) { throw Object.assign(new Error('Enhancer.enhanceStream() 未实现'), { fallback: true }) }
 
         /** 取消进行中的增强 */
         cancel() {}
@@ -1019,6 +1079,13 @@ window.__ModuleLoader__.load({
 
         getDraft() { return this.el ? this.el.value : '' }
 
+        isInputTarget(target) { return target === this.el }
+
+        onSelectionChange(cb) {
+          this.el?.addEventListener('select', cb)
+          return () => this.el?.removeEventListener('select', cb)
+        }
+
         write(text) {
           if (!this.el) return
           this.el.value = text
@@ -1104,6 +1171,89 @@ window.__ModuleLoader__.load({
         }
 
         cancel() { this._abort?.abort() }
+      }
+
+      /* ================= dsh-promptkit adapter: DshSessionEnhancer ================= */
+      class DshSessionEnhancer {
+        constructor(getSessionId) { this.getSessionId = getSessionId; this.controller = null }
+        get loading() { return !!this.controller }
+        async enhance({ draft, extra, lang, method, strength, hasContext }) {
+          this.controller?.abort()
+          const controller = new AbortController()
+          this.controller = controller
+          try {
+            const response = await fetch(`/dsh-promptkit/semantic-enhance?session_id=${encodeURIComponent(this.getSessionId())}`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose: true }),
+              signal: controller.signal,
+            })
+            const body = await response.json().catch(() => ({}))
+            if (!response.ok) {
+              if (response.status === 504) throw Object.assign(new Error(body.next_action || '模型响应超时，请稍后重试。'), { timeout: true })
+              throw new Error(body.next_action || body.error || '基于草稿改造失败')
+            }
+            return body
+          } finally { if (this.controller === controller) this.controller = null }
+        }
+        // SSE 流式增强：onDelta 逐段回调（含诊断行）；resolve 值与 enhance() 一致。
+        // 404/501（旧 host 未注册流式路由）时抛 fallback 错误，调用方退回非流式。
+        async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = true, onDelta }) {
+          this.controller?.abort()
+          const controller = new AbortController()
+          this.controller = controller
+          const signal = controller.signal
+          try {
+            const response = await fetch(`/dsh-promptkit/semantic-enhance/stream?session_id=${encodeURIComponent(this.getSessionId())}`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose }),
+              signal,
+            })
+            if (response.status === 404 || response.status === 501) {
+              const error = new Error('stream_unavailable')
+              error.fallback = true
+              throw error
+            }
+            if (!response.ok || !response.body) {
+              const body = await response.json().catch(() => ({}))
+              if (response.status === 504) throw Object.assign(new Error(body.next_action || '模型响应超时，请稍后重试。'), { timeout: true })
+              throw new Error(body.next_action || body.error || '流式增强不可用')
+            }
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+            let final = null
+            const consume = frame => {
+                const lines = frame.split(/\r?\n/)
+                const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim()
+                const dataLine = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n')
+                if (!event || !dataLine) return
+                const data = JSON.parse(dataLine)
+                if (event === 'delta') onDelta?.(data.text)
+                if (event === 'done') final = data
+                if (event === 'error') throw Object.assign(new Error(data.message || data.error || '流式增强失败'), { timeout: Boolean(data.timeout) })
+            }
+            try {
+              for (;;) {
+                const { value, done } = await reader.read()
+                if (signal.aborted) throw Object.assign(new Error('已取消'), { name: 'AbortError' })
+                buffer += done ? decoder.decode() : decoder.decode(value, { stream: true })
+                const frames = buffer.split(/\r?\n\r?\n/)
+                buffer = frames.pop() || ''
+                for (const frame of frames) consume(frame)
+                if (done && buffer.trim()) consume(buffer)
+                if (final || done) break
+              }
+              if (!final) throw new Error('流式增强连接中断。')
+              return final
+            } finally {
+              await reader.cancel().catch(() => {}) // 取消或服务端提前断开时清理读锁。
+              reader.releaseLock()
+            }
+          } finally { if (this.controller === controller) this.controller = null }
+        }
+        cancel() { this.controller?.abort(); this.controller = null }
       }
 
       /* ================= dsh-promptkit 组件: PromptStudio（方法工坊） ================= */
@@ -1683,6 +1833,383 @@ window.__ModuleLoader__.load({
         return window.__promptkitNudgeMetricsByPrefix?.get(prefix) || (prefix === 'promptkit.' ? window.__promptkitNudgeMetrics || null : null)
       }
 
+      /* ================= QuickEnhancer 首次体验进度 ================= */
+      // 仅保存 0~3 的首次体验进度，与可选的详细使用统计分离。
+      function useOnboardingProgress(storageKey) {
+        const key = storageKey('onboarding-successes.v1')
+        const [count, setCount] = React.useState(() => {
+          try {
+            const saved = window.localStorage.getItem(key)
+            const prior = saved === null ? JSON.parse(window.localStorage.getItem(storageKey('metrics.v1')) || '{}').total : Number(saved)
+            return Math.max(0, Math.min(3, Number(prior) || 0))
+          } catch { return 0 }
+        })
+        React.useEffect(() => { try { window.localStorage.setItem(key, String(count)) } catch {} }, [key, count])
+        const recordSuccess = () => setCount(value => Math.min(3, value + 1))
+        return { completed: count >= 3, recordSuccess }
+      }
+
+      /* ================= QuickEnhancer 草稿提交守卫 ================= */
+      // 所有异步写回共享同一失效代际；切换会话、关闭或取消后，旧快照不能提交。
+      function useDraftGuard(composer) {
+        const owner = React.useRef({ composer, generation: 0 })
+        if (owner.current.composer !== composer) owner.current = { composer, generation: owner.current.generation + 1 }
+        const invalidate = React.useCallback(() => { owner.current.generation += 1 }, [])
+        React.useEffect(() => invalidate, [composer, invalidate])
+        const capture = ({ selection = false } = {}) => {
+          const before = String(composer?.getDraft?.() || '')
+          const selected = selection ? composer?.getSelection?.() : null
+          if (selected && (selected.draft !== before || selected.text !== before.slice(selected.start, selected.end))) throw new Error('选区已变化，请重新选择。')
+          return { before, selection: selected, composer, generation: ++owner.current.generation }
+        }
+        const assertCurrent = snapshot => {
+          if (owner.current.composer !== snapshot.composer || owner.current.generation !== snapshot.generation) throw Object.assign(new Error('操作已取消，草稿未改动。'), { name: 'AbortError' })
+          if (String(snapshot.composer?.getDraft?.() || '') !== snapshot.before) throw new Error('操作期间草稿已变化，未覆盖新内容；请重新操作。')
+        }
+        const commit = (snapshot, text, { allowEmpty = false } = {}) => {
+          assertCurrent(snapshot)
+          if (typeof text !== 'string' || (!allowEmpty && !text.trim())) throw new Error('未返回有效正文，草稿未改动。')
+          const selected = snapshot.selection
+          const after = selected ? `${snapshot.before.slice(0, selected.start)}${text}${snapshot.before.slice(selected.end)}` : text
+          if (selected && snapshot.composer.replaceSelection) snapshot.composer.replaceSelection(text, selected)
+          else snapshot.composer.write(after)
+          return after
+        }
+        return { capture, assertCurrent, commit, invalidate }
+      }
+
+      /* ================= QuickEnhancer 自动增强与单次发送 ================= */
+      /** 增强与发送分别处理失败；一轮输入最多调用一次发送函数。 */
+      function useAutoEnhance({ enabled, composer, enhancer, onSubmitDraft, strength, draftGuard, loading, setLoading, setStreamState, setNotice, setWarn, setError }) {
+        const latest = React.useRef(null)
+        latest.current = { enabled, composer, enhancer, onSubmitDraft, strength, draftGuard, loading, setLoading, setStreamState, setNotice, setWarn, setError }
+        const inFlight = React.useRef(false)
+        React.useEffect(() => {
+          const onKeydown = event => {
+            const state = latest.current
+            const draft = String(state.composer?.getDraft?.() || '')
+            if (!state.onSubmitDraft || !state.enhancer || !state.composer?.isInputTarget?.(event.target)) return
+            if (!shouldInterceptSend({ event, draft, enabled: state.enabled })) return
+            // 忙碌时仍吞掉同一输入框的发送键，避免宿主先发送、异步增强随后再发送。
+            event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.()
+            if (inFlight.current || state.loading) return
+            inFlight.current = true
+            state.setLoading(true)
+            const snapshot = state.draftGuard.capture()
+            state.setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
+            void (async () => {
+              let text = draft
+              let enhancementError = null
+              try {
+                try {
+                  const body = await state.enhancer.enhance({ draft, lang: detectLanguage(draft), kind: 'semantic', strength: state.strength, hasContext: false })
+                  if (typeof body?.prompt !== 'string' || !body.prompt.trim()) throw new Error('模型未返回有效正文')
+                  text = restoreLostSkillMentions(draft, body.prompt) || body.prompt
+                } catch (error) {
+                  if (error?.name === 'AbortError') throw error
+                  enhancementError = error
+                }
+                state.draftGuard.assertCurrent(snapshot)
+                try {
+                  await state.onSubmitDraft(text)
+                } catch (error) {
+                  state.setError(`发送结果未确认（${String(error?.message || error)}），未自动重发；请先检查会话。`)
+                  return
+                }
+                if (enhancementError) state.setWarn(`自动增强失败（${String(enhancementError?.message || enhancementError)}），已发送原文。`)
+                else state.setNotice('发送前已自动增强。')
+              } catch (error) {
+                if (error?.name === 'AbortError') state.setNotice('自动增强已取消，原文未发送。')
+                else state.setError(String(error?.message || error))
+              } finally {
+                inFlight.current = false
+                state.setLoading(false)
+                state.setStreamState(null)
+              }
+            })()
+          }
+          window.addEventListener('keydown', onKeydown, true)
+          return () => window.removeEventListener('keydown', onKeydown, true)
+        }, [])
+      }
+
+      /* ================= QuickEnhancer 增强事务与流式状态 ================= */
+      /** 增强事务：准备上下文、流式预览、取消、校验草稿、提交；成功后的统计由调用方处理。 */
+      function useEnhancementFlow({ composer, enhancer, draft, draftGuard, config, context, getPlan, importCard, onApplied, onDiagnosis, notice, setLoading }) {
+        const { enhancementKind, enhanceStrength, requirement, matchedMethod: defaultMethod, selectedContextText, referencedFiles, useMemoryContext } = config
+        const { vaultItems, assetContextIds, memoryPreview, searchMemory, loadMemory, methodProvider } = context
+        const { setNotice, setWarn, setError, setMemoryReceipt } = notice
+        const [enhanceDiagnosis, setEnhanceDiagnosis] = React.useState(null)
+        const [diagnosisMethod, setDiagnosisMethod] = React.useState(null)
+        const [streamState, setStreamState] = React.useState(null)
+        const [skillRestore, setSkillRestore] = React.useState(null)
+        const streamStartRef = React.useRef(0)
+        const active = React.useRef(null)
+        React.useEffect(() => () => {
+          if (active.current) { active.current.abort(); setLoading(false) }
+          active.current = null
+          enhancer?.cancel()
+        }, [enhancer])
+        const cancelEnhance = ({ silent = false } = {}) => {
+          draftGuard.invalidate()
+          active.current?.abort()
+          enhancer?.cancel()
+          if (!silent) setNotice('正在取消语义增强…')
+        }
+        const enhanceIntoInput = async ({ methodOverride } = {}) => {
+          if (active.current) return
+          setMemoryReceipt(null)
+          const matchedMethod = methodOverride || defaultMethod
+          let snapshot
+          try { snapshot = draftGuard.capture({ selection: true }) }
+          catch (error) { setWarn(String(error?.message || error)); return }
+          const source = snapshot.before.trim()
+          if (!source) { setWarn('请先在输入框中写入原始请求。'); return }
+          const importSource = source.replace(/^\/import\b\s*/i, '')
+          if (/^\/import\b/i.test(source) || /^(?:---\n[\s\S]*?\n---\n)?#\s+[^\n]+[\s\S]*?## Prompt\s*\n/.test(source)) {
+            if (await importCard(importSource)) {
+              try { draftGuard.commit({ ...snapshot, selection: null }, '', { allowEmpty: true }) }
+              catch (error) { setError(String(error?.message || error)) }
+            }
+            return
+          }
+          const selection = snapshot.selection
+          const original = selection?.text || snapshot.before
+          if (original.trim().length > 3000) { setWarn(`草稿过长（${original.trim().length} 字符），建议精简到 3000 字符以内再增强。`); return }
+          const applyEnhanced = text => draftGuard.commit(snapshot, text)
+          if (enhancementKind !== 'semantic') {
+            const plan = getPlan(original, matchedMethod)
+            if (plan.tooShort) { setNotice('输入过短，未做增强，可直接发送。'); return }
+            try {
+              const after = applyEnhanced(plan.prompt)
+              onApplied({ original, after, selection, matchedMethod, kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
+              setNotice(plan.method ? `已采用「${plan.label || plan.method}」做保守增强${selection?.text ? '并替换选中片段' : ''}，可检查后直接发送。` : '已做最小化提示词整理，可检查后直接发送。')
+            } catch (error) { setError(String(error?.message || error)) }
+            return
+          }
+          if (!enhancer) { setNotice('未注入语义增强模型（enhancer），仅支持轻量增强。'); return }
+          const request = new AbortController()
+          active.current = request
+          const assertActive = () => {
+            if (request.signal.aborted || active.current !== request) throw Object.assign(new Error('已取消'), { name: 'AbortError' })
+          }
+          setLoading(true)
+          setEnhanceDiagnosis(null)
+          setDiagnosisMethod(matchedMethod || null)
+          setSkillRestore(null)
+          setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
+          streamStartRef.current = Date.now()
+          let phase = 'done'
+          try {
+            const contextAssets = vaultItems.filter(item => assetContextIds.includes(item.id))
+            const assetContextText = contextAssets.length ? [
+              '思考卡上下文（请区分事实、推断和待验证假设；不要把待核实或已被推翻的内容表述为事实或结论）：',
+              ...contextAssets.map((item, index) => [
+                `[${index + 1}] ${item.title}`,
+                `类型：${item.thinkingKind || 'conclusion'}；认识状态：${item.epistemicStatus || 'inferred'}${item.verification ? `；验证结果：${item.verification.status}` : ''}`,
+                item.verification?.evidence ? `验证证据：${item.verification.evidence}` : '',
+                item.rationale ? `为什么重要：${item.rationale}` : '',
+                item.nextAction ? `下一步：${item.nextAction}` : '',
+                `内容：${item.body}`,
+              ].filter(Boolean).join('\n')),
+            ].join('\n\n') : ''
+            let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', assetContextText,
+              referencedFiles.length ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。` : '',
+            ].filter(Boolean).join('\n\n')
+            let remembered = ''
+            if (useMemoryContext && searchMemory) {
+              remembered = memoryPreview.status === 'ready' && memoryPreview.query === original ? memoryPreview.text : await loadMemory(original)
+              if (remembered) extra = [extra, `项目记忆：${remembered}`].filter(Boolean).join('\n\n')
+            }
+            assertActive()
+            const template = matchedMethod ? await methodProvider.getTemplate(matchedMethod.id) : null
+            assertActive()
+            const options = { draft: original, extra, lang: detectLanguage(original), kind: 'semantic', strength: enhanceStrength,
+              hasContext: Boolean(selectedContextText || remembered || assetContextText),
+              method: matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined }
+            let body
+            if (typeof enhancer.enhanceStream === 'function') {
+              let rawText = ''
+              try {
+                body = await enhancer.enhanceStream({ ...options, onDelta: delta => {
+                  if (request.signal.aborted || active.current !== request) return
+                  rawText += String(delta || '')
+                  const partial = parseEnhanceOutput(rawText, { streaming: true })
+                  setEnhanceDiagnosis(partial.diagnosis)
+                  setStreamState(prev => prev ? { ...prev, phase: 'streaming', segments: splitOutputSegments(partial.prompt) } : prev)
+                } })
+              } catch (error) {
+                // 仅协议明确不支持流式且尚未输出时降级；超时、模型错误、断流不得重复调用。
+                if (!error?.fallback || rawText || error?.name === 'AbortError') throw error
+                assertActive()
+              }
+            }
+            if (!body) { assertActive(); body = await enhancer.enhance(options) }
+            assertActive()
+            const repaired = restoreLostSkillMentions(original, body.prompt)
+            // 先验证正文，避免只有诊断时用「补回技能」文字冒充有效改写。
+            if (typeof body.prompt !== 'string' || !body.prompt.trim()) throw new Error('模型未返回改写正文，草稿未改动。')
+            const after = applyEnhanced(repaired || body.prompt)
+            setEnhanceDiagnosis(body.diagnosis || null)
+            if (body.diagnosis) onDiagnosis(body.diagnosis, original.trim(), matchedMethod?.title || '')
+            if (repaired) setSkillRestore({ lost: skillMentions(original).filter(name => !skillMentions(body.prompt).includes(name)) })
+            setStreamState(prev => prev ? { ...prev, segments: splitOutputSegments(body.prompt) } : prev)
+            onApplied({ original, after, selection, matchedMethod, kind: 'semantic', method: matchedMethod?.title, body, remembered, contextAssets })
+            const diagnosticNotice = body.diagnosisMeta?.status === 'partial' ? ' 部分诊断未返回，已保留有效项。' : ''
+            setNotice(`语义增强完成${body.model ? `（${body.model}）` : ''}；${selection?.text ? '选中片段' : '草稿'}已替换，可在此撤销或对比原稿。${diagnosticNotice}`)
+          } catch (error) {
+            phase = error?.name === 'AbortError' ? 'cancelled' : 'error'
+            if (active.current !== request) return
+            if (phase === 'cancelled') setNotice('已取消语义增强，草稿未改动。')
+            else setError(String(error?.message || error))
+          } finally {
+            if (active.current === request) {
+              active.current = null
+              setLoading(false)
+              setStreamState(prev => prev ? { ...prev, phase, elapsedMs: Date.now() - streamStartRef.current } : null)
+            }
+          }
+        }
+        return { enhanceIntoInput, cancelEnhance, enhanceDiagnosis, diagnosisMethod, streamState, setStreamState, skillRestore, setSkillRestore }
+      }
+
+      /* ================= QuickEnhancer 浮层关闭与宿主事件隔离 ================= */
+      // 管理宿主事件隔离与分层关闭；不承担 Vault 数据或增强业务。
+      function usePanelDismiss({ open, vaultOpen, setOpen, setVaultOpen, rootRef, panelRef }) {
+        // 抽屉与插件根已抬升到宿主浮层之上（zIndex 20001/20002），「关闭 ×」按钮必然露在最上层、始终可点，
+        // 不再需要「被遮挡时自动左移」的运行时检测（此前那套 elementFromPoint 轮询既脆弱又拖性能）。
+        const closeBtnRef = React.useRef(null)
+        // 原生顶层突破宿主输入区的 stacking context，DOM 仍留在插件根内，
+        // 不破坏 React 事件或「外部点击只关一层」判定。旧浏览器保留固定定位回退。
+        React.useEffect(() => {
+          const panel = panelRef.current
+          if (!vaultOpen || !panel?.showPopover) return undefined
+          panel.showPopover()
+          return () => { if (panel.isConnected) panel.hidePopover() }
+        }, [vaultOpen, panelRef])
+        // DSH 宿主可能在某层 DOM 上 stopPropagation / 拦截 click/pointerdown，导致 React 合成 onClick 收不到。
+        // 在 window 捕获阶段挂原生监听：
+        //   1) 命中关闭按钮时交给按钮自身的原生手势隔离器处理；
+        //   2) 抽屉打开时点在插件根（FAB/主面板/抽屉）之外 -> 关抽屉（按钮被物理遮挡时的第二条出路）。
+        React.useEffect(() => {
+          const close = (event) => {
+            const btn = closeBtnRef.current
+            if (btn && (event.target === btn || btn.contains(event.target))) {
+              return
+            }
+            if (event.type === 'pointerdown' && vaultOpen) {
+              const root = rootRef.current
+              // rootRef 尚未挂载（理论不可能）或点击就在插件自身 UI 内 -> 不处理
+              if (root && !root.contains(event.target)) setVaultOpen(false)
+            }
+          }
+          window.addEventListener('click', close, { capture: true })
+          window.addEventListener('pointerdown', close, { capture: true })
+          return () => {
+            window.removeEventListener('click', close, { capture: true })
+            window.removeEventListener('pointerdown', close, { capture: true })
+          }
+        }, [vaultOpen])
+        // 关闭按钮的整段手势必须在按钮节点消耗：pointerdown/pointerup/click 都不能冒泡到
+        // DSH 的会话层。真正卸载抽屉延到 click 派发完的一帧后，避免 click 落到下层控件。
+        React.useEffect(() => {
+          if (!vaultOpen) return undefined
+          const button = closeBtnRef.current
+          if (!button) return undefined
+          const consume = event => {
+            event.preventDefault()
+            event.stopPropagation()
+            event.stopImmediatePropagation?.()
+          }
+          const closeAfterGesture = event => {
+            consume(event)
+            const schedule = window.requestAnimationFrame || (callback => setTimeout(callback, 0))
+            schedule(() => {
+              // DSH 的外层捕获监听可能已在本次手势中把主面板标为关闭。
+              // 关闭抽屉的语义必须保持主面板打开，因此在手势结束后显式恢复该状态。
+              setVaultOpen(false)
+              setOpen(true)
+            })
+          }
+          // DSH 不同版本分别使用 pointer 与 mouse 事件做外部点击判定，两个序列都隔离。
+          button.addEventListener('pointerdown', consume, true)
+          button.addEventListener('pointerup', consume, true)
+          button.addEventListener('mousedown', consume, true)
+          button.addEventListener('mouseup', consume, true)
+          button.addEventListener('click', closeAfterGesture, true)
+          return () => {
+            button.removeEventListener('pointerdown', consume, true)
+            button.removeEventListener('pointerup', consume, true)
+            button.removeEventListener('mousedown', consume, true)
+            button.removeEventListener('mouseup', consume, true)
+            button.removeEventListener('click', closeAfterGesture, true)
+          }
+        }, [vaultOpen])
+        React.useEffect(() => {
+          if (!open) return
+          const onPointerDown = event => {
+            if (!rootRef.current?.contains(event.target)) setOpen(false)
+          }
+          // 抽屉打开时点外部只关抽屉（由上方捕获 handler 负责），主面板保留，避免一次点击关两层。
+          if (vaultOpen) return undefined
+          window.addEventListener('pointerdown', onPointerDown)
+          return () => window.removeEventListener('pointerdown', onPointerDown)
+        }, [open, vaultOpen])
+        return { closeBtnRef }
+      }
+
+      /* ================= QuickEnhancer 文件引用补全流程 ================= */
+      // 查询防抖、过期响应隔离、键盘导航与插入由同一 hook 管理。
+      function useFileCompletion({ draft, searchFiles, composer, setNotice }) {
+        const [fileMenu, setFileMenu] = React.useState(null)
+        const fileMenuRequestId = React.useRef(0)
+        // ── @ 文件引用补全：光标前的 @word 触发；检索经 searchFiles（宿主注入）──
+        const detectFileQuery = text => {
+          // 取最后一个非空白字符段：以 @ 开头则视为文件引用输入中（排除粘贴保护标记 \u2060）。
+          const tail = String(text || '').match(/(^|\s)@([^\s@]*)$/)
+          return tail && !tail[2].includes('\u2060') ? tail[2] : null
+        }
+        React.useEffect(() => {
+          if (!searchFiles) { setFileMenu(null); return undefined }
+          const query = detectFileQuery(draft)
+          if (query == null) { setFileMenu(null); return undefined }
+          const requestId = ++fileMenuRequestId.current
+          setFileMenu(prev => ({ query, files: prev?.query === query ? prev.files : [], status: 'loading', activeIndex: 0 }))
+          let alive = true
+          const timer = setTimeout(() => {
+            Promise.resolve().then(() => searchFiles(query)).then(result => {
+              const files = Array.isArray(result) ? result : result?.files
+              if (!alive || fileMenuRequestId.current !== requestId) return
+              if (!Array.isArray(files)) setFileMenu(null) // 宿主未提供文件服务
+              else setFileMenu({ query, files: list(files), status: files.length ? 'ready' : 'empty', activeIndex: 0, truncated: Boolean(result?.truncated) })
+            }).catch(() => { if (alive && fileMenuRequestId.current === requestId) setFileMenu(null) })
+          }, 140) // 防抖：避免逐键打 @ 时高频请求
+          return () => { alive = false; clearTimeout(timer) }
+        }, [draft, searchFiles])
+        const insertFileMention = path => {
+          const current = String(draft || '')
+          const next = current.replace(/(^|\s)@[^\s@]*$/, ((match, prefix) => `${prefix}@${path} `))
+          composer?.write(next)
+          setFileMenu(null)
+          setNotice(`已插入 @${path}；发送后由 DSH @file 读取该文件。`)
+        }
+        // @ 菜单键盘导航：window 捕获阶段吞键，防止 DSH 把 Enter 解释为发送。
+        React.useEffect(() => {
+          if (!fileMenu) return undefined
+          const onKeydown = event => {
+            if (event.isComposing || event.keyCode === 229) return
+            const consume = () => { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.() }
+            if (event.key === 'Escape') { consume(); setFileMenu(null); return }
+            if (event.key === 'ArrowDown') { consume(); setFileMenu(menu => menu ? { ...menu, activeIndex: Math.max(0, Math.min(menu.files.length - 1, menu.activeIndex + 1)) } : menu); return }
+            if (event.key === 'ArrowUp') { consume(); setFileMenu(menu => menu ? { ...menu, activeIndex: Math.max(0, menu.activeIndex - 1) } : menu); return }
+            if (event.key === 'Enter' && fileMenu.files[fileMenu.activeIndex]) { consume(); insertFileMention(fileMenu.files[fileMenu.activeIndex]) }
+          }
+          window.addEventListener('keydown', onKeydown, true)
+          return () => window.removeEventListener('keydown', onKeydown, true)
+        }, [fileMenu, composer, draft])
+        return { fileMenu, setFileMenu, insertFileMention }
+      }
+
       /* ================= QuickEnhancer 子组件: useKnowledgeInbox（知识区暂存 hook） ================= */
       // 知识区（诊断发现暂存）容量上限：超限时挤掉最旧的未处理项。
       const KNOWLEDGE_INBOX_MAX = 12
@@ -1705,49 +2232,53 @@ window.__ModuleLoader__.load({
        *
        * 返回：
        *   entries           暂存条目数组（旧→新）
-       *   enqueue           (diagnosis, draftFingerprint, methodTitle) => 入区，返回本次新增数
+       *   enqueue           (diagnosis, 完整草稿, methodTitle) => 入区，返回本次新增数
        *   dismiss           (id) => 从暂存移除
-       *   findByFingerprint (fingerprint) => boolean：Vault 查重之外的区内容重
+       *   existsInVault     (fingerprint) => boolean：检查是否已存为卡片
        */
       function useKnowledgeInbox({ storageKey, notice, vaultItems }) {
         const [entries, setEntries] = React.useState(() => {
-          try { return JSON.parse(window.localStorage.getItem(storageKey('knowledge-inbox.v1')) || '[]') } catch { return [] }
+          try {
+            const saved = JSON.parse(window.localStorage.getItem(storageKey('knowledge-inbox.v1')) || '[]')
+            return Array.isArray(saved) ? saved.filter(entry => entry && typeof entry.id === 'string' && typeof entry.finding === 'string') : []
+          } catch { return [] }
         })
         // 队列即改即持久化：面板关闭后暂存不丢。
         React.useEffect(() => {
           try { window.localStorage.setItem(storageKey('knowledge-inbox.v1'), JSON.stringify(entries)) } catch {}
         }, [entries])
 
-        const enqueue = (diagnosis, draftFingerprint, methodTitle) => {
+        const current = React.useRef(entries)
+        current.current = entries
+        const publish = next => { current.current = next; setEntries(next) }
+        const enqueue = (diagnosis, draft, methodTitle) => {
           let addedCount = 0
-          setEntries(prev => {
-            const next = [...prev]
-            for (const field of DIAGNOSIS_GAP_FIELDS) {
-              const finding = diagnosis?.[field.key]
-              if (!finding) continue
-              // 查重按「维度 + 草稿指纹」：同一草稿的同一缺口只入区一次。
-              const fingerprint = `${field.key}:${draftFingerprint}`
-              if (next.some(entry => entry.fingerprint === fingerprint)) continue
-              addedCount += 1
-              next.push({
-                id: `know:${Date.now()}:${field.key}:${Math.random().toString(36).slice(2, 6)}`,
-                fingerprint,
-                dimension: field.key,
-                label: field.label,
-                hint: field.hint,
-                finding,
-                draft: draftFingerprint,
-                method: methodTitle || '',
-                at: Date.now(),
-              })
-            }
-            // 区满裁剪：保留最新 N 条（旧未处理项被挤出，避免无限堆积）。
-            return next.slice(-KNOWLEDGE_INBOX_MAX)
-          })
+          const next = [...current.current]
+          for (const field of DIAGNOSIS_GAP_FIELDS) {
+            const finding = diagnosisFinding(diagnosis?.[field.key], field.key)
+            if (!finding) continue
+            // 查重按「维度 + 草稿指纹」：同一草稿的同一缺口只入区一次。
+            const fingerprint = diagnosisFingerprint(field.key, draft)
+            if (next.some(entry => entry.fingerprint === fingerprint) || vaultItems.some(item => item.provenance?.fingerprint === fingerprint)) continue
+            addedCount += 1
+            next.push({
+              id: `know:${Date.now()}:${field.key}:${Math.random().toString(36).slice(2, 6)}`,
+              fingerprint,
+              dimension: field.key,
+              label: field.label,
+              hint: field.hint,
+              finding,
+              draft: String(draft || '').trim(),
+              method: methodTitle || '',
+              at: Date.now(),
+            })
+          }
+          // 区满裁剪：保留最新 N 条（旧未处理项被挤出，避免无限堆积）。
+          if (addedCount) publish(next.slice(-KNOWLEDGE_INBOX_MAX))
           return addedCount
         }
 
-        const dismiss = id => setEntries(prev => prev.filter(item => item.id !== id))
+        const dismiss = id => publish(current.current.filter(item => item.id !== id))
 
         // 查重只针对 Vault 已有卡（provenance.fingerprint）：不能查暂存区——
         // 待晋升的条目自己就在区里，查区会把「自己」误判为重复，导致永远存不了卡。
@@ -1762,8 +2293,6 @@ window.__ModuleLoader__.load({
       // diagnosis 增量填充时诊断卡先亮起来，用户先看到「体检结果」再看改写。
       // 底部的「查看知识区」入口只负责跳转——存卡与否由用户在知识区里决定。
 
-      const DIAGNOSIS_LABELS = { concept_clarity: '概念清晰', hidden_premise: '隐含前提', falsifiability: '可证伪性', actionability: '可行动性', context_fit: '语境契合' }
-
       function DiagnosisSection({ diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }) {
         if (!diagnosis) return null
         return h('details', { key: 'diagnosis', open: true, style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', lineHeight: 1.5 } }, [
@@ -1775,7 +2304,7 @@ window.__ModuleLoader__.load({
           ]),
           h('div', { key: 'rows', style: { marginTop: '6px', display: 'grid', gap: '3px' } }, Object.entries(DIAGNOSIS_LABELS).map(([key, label]) => h('div', { key, style: { color: C.slate } }, [
             h('strong', { key: 'l', style: { color: C.teal } }, `${label}：`),
-            diagnosis[key] || '—',
+            diagnosis[key]?.replace(/^\[(?:OK|GAP)\]\s*/i, '') || '未返回此项诊断',
           ]))),
           // 诊断闭环入口：发现自动进灵感库「知识区」暂存，用户审阅后主动决定存卡或忽略。
           // 这里只提供入口，不替用户做决定。
@@ -1839,6 +2368,7 @@ window.__ModuleLoader__.load({
             `文件引用 · @${fileMenu.query || '…'} · ↑↓ 选择，Enter 插入`,
           ]),
           fileMenu.status === 'loading' ? h('div', { key: 'loading', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '正在检索工作区文件…') : null,
+          fileMenu.truncated ? h('div', { key: 'partial', style: { padding: '6px 8px', color: C.amber, fontSize: '11px' } }, '工作区较大或部分目录不可读，当前仅显示已索引文件。') : null,
           fileMenu.status === 'empty' ? h('div', { key: 'empty', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '未匹配到文件；继续输入路径关键词，或按 Esc 关闭。') : null,
           // 等宽字体呈现路径；悬停与键盘导航共用 activeIndex，保证两者视觉一致。
           ...fileMenu.files.map((path, index) => h('button', {
@@ -1867,6 +2397,7 @@ window.__ModuleLoader__.load({
           ...templateVariables(fill.item.body).map(name => h('label', { key: name, style: { display: 'grid', gap: '3px', fontSize: '11px', color: C.slate } }, [
             `{{${name}}}`,
             h('textarea', {
+              key: 'value',
               value: fill.values[name] || '',
               onChange: event => fill.onChange(name, event.target.value),
               placeholder: `填入 ${name}（留空则保留占位符）`,
@@ -1891,13 +2422,13 @@ window.__ModuleLoader__.load({
         return h('div', { key: 'overlay-backdrop', onClick: e => { if (e.target === e.currentTarget) onClose() }, style: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '10vh', paddingBottom: '4vh', paddingLeft: '16px', paddingRight: '16px', animation: 'pk-fade .15s ease', overflowY: 'auto' } }, [
           h('div', { key: 'overlay-panel', onClick: e => e.stopPropagation(), style: { width: 'min(360px, calc(100vw - 48px))', maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: '5px', padding: '10px', boxSizing: 'border-box', borderRadius: '10px', background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 24px 68px rgba(0,0,0,0.22), 0 8px 20px rgba(0,0,0,0.12)', overflow: 'hidden' } }, [
             h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
-              h('strong', { style: { fontSize: '12.5px', fontWeight: 700 } }, '选择对话参考'),
-              h('button', { onClick: onClose, style: { border: 0, background: 'transparent', color: C.muted, fontSize: '15px', cursor: 'pointer', padding: '1px 5px' } }, '×'),
+              h('strong', { key: 'strong-0', style: { fontSize: '12.5px', fontWeight: 700 } }, '选择对话参考'),
+              h('button', { key: 'button-1', onClick: onClose, style: { border: 0, background: 'transparent', color: C.muted, fontSize: '15px', cursor: 'pointer', padding: '1px 5px' } }, '×'),
             ]),
             h('div', { key: 'toolbar', style: { display: 'flex', flexWrap: 'nowrap', gap: '5px', alignItems: 'center' } }, [
               h('button', { key: 'sel-all', onClick: onSelectAll, style: { padding: '2px 7px', border: `1px solid ${C.tealLine}`, borderRadius: '5px', background: C.surfaceAlt, color: C.teal, cursor: 'pointer', fontSize: '10.5px', fontWeight: 700 } }, `全选 (${messages.length})`),
               h('div', { key: 'recent-group', style: { display: 'inline-flex', alignItems: 'center', gap: '3px', border: `1px solid ${C.line}`, borderRadius: '5px', padding: '1px 5px', background: C.surfaceAlt } }, [
-                h('span', { style: { fontSize: '11px', color: C.muted, fontWeight: 600 } }, '最近'),
+                h('span', { key: 'span-0', style: { fontSize: '11px', color: C.muted, fontWeight: 600 } }, '最近'),
                 h('input', { key: 'recent-n', ref: recentInputRef, type: 'number', min: 1, max: messages.length, defaultValue: 3, style: { width: '32px', padding: '1px 3px', border: `1px solid ${C.line}`, borderRadius: '3px', fontSize: '11px', textAlign: 'center', background: C.surface, color: C.ink } }),
                 h('button', { key: 'sel-recent', onClick: onSelectRecent, style: { padding: '2px 6px', border: `1px solid ${C.tealLine}`, borderRadius: '4px', background: C.tealTint, color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 700 } }, '选'),
               ]),
@@ -2026,12 +2557,12 @@ window.__ModuleLoader__.load({
       }
 
       // 发送前自动增强开关：仅在宿主注入 onSubmitDraft 时展示（否则没有可靠发送通道）。
-      // fail-safe 语义在文案里说清楚：失败自动发原文，不阻塞对话。
+      // 只有增强失败才回退原文；发送失败不得自动重试。
       function AutoEnhanceToggle({ enabled, onChange }) {
         return h('label', { key: 'auto-enhance', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '8px', padding: '8px 10px', border: `1px solid ${enabled ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: enabled ? C.tealTint : C.surface, cursor: 'pointer', fontSize: '11px', color: C.slate } }, [
           h('span', { key: 'text' }, [
             h('strong', { key: 't', style: { color: enabled ? C.teal : C.slate } }, '发送前自动增强'),
-            h('div', { key: 'd', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, enabled ? '普通 Enter 发送前先改写草稿；失败自动发原文，不阻塞。' : '开启后按普通 Enter 时先增强再发送；Shift+Enter 换行不受影响。'),
+            h('div', { key: 'd', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, enabled ? '仅拦截消息框 Enter；增强失败发原文，发送失败不重试。' : '开启后按消息框 Enter 时先增强再发送；Shift+Enter 换行不受影响。'),
           ]),
           h('input', { key: 'cb', type: 'checkbox', checked: enabled, onChange: event => onChange(event.target.checked), style: { accentColor: C.teal, cursor: 'pointer', flexShrink: 0 } }),
         ])
@@ -2045,10 +2576,12 @@ window.__ModuleLoader__.load({
           ? '等待模型响应…'
           : streamState.phase === 'streaming'
             ? '正在输出优化稿…'
-            : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`
+            : streamState.phase === 'cancelled' ? '已取消，草稿未改动'
+              : streamState.phase === 'error' ? '增强失败，草稿未改动'
+                : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`
         return h('div', { key: 'stream-panel', role: 'status', 'aria-live': 'polite', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, fontSize: '11px', lineHeight: 1.5 } }, [
           h('div', { key: 'phase', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: C.teal, fontWeight: 800 } }, [
-            h('span', null, phaseText),
+            h('span', { key: 'text' }, phaseText),
             loading ? h('button', { key: 'cancel', onClick: onCancel, style: { border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '取消') : null,
           ]),
           streamState.segments.length ? h('div', { key: 'segments', style: { marginTop: '6px', display: 'grid', gap: '6px', maxHeight: '180px', overflowY: 'auto' } }, streamState.segments.map((segment, index) => h('div', { key: index, style: { padding: '6px 8px', borderRadius: '6px', background: C.surfaceAlt, color: C.slate, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, segment))) : null,
@@ -2056,13 +2589,12 @@ window.__ModuleLoader__.load({
       }
 
       // 技能引用修复提示：改写丢失草稿中的 /xxx 记号时出现；「补回」把引用还原到稿末。
-      function SkillRestoreNode({ skillRestore, onFix, onDismiss }) {
+      function SkillRestoreNode({ skillRestore, onDismiss }) {
         if (!skillRestore) return null
         return h('div', { key: 'skill-restore', role: 'status', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.amberLine}`, borderRadius: '8px', background: C.amberTint, fontSize: '11px', lineHeight: 1.5, display: 'flex', alignItems: 'center', gap: '8px' } }, [
           h(Icon, { key: 'ic', name: 'shield', size: 13, style: { color: C.amber, flexShrink: 0 } }),
-          h('span', { key: 'text', style: { flex: 1, color: C.slate } }, `改写丢失了技能引用：${skillRestore.lost.join('、')}`),
-          h('button', { key: 'fix', onClick: onFix, style: { border: 0, borderRadius: '7px', background: C.amber, color: '#fff', padding: '5px 10px', cursor: 'pointer', fontSize: '11px', fontWeight: 800, flexShrink: 0 } }, '补回'),
-          h('button', { key: 'dismiss', onClick: onDismiss, style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px', flexShrink: 0 } }, '忽略'),
+          h('span', { key: 'text', style: { flex: 1, color: C.slate } }, `已自动补回技能引用：${skillRestore.lost.join('、')}`),
+          h('button', { key: 'dismiss', onClick: onDismiss, style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px', flexShrink: 0 } }, '知道了'),
         ])
       }
 
@@ -2074,7 +2606,7 @@ window.__ModuleLoader__.load({
         methodSummaryNode, diffPreview, costNode, signalsNode,
         streamState, loading, onCancelEnhance,
         diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge,
-        skillRestore, onFixSkills, onDismissSkills,
+        skillRestore, onDismissSkills,
       }) {
         const semantic = enhancementKind === 'semantic'
         return h('details', { key: 'enhancer', open: true, style: { marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [
@@ -2101,9 +2633,9 @@ window.__ModuleLoader__.load({
           semantic
             ? h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode)
             : h('div', { key: 'summary', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [methodSummaryNode, diffPreview, costNode, signalsNode]),
-          semantic ? StreamPanel({ streamState, loading, onCancel: onCancelEnhance }) : null,
-          DiagnosisSection({ diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }),
-          SkillRestoreNode({ skillRestore, onFix: onFixSkills, onDismiss: onDismissSkills }),
+          semantic ? h(StreamPanel, { key: 'stream', streamState, loading, onCancel: onCancelEnhance }) : null,
+          h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }),
+          h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }),
         ])
       }
 
@@ -2119,13 +2651,16 @@ window.__ModuleLoader__.load({
       //   messages       (可选) [{ id, role:'user'|'assistant', text }]：当前对话，供「加对话」参考
       //   searchMemory   (可选) (query) => Promise<string>：项目记忆检索，供「加项目记忆」档位
       //   nudgeEnabled   (可选) boolean：宿主级行为助推总开关，默认 true；与 localStorage 开关为「与」关系
-      //   searchFiles    (可选) (query) => Promise<string[] | null>：工作区文件检索，供 @ 文件引用补全；
+      //   searchFiles    (可选) (query) => Promise<string[] | { files:string[], truncated?:boolean } | null>：文件引用补全；
       //                  返回 null 表示宿主未提供文件服务，@ 菜单入口自动隐藏
       //   onSubmitDraft  (可选) (text) => void | Promise：宿主「发送当前草稿」钩子；注入后启用「发送前自动增强」
       function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, searchFiles, onSubmitDraft, storagePrefix = 'promptkit.', nudgeEnabled = true }) {
         const storageKey = name => `${storagePrefix}quick-action.${name}`
         const msgs = list(messages)
         const [draft, setDraft] = React.useState(() => composer?.getDraft?.() || '')
+        const draftGuard = useDraftGuard(composer)
+        const [, refreshSelection] = React.useState(0)
+        React.useEffect(() => composer?.onSelectionChange?.(() => refreshSelection(value => value + 1)), [composer])
         React.useEffect(() => {
           setDraft(composer?.getDraft?.() || '')
           if (!composer?.onChange) return undefined
@@ -2156,68 +2691,9 @@ window.__ModuleLoader__.load({
         const [libraryFavorites, setLibraryFavorites] = React.useState([])
         const [libraryHistory, setLibraryHistory] = React.useState([])
         const [vaultOpen, setVaultOpen] = React.useState(false)
-        // 抽屉与插件根已抬升到宿主浮层之上（zIndex 20001/20002），「关闭 ×」按钮必然露在最上层、始终可点，
-        // 不再需要「被遮挡时自动左移」的运行时检测（此前那套 elementFromPoint 轮询既脆弱又拖性能）。
+        const rootRef = React.useRef(null)
         const panelRef = React.useRef(null)
-        const closeBtnRef = React.useRef(null)
-        // DSH 宿主可能在某层 DOM 上 stopPropagation / 拦截 click/pointerdown，导致 React 合成 onClick 收不到。
-        // 在 window 捕获阶段挂原生监听：
-        //   1) 命中关闭按钮时交给按钮自身的原生手势隔离器处理；
-        //   2) 抽屉打开时点在插件根（FAB/主面板/抽屉）之外 -> 关抽屉（按钮被物理遮挡时的第二条出路）。
-        React.useEffect(() => {
-          const close = (event) => {
-            const btn = closeBtnRef.current
-            if (btn && (event.target === btn || btn.contains(event.target))) {
-              return
-            }
-            if (event.type === 'pointerdown' && vaultOpen) {
-              const root = rootRef.current
-              // rootRef 尚未挂载（理论不可能）或点击就在插件自身 UI 内 -> 不处理
-              if (root && !root.contains(event.target)) setVaultOpen(false)
-            }
-          }
-          window.addEventListener('click', close, { capture: true })
-          window.addEventListener('pointerdown', close, { capture: true })
-          return () => {
-            window.removeEventListener('click', close, { capture: true })
-            window.removeEventListener('pointerdown', close, { capture: true })
-          }
-        }, [vaultOpen])
-        // 关闭按钮的整段手势必须在按钮节点消耗：pointerdown/pointerup/click 都不能冒泡到
-        // DSH 的会话层。真正卸载抽屉延到 click 派发完的一帧后，避免 click 落到下层控件。
-        React.useEffect(() => {
-          if (!vaultOpen) return undefined
-          const button = closeBtnRef.current
-          if (!button) return undefined
-          const consume = event => {
-            event.preventDefault()
-            event.stopPropagation()
-            event.stopImmediatePropagation?.()
-          }
-          const closeAfterGesture = event => {
-            consume(event)
-            const schedule = window.requestAnimationFrame || (callback => setTimeout(callback, 0))
-            schedule(() => {
-              // DSH 的外层捕获监听可能已在本次手势中把主面板标为关闭。
-              // 关闭抽屉的语义必须保持主面板打开，因此在手势结束后显式恢复该状态。
-              setVaultOpen(false)
-              setOpen(true)
-            })
-          }
-          // DSH 不同版本分别使用 pointer 与 mouse 事件做外部点击判定，两个序列都隔离。
-          button.addEventListener('pointerdown', consume, true)
-          button.addEventListener('pointerup', consume, true)
-          button.addEventListener('mousedown', consume, true)
-          button.addEventListener('mouseup', consume, true)
-          button.addEventListener('click', closeAfterGesture, true)
-          return () => {
-            button.removeEventListener('pointerdown', consume, true)
-            button.removeEventListener('pointerup', consume, true)
-            button.removeEventListener('mousedown', consume, true)
-            button.removeEventListener('mouseup', consume, true)
-            button.removeEventListener('click', closeAfterGesture, true)
-          }
-        }, [vaultOpen])
+        const { closeBtnRef } = usePanelDismiss({ open, vaultOpen, setOpen, setVaultOpen, rootRef, panelRef })
         const [vaultItems, setVaultItems] = React.useState([])
         const [vaultSearch, setVaultSearch] = React.useState('')
         // 搜索防抖：斜杠菜单（slashMatches）保持即时过滤，灵感库面板用防抖值避免大数据集逐键重算。
@@ -2240,29 +2716,16 @@ window.__ModuleLoader__.load({
         // ── 语义增强强度档位（低=润色 / 中=标准 / 高=充分展开），仅语义档生效 ──
         const [enhanceStrength, setEnhanceStrength] = React.useState(() => { try { return window.localStorage.getItem(storageKey('enhance.strength.v1')) || 'mid' } catch { return 'mid' } })
         React.useEffect(() => { try { window.localStorage.setItem(storageKey('enhance.strength.v1'), enhanceStrength) } catch {} }, [enhanceStrength])
-        // ── 五维诊断结果（concept_clarity/hidden_premise/falsifiability/actionability/context_fit）──
-        const [enhanceDiagnosis, setEnhanceDiagnosis] = React.useState(null)
         // ── 诊断闭环（知识区）：发现 → 知识区暂存 → 用户主动决定 → Vault 思考卡 ──
         // 状态与持久化在 use-knowledge-inbox.js；这里只接出入口，主组件保留
         // promote（写 Vault 假设卡）的编排，因为它依赖 saveToVault 之外的 Vault 查重。
         const knowledge = useKnowledgeInbox({ storageKey, notice: setNotice, vaultItems })
         const knowledgeInbox = knowledge.entries
-        // 草稿指纹（前 120 字符）：跨次增强查重，同一草稿的同一缺口不重复入区/建卡。
-        const [diagnosisDraftFingerprint, setDiagnosisDraftFingerprint] = React.useState('')
-        // ── 流式预览：增强产出逐段上屏，应用前不落草稿 ──
-        const [streamState, setStreamState] = React.useState(null) // null | { phase:'waiting'|'streaming'|'done', segments:[], elapsedMs }
-        const streamStartRef = React.useRef(0)
         // ── 发送前自动增强（需宿主注入 onSubmitDraft 才可用）；持久化开关 ──
         const [autoEnhanceEnabled, setAutoEnhanceEnabled] = React.useState(() => { try { return window.localStorage.getItem(storageKey('auto-enhance.enabled.v1')) === 'true' } catch { return false } })
         React.useEffect(() => { try { window.localStorage.setItem(storageKey('auto-enhance.enabled.v1'), String(autoEnhanceEnabled)) } catch {} }, [autoEnhanceEnabled])
-        const [autoEnhanceBusy, setAutoEnhanceBusy] = React.useState(false)
-        // ── @ 文件引用补全菜单 ──
-        const [fileMenu, setFileMenu] = React.useState(null) // null | { query, files, status:'loading'|'ready'|'empty'|'unavailable', activeIndex }
-        const fileMenuRequestId = React.useRef(0)
         // ── 模板变量填充（Vault 条目含 {{var}} 时弹出补值面板）──
         const [variableFill, setVariableFill] = React.useState(null) // null | { item, values:{} }
-        // ── 技能引用修复提示：改写丢失 /xxx 时给出「补回」操作 ──
-        const [skillRestore, setSkillRestore] = React.useState(null) // null | { lost:[], restored:text }
         const {
           vaultTitle, setVaultTitle, vaultTags, setVaultTags, vaultNote, setVaultNote, vaultBody, setVaultBody,
           vaultProject, setVaultProject, vaultParentId, setVaultParentId, vaultEditingId, setVaultEditingId,
@@ -2280,11 +2743,11 @@ window.__ModuleLoader__.load({
         const [metricsEnabled, setMetricsEnabled] = React.useState(() => { try { return window.localStorage.getItem(storageKey('metrics.enabled.v1')) === 'true' } catch { return false } })
         const [metrics, setMetrics] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('metrics.v1')) || '{}') } catch { return {} } })
         // ── 极简模式（首次体验优先）：新用户默认极简态，深度功能折叠进「展开全部」──
-        // 判定：本地增强计数 metrics.total < 3 时视为新用户（三次成功增强后自动切完整模式）；
+        // 独立保存前三次成功增强的体验进度，不依赖用户是否开启详细统计。
         // 用户也可在设置里手动锁定模式。默认极简只露出：草稿状态 + 增强主按钮 + 结果。
-        const [displayModePref, setDisplayModePref] = React.useState(() => window.localStorage.getItem(storageKey('display-mode.v1')) || 'auto')
-        const totalEnhanceCount = Number(metrics.total || 0)
-        const simpleMode = displayModePref === 'simple' || (displayModePref === 'auto' && totalEnhanceCount < 3)
+        const [displayModePref, setDisplayModePref] = React.useState(() => { try { return window.localStorage.getItem(storageKey('display-mode.v1')) || 'auto' } catch { return 'auto' } })
+        const onboarding = useOnboardingProgress(storageKey)
+        const simpleMode = displayModePref === 'simple' || (displayModePref === 'auto' && !onboarding.completed)
         const setDisplayMode = value => {
           setDisplayModePref(value)
           try { window.localStorage.setItem(storageKey('display-mode.v1'), value) } catch {}
@@ -2325,9 +2788,7 @@ window.__ModuleLoader__.load({
         const isNudgeOptedOut = type => { try { const raw = JSON.parse(window.localStorage.getItem(nudgeOptoutKey(type)) || 'null'); return !!raw && typeof raw.until === 'number' && raw.until > Date.now() } catch { return false } }
         const setNudgeOptout = type => { try { window.localStorage.setItem(nudgeOptoutKey(type), JSON.stringify({ until: Date.now() + NUDGE_OPTOUT_DAYS * 864e5 })) } catch {} }
         const { position, viewport, onPointerDown: beginDrag, consumeSuppressedClick } = useFloatingLauncher(storageKey('position.v1'))
-        const rootRef = React.useRef(null)
-        const openPanel = () => setOpen(value => !value)
-        React.useEffect(() => { if (!open) enhancer?.cancel() }, [open, enhancer])
+        React.useEffect(() => { if (!open) cancelEnhance({ silent: true }) }, [open, enhancer])
         React.useEffect(() => { if (!enhancer && enhancementKind === 'semantic') setEnhancementKind('light') }, [enhancer, enhancementKind])
         React.useEffect(() => { if (mode === 'library' && !libraryOpen) setLibraryOpen(true) }, [mode, libraryOpen])
         // 表单默认收起，由用户主动点「+ 新建」展开；仅在「保存草稿到 Vault」时自动打开（line 284）
@@ -2353,129 +2814,40 @@ window.__ModuleLoader__.load({
           if (!assetProvider || !match) { setSlashOpen(false); return }
           setVaultSearch(String(match[1] ?? match[2] ?? '').trim()); setSlashActiveIndex(0); setSlashOpen(true)
         }, [draft, assetProvider])
-        // ── @ 文件引用补全：光标前的 @word 触发；检索经 searchFiles（宿主注入）──
-        const detectFileQuery = text => {
-          // 取最后一个非空白字符段：以 @ 开头则视为文件引用输入中（排除粘贴保护标记 \u2060）。
-          const tail = String(text || '').match(/(^|\s)@([^\s@]*)$/)
-          return tail ? tail[2] : null
-        }
-        React.useEffect(() => {
-          if (!searchFiles) { setFileMenu(null); return undefined }
-          const query = detectFileQuery(draft)
-          if (query == null) { setFileMenu(null); return undefined }
-          const requestId = ++fileMenuRequestId.current
-          setFileMenu(prev => ({ query, files: prev?.query === query ? prev.files : [], status: 'loading', activeIndex: 0 }))
-          let alive = true
-          const timer = setTimeout(() => {
-            Promise.resolve(searchFiles(query)).then(files => {
-              if (!alive || fileMenuRequestId.current !== requestId) return
-              if (files === null || files === undefined) setFileMenu(null) // 宿主未提供文件服务
-              else setFileMenu({ query, files: list(files), status: files.length ? 'ready' : 'empty', activeIndex: 0 })
-            }).catch(() => { if (alive && fileMenuRequestId.current === requestId) setFileMenu(null) })
-          }, 140) // 防抖：避免逐键打 @ 时高频请求
-          return () => { alive = false; clearTimeout(timer) }
-        }, [draft, searchFiles])
-        const insertFileMention = path => {
-          const current = String(draft || '')
-          const next = current.replace(/(^|\s)@[^\s@]*$/, (prefix => `${prefix}@${path} `))
-          composer?.write(next)
-          setFileMenu(null)
-          setNotice(`已插入 @${path}；发送后由 DSH @file 读取该文件。`)
-        }
-        // @ 菜单键盘导航：window 捕获阶段吞键，防止 DSH 把 Enter 解释为发送。
-        React.useEffect(() => {
-          if (!fileMenu) return undefined
-          const onKeydown = event => {
-            const consume = () => { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.() }
-            if (event.key === 'Escape') { consume(); setFileMenu(null); return }
-            if (event.key === 'ArrowDown') { consume(); setFileMenu(menu => menu ? { ...menu, activeIndex: Math.min(menu.files.length - 1, menu.activeIndex + 1) } : menu); return }
-            if (event.key === 'ArrowUp') { consume(); setFileMenu(menu => menu ? { ...menu, activeIndex: Math.max(0, menu.activeIndex - 1) } : menu); return }
-            if (event.key === 'Enter' && fileMenu.files[fileMenu.activeIndex]) { consume(); insertFileMention(fileMenu.files[fileMenu.activeIndex]) }
-          }
-          window.addEventListener('keydown', onKeydown, true)
-          return () => window.removeEventListener('keydown', onKeydown, true)
-        }, [fileMenu, composer])
-        // ── 发送前自动增强（fail-safe）──────
-        // 仅当：宿主注入了 onSubmitDraft（能完成「发送」这个动作）、开关开启、enhancer 可用。
-        // 拦截的是普通 Enter（无修饰键、非 IME 组合）；判定不成立一律放行原生流程，绝不吞发送。
-        // 自动增强失败/超时/取消 → 调 onSubmitDraft 发送原文，对话不中断。
-        const autoEnhanceRef = React.useRef({ enabled: false, draft: '', busy: false })
-        autoEnhanceRef.current = { enabled: autoEnhanceEnabled && Boolean(onSubmitDraft) && Boolean(enhancer), draft, busy: autoEnhanceBusy || loading }
-        React.useEffect(() => {
-          if (!onSubmitDraft) return undefined
-          const onKeydown = event => {
-            const guard = autoEnhanceRef.current
-            if (!shouldInterceptSend({ event, draft: guard.draft, enabled: guard.enabled }) || guard.busy) return
-            const original = guard.draft
-            // 捕获阶段先于 React/宿主根处理器；放行路径（未命中守卫）零影响。
-            event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.()
-            setAutoEnhanceBusy(true)
-            setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
-            streamStartRef.current = Date.now()
-            ;(async () => {
-              try {
-                const body = await enhancer.enhance({ draft: original, lang: detectLanguage(original), kind: 'semantic', strength: enhanceStrength, hasContext: false })
-                const repaired = restoreLostSkillMentions(original, body.prompt)
-                await onSubmitDraft(repaired || body.prompt)
-                setNotice(`发送前已自动增强${body.model ? `（${body.model}）` : ''}。`)
-              } catch (error) {
-                if (error?.name === 'AbortError') { setNotice('自动增强已取消，原文未发送；可手动发送或重试。'); return }
-                // fail-safe：增强失败不阻塞发送，原文照发。
-                await onSubmitDraft(original)
-                setWarn(`自动增强失败（${String(error?.message || error)}），已发送原文。`)
-              } finally {
-                setAutoEnhanceBusy(false)
-                setStreamState(null)
-              }
-            })()
-          }
-          window.addEventListener('keydown', onKeydown, true)
-          return () => window.removeEventListener('keydown', onKeydown, true)
-        }, [onSubmitDraft, enhancer, enhanceStrength])
+        const { fileMenu, setFileMenu, insertFileMention } = useFileCompletion({ draft, searchFiles, composer, setNotice })
         React.useEffect(() => {
           if (!open || methods.length) return
           setLoading(true)
           methodProvider.list().then(value => setMethods(list(value))).catch(error => setError(String(error?.message || error))).finally(() => setLoading(false))
         }, [open, methods.length, methodProvider])
+        const keyboardRef = React.useRef(null)
         React.useEffect(() => {
           const onKeydown = event => {
-            // Escape 层级化关闭：复盘弹层 -> 灵感库抽屉 -> 主面板，一层一层退。
-            // 复盘层的 Escape 在其自身 effect 中处理（带捕获吞事件），此处兜底抽屉与主面板。
+            if (event.isComposing || event.keyCode === 229) return
             if (event.key === 'Escape') {
               if (vaultOpen) { event.preventDefault(); setVaultOpen(false); return }
-              if (open) { event.preventDefault(); setOpen(false); return }
+              if (open) { event.preventDefault(); setOpen(false) }
               return
             }
             if (!(event.metaKey || event.ctrlKey)) return
-            // 普通 Enter 在 textarea 内天然换行：Enter 提交分支位于 meta/ctrl 守卫之后，
-            // 只有 ⌘/Ctrl+Enter 才会走到这里；再限定焦点在面板内，避免与宿主主输入框
-            // 的 ⌘Enter 发送快捷键冲突。
-            const insidePanel = rootRef.current?.contains(event.target)
+            if (event.key.toLowerCase() === 'k') { event.preventDefault(); setOpen(value => !value); return }
+            const current = keyboardRef.current
+            if (!open || !rootRef.current?.contains(event.target) || current.loading) return
             const index = Number(event.key) - 1
-            if (Number.isInteger(index) && index >= 0 && index < autoMethods.length) {
+            if (Number.isInteger(index) && index >= 0 && index < current.autoMethods.length) {
               event.preventDefault()
-              setEnhancementMethodId(autoMethods[index].id)
-              if (open && mode === 'enhance') void enhanceIntoInput()
-              else { setMode('enhance'); setOpen(true) }
-              return
+              const methodOverride = current.autoMethods[index]
+              setEnhancementMethodId(methodOverride.id)
+              setMode('enhance')
+              void current.enhanceIntoInput({ methodOverride })
+            } else if (event.key === 'Enter') {
+              event.preventDefault()
+              if (current.mode === 'enhance') void current.enhanceIntoInput()
+              else { const choice = current.methods.find(method => method.id === current.selectedMethodId); if (choice) void current.composeIntoInput(choice) }
             }
-            if (event.key === 'Enter' && open && insidePanel) { event.preventDefault(); if (mode === 'enhance') enhanceIntoInput(); else { const choice = methods.find(method => method.id === selectedMethodId); if (choice) void composeIntoInput(choice) }; return }
-            if (event.key.toLowerCase() !== 'k') return
-            event.preventDefault()
-            openPanel()
           }
           window.addEventListener('keydown', onKeydown)
           return () => window.removeEventListener('keydown', onKeydown)
-        }, [msgs.length, selected.length, open, vaultOpen, methods, selectedMethodId, requirement, useConversationContext, useMemoryContext, mode])
-        React.useEffect(() => {
-          if (!open) return
-          const onPointerDown = event => {
-            if (!rootRef.current?.contains(event.target)) setOpen(false)
-          }
-          // 抽屉打开时点外部只关抽屉（由上方捕获 handler 负责），主面板保留，避免一次点击关两层。
-          if (vaultOpen) return undefined
-          window.addEventListener('pointerdown', onPointerDown)
-          return () => window.removeEventListener('pointerdown', onPointerDown)
         }, [open, vaultOpen])
         React.useEffect(() => {
           if (!slashOpen) return undefined
@@ -2509,7 +2881,8 @@ window.__ModuleLoader__.load({
         const contextText = () => activeMessages.map(item => `${item.role === 'user' ? '用户' : '助手'}：${cleanContext(item.text)}`).join('\n').slice(0, 2400)
         const selectedContextText = useConversationContext ? contextText() : ''
         const referencedFiles = fileMentions(draft)
-        const autoMethods = recommendMethods(methods, [draft, requirement, selectedContextText].filter(Boolean).join('\n'))
+        const enhancementInput = composer?.getSelection?.()?.text || draft
+        const autoMethods = recommendMethods(methods, [enhancementInput, requirement, selectedContextText].filter(Boolean).join('\n'))
         const matchedMethod = methods.find(method => method.id === enhancementMethodId) || autoMethods[0]
         // 异步记忆检索的代际守卫：返回时若 query 已变化则丢弃过期结果，避免旧摘要覆盖新输入。
         const memoryRequestId = React.useRef(0)
@@ -2879,6 +3252,7 @@ window.__ModuleLoader__.load({
           const source = useConversationContext ? activeMessages : []
           if (!canCompose) { setWarn('请输入本次要求或问题；也可以选择一条用户消息作为问题。'); return }
           setLoading(true)
+          const snapshot = draftGuard.capture()
           try {
             const conversationDraft = selectedConversationDraft(source)
             const explicitRequirement = requirement.trim()
@@ -2890,9 +3264,8 @@ window.__ModuleLoader__.load({
               if (remembered) facts = [facts, `项目记忆：${remembered}`].filter(Boolean).join('\n')
             }
             const composed = await methodProvider.compose({ methodId: choice.id, question, facts, constraints: conversationDraft.constraints, options: conversationDraft.options })
-            const next = withPrefix(draft, composed.prompt)
-            setUndoDraft({ before: draft, after: next })
-            composer.write(next)
+            const next = draftGuard.commit(snapshot, withPrefix(snapshot.before, composed.prompt))
+            setUndoDraft({ before: snapshot.before, after: next })
             rememberMethod(choice, question)
             // 用法计数与最近方法：本地持久化，驱动「常用 3 个」排序与方法收集进度。
             setMethodUsage(value => {
@@ -2913,10 +3286,11 @@ window.__ModuleLoader__.load({
         const fillLibraryTemplate = async () => {
           if (!libraryMethod) return
           setLoading(true)
+          const snapshot = draftGuard.capture()
           try {
             const template = await methodProvider.getTemplate(libraryMethod.id)
-            setUndoDraft({ before: draft, after: template.prompt })
-            composer?.write(template.prompt)
+            const after = draftGuard.commit(snapshot, template.prompt)
+            setUndoDraft({ before: snapshot.before, after })
             rememberMethod(libraryMethod, draft)
             setNotice(`已将「${libraryMethod.title}」模板填入消息框。`)
             setOpen(false)
@@ -2929,11 +3303,15 @@ window.__ModuleLoader__.load({
           if (source.length > 3000) { setWarn(`草稿过长（${source.length} 字符），建议精简到 3000 字符以内再改造。`); return }
           if (!enhancer) { setError('未注入语义增强模型（enhancer），无法基于草稿改造。'); return }
           setLoading(true)
+          const snapshot = draftGuard.capture()
           try {
             const template = await methodProvider.getTemplate(libraryMethod.id)
+            draftGuard.assertCurrent(snapshot)
             const body = await enhancer.enhance({ draft, extra: requirement, lang: detectLanguage(draft), kind: 'semantic', method: { title: libraryMethod.title, template: template.prompt } })
-            setUndoDraft({ before: draft, after: body.prompt })
-            composer?.write(body.prompt)
+            if (typeof body?.prompt !== 'string' || !body.prompt.trim()) throw new Error('模型未返回有效正文，草稿未改动。')
+            const after = draftGuard.commit(snapshot, restoreLostSkillMentions(snapshot.before, body.prompt) || body.prompt)
+            setUndoDraft({ before: snapshot.before, after })
+            onboarding.recordSuccess()
             rememberMethod(libraryMethod, draft)
             setNotice(`已按「${libraryMethod.title}」用模型改造草稿，可在此撤销或对比原稿。`)
             setOpen(false)
@@ -2944,154 +3322,36 @@ window.__ModuleLoader__.load({
           }
           finally { setLoading(false) }
         }
-        const cancelEnhance = () => { setNotice('正在取消语义增强…'); enhancer?.cancel() }
-        // ── 增强主流程：把改写结果写入消息框（绝不自动发送）──────
-        // 入口分流：/import 卡片导入 → 语义档（模型改写）→ 轻量档（本地零 Token）。
-        const enhanceIntoInput = async () => {
-          setMemoryReceipt(null)
-          const source = draft.trim()
-          if (!source) { setWarn('请先在输入框中写入原始请求。'); return }
-          // 分流 1：/import 命令或 Obsidian 卡片格式 → 走私有方法导入而非增强。
-          const importSource = source.replace(/^\/import\b\s*/i, '')
-          if (/^\/import\b/i.test(source) || /^(?:---\n[\s\S]*?\n---\n)?#\s+[^\n]+[\s\S]*?## Prompt\s*\n/.test(source)) {
-            if (await importCard(importSource)) composer?.write('')
-            return
-          }
-          // 有选区时只增强选中的片段；否则整条草稿。
-          const selection = composer.getSelection?.()
-          const original = selection?.text || draft
-          if (original.trim().length > 3000) { setWarn(`草稿过长（${original.trim().length} 字符），建议精简到 3000 字符以内再增强。`); return }
-          const applyEnhanced = text => {
-            if (selection?.text && composer.replaceSelection) {
-              composer.replaceSelection(text, selection)
-              return `${selection.draft.slice(0, selection.start)}${text}${selection.draft.slice(selection.end)}`
-            }
-            composer?.write(text)
-            return text
-          }
-          // 分流 2：语义档 —— 模型改写（流式优先、五维诊断、知识区入区、技能引用修复）。
-          if (enhancementKind === 'semantic') {
-            if (!enhancer) { setNotice('未注入语义增强模型（enhancer），仅支持轻量增强。'); return }
-            setLoading(true)
-            setEnhanceDiagnosis(null)
-            setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
-            streamStartRef.current = Date.now()
-            try {
-              // 组装增强上下文：补充要求 + 对话参考 + 思考卡（待验证内容会被指令降权）+ @文件说明。
-              const contextAssets = vaultItems.filter(item => assetContextIds.includes(item.id))
-              const assetContextText = contextAssets.length ? [
-                '思考卡上下文（请区分事实、推断和待验证假设；不要把待核实或已被推翻的内容表述为事实或结论）：',
-                ...contextAssets.map((item, index) => [
-                  `[${index + 1}] ${item.title}`,
-                  `类型：${item.thinkingKind || 'conclusion'}；认识状态：${item.epistemicStatus || 'inferred'}${item.verification ? `；验证结果：${item.verification.status}` : ''}`,
-                  item.verification?.evidence ? `验证证据：${item.verification.evidence}` : '',
-                  item.rationale ? `为什么重要：${item.rationale}` : '',
-                  item.nextAction ? `下一步：${item.nextAction}` : '',
-                  `内容：${item.body}`,
-                ].filter(Boolean).join('\n')),
-              ].join('\n\n') : ''
-              let extra = [
-                requirement.trim(),
-                selectedContextText ? `对话参考：\n${selectedContextText}` : '',
-                assetContextText,
-                // @文件引用只传路径清单：内容由 DSH @file 在发送后读取，改写不得编造其内容。
-                referencedFiles.length
-                  ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。`
-                  : '',
-              ].filter(Boolean).join('\n\n')
-              let remembered = ''
-              if (useMemoryContext && searchMemory) {
-                remembered = memoryPreview.status === 'ready' && memoryPreview.query === original ? memoryPreview.text : await loadMemory(original)
-                if (remembered) extra = [extra, `项目记忆：${remembered}`].filter(Boolean).join('\n\n')
-              }
-              const template = matchedMethod ? await methodProvider.getTemplate(matchedMethod.id) : null
-              const methodPayload = matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined
-              // hasContext 驱动 host 的双策略：有上下文 → 提炼意图顺势润色；无 → 结构模板。
-              const enhanceOptions = {
-                draft: original,
-                extra,
-                lang: detectLanguage(original),
-                kind: 'semantic',
-                strength: enhanceStrength,
-                hasContext: Boolean(selectedContextText || remembered || assetContextText),
-                method: methodPayload,
-              }
-              // 流式优先：enhancer.enhanceStream 可用时逐段上屏；宿主未实现（旧 glue/纯浏览器
-              // adapter）自动退回 enhancer.enhance，行为与非流式完全一致。
-              let body = null
-              if (typeof enhancer.enhanceStream === 'function') {
-                try {
-                  let rawText = ''
-                  body = await enhancer.enhanceStream({ ...enhanceOptions, onDelta: delta => {
-                    rawText += String(delta || '')
-                    // 诊断行先于正文到达：流式期间增量解析 [DIAG]，诊断卡先亮起来；
-                    // 预览段过滤 [DIAG]/===PROMPT=== 标记行，只上屏真正的改写内容。
-                    const partial = parseEnhanceOutput(rawText)
-                    if (partial.diagnosis) setEnhanceDiagnosis(partial.diagnosis)
-                    setStreamState(prev => prev ? { ...prev, phase: 'streaming', segments: splitOutputSegments(partial.prompt) } : prev)
-                  } })
-                } catch (streamError) {
-                  if (streamError?.name === 'AbortError') throw streamError
-                  body = null // 流式链路异常退回非流式；错误在非流式分支统一处理
-                }
-              }
-              if (!body) body = await enhancer.enhance(enhanceOptions)
-              setEnhanceDiagnosis(body.diagnosis || null)
-              // 诊断闭环第 1 步：认识缺口自动入「知识区」暂存（不是存卡！）。
-              // 用户稍后在知识区里逐条审阅，主动决定存为假设卡或忽略。
-              if (body.diagnosis) {
-                enqueueDiagnosisFindings(body.diagnosis, String(original || '').trim().slice(0, 120), matchedMethod?.title || '')
-              }
-              // 技能引用修复：草稿里的 /xxx 记号在改写中丢失时，原样补回末尾而不是静默消失。
-              const repaired = restoreLostSkillMentions(original, body.prompt)
-              if (repaired) {
-                setSkillRestore({
-                  lost: skillMentions(original).filter(name => !skillMentions(body.prompt).includes(name)),
-                  restored: repaired,
-                })
-              }
-              const after = applyEnhanced(repaired || body.prompt)
-              setUndoDraft({ before: selection?.draft || original, after })
-              rememberMethod(matchedMethod, original)
-              recordUsage({ kind: 'semantic', method: matchedMethod?.title })
-              setLastEnhancement({ kind: 'semantic', method: matchedMethod?.title })
-              setMemoryReceipt(useMemoryContext ? { used: Boolean(remembered), text: remembered, sources: memoryPreview.query === original ? memoryPreview.sources : [] } : null)
-              setAssetContextReceipt(contextAssets.length ? { ids: contextAssets.map(item => item.id), titles: contextAssets.map(item => item.title) } : null)
-              setOutcomePending({ kind: 'semantic', method: matchedMethod?.title })
-              if (matchedMethod) {
-                setMethodUsage(value => {
-                  const nextUsage = { ...value, [matchedMethod.id]: Number(value[matchedMethod.id] || 0) + 1 }
-                  try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}
-                  return nextUsage
-                })
-              }
-              pushNudges([
-                matchedMethod ? { type: 'awaken', methodId: matchedMethod.id, methodTitle: matchedMethod.title } : null,
-                { type: 'vault', methodId: matchedMethod?.id, methodTitle: matchedMethod?.title, body: after, draftTitle: deriveVaultTitle(original, matchedMethod) }
-              ])
-              setNotice(`语义增强完成${body.model ? `（${body.model}）` : ''}；${selection?.text ? '选中片段' : '草稿'}已替换，可在此撤销或对比原稿。`)
-            } catch (error) {
-              if (error?.name === 'AbortError') setNotice('已取消语义增强，草稿未改动。')
-              else if (error?.timeout) setError(`${error.message}（可稍后重试）`)
-              else setError(String(error?.message || error))
-            }
-            finally {
-              setLoading(false)
-              setStreamState(prev => prev ? { ...prev, phase: 'done', elapsedMs: Date.now() - streamStartRef.current } : null)
-            }
-            return
-          }
-          // 分流 3：轻量档 —— 本地规则模板整形，零 Token、零模型调用。
-          const plan = enhancementPlan
-          if (plan.tooShort) { setNotice('输入过短，未做增强，可直接发送。'); return }
-          const after = applyEnhanced(plan.prompt)
-          setUndoDraft({ before: selection?.draft || original, after })
-          rememberMethod(matchedMethod, original)
-          recordUsage({ kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
-          setLastEnhancement({ kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
-          setOutcomePending({ kind: plan.method ? 'lightMethod' : 'lightGeneric', method: plan.method })
-          setNotice(plan.method ? `已采用「${plan.label || plan.method}」做保守增强${selection?.text ? '并替换选中片段' : ''}，可检查后直接发送。` : '已做最小化提示词整理，可检查后直接发送。')
-        }
+        const { enhanceIntoInput, cancelEnhance, enhanceDiagnosis, diagnosisMethod, streamState, setStreamState, skillRestore, setSkillRestore } = useEnhancementFlow({
+          composer, enhancer, draft, draftGuard, importCard, setLoading,
+          config: { enhancementKind, enhanceStrength, requirement, matchedMethod, selectedContextText, referencedFiles, useMemoryContext },
+          context: { vaultItems, assetContextIds, memoryPreview, searchMemory, loadMemory, methodProvider },
+          getPlan: (text, method) => createEnhancementPlan(text, method),
+          notice: { setNotice, setWarn, setError, setMemoryReceipt },
+          onDiagnosis: (...args) => enqueueDiagnosisFindings(...args),
+          onApplied: ({ original, after, selection, matchedMethod, kind, method, remembered, contextAssets }) => {
+            onboarding.recordSuccess()
+            setUndoDraft({ before: selection?.draft || original, after })
+            rememberMethod(matchedMethod, original)
+            recordUsage({ kind, method })
+            setLastEnhancement({ kind, method })
+            setOutcomePending({ kind, method })
+            if (kind !== 'semantic') return
+            setMemoryReceipt(useMemoryContext ? { used: Boolean(remembered), text: remembered, sources: memoryPreview.query === original ? memoryPreview.sources : [] } : null)
+            setAssetContextReceipt(contextAssets.length ? { ids: contextAssets.map(item => item.id), titles: contextAssets.map(item => item.title) } : null)
+            if (matchedMethod) setMethodUsage(value => {
+              const nextUsage = { ...value, [matchedMethod.id]: Number(value[matchedMethod.id] || 0) + 1 }
+              try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}
+              return nextUsage
+            })
+            pushNudges([
+              matchedMethod ? { type: 'awaken', methodId: matchedMethod.id, methodTitle: matchedMethod.title } : null,
+              { type: 'vault', methodId: matchedMethod?.id, methodTitle: matchedMethod?.title, body: after, draftTitle: deriveVaultTitle(original, matchedMethod) }
+            ])
+          },
+        })
+        keyboardRef.current = { enhanceIntoInput, composeIntoInput, autoMethods, mode, methods, selectedMethodId, loading }
+        useAutoEnhance({ enabled: autoEnhanceEnabled, composer, enhancer, onSubmitDraft, strength: enhanceStrength, draftGuard, loading, setLoading, setStreamState, setNotice, setWarn, setError })
         const common = ['苏格拉底式提问', '第一性原理', '双向钢人论证'].map(title => methodChoice(methods, title)).filter(Boolean)
         const recommended = autoMethods
         const recentMethods = recentMethodIds.map(id => methods.find(method => method.id === id)).filter(Boolean)
@@ -3170,7 +3430,7 @@ window.__ModuleLoader__.load({
           vaultGraphFocusId ? graphPanel : graphOverview,
         ])
         // 知识区 tab 的渲染已拆至 quick-enhancer/knowledge-tab.js（KnowledgeTab）。
-        const reviewPanel = reviewOpen ? h('section', { role: 'dialog', 'aria-label': '对话复盘', style: { position: 'fixed', top: '12%', left: '50%', transform: 'translateX(-50%)', width: 'min(540px, calc(100vw - 32px))', maxHeight: '76vh', overflowY: 'auto', padding: '16px', boxSizing: 'border-box', border: `1px solid ${C.tealLine}`, borderRadius: '14px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20003 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between' } }, [h('div', { key: 'title' }, [h('strong', { style: { fontSize: '16px' } }, '对话收束'), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '11px' } }, '确认后才会生成并关联思考卡。')]), h('button', { onClick: () => setReviewOpen(false), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer' } }, '关闭 ×')]), ...reviewCards.map(card => h('label', { key: card.id, style: { display: 'grid', gridTemplateColumns: '18px 1fr', gap: '8px', marginTop: '9px', padding: '8px', border: `1px solid ${card.checked ? C.tealLine : C.line}`, borderRadius: '8px', background: card.checked ? C.tealTint : C.surface, cursor: 'pointer' } }, [h('input', { type: 'checkbox', checked: card.checked, onChange: () => setReviewCards(cards => cards.map(item => item.id === card.id ? { ...item, checked: !item.checked } : item)), style: { accentColor: C.teal } }), h('div', null, [h('strong', { style: { fontSize: '12px' } }, card.title), h('div', { style: { marginTop: '3px', color: C.muted, fontSize: '10px' } }, `${thinkingLabel[card.thinkingKind]} · ${epistemicLabel[card.epistemicStatus]}`), h('div', { style: { marginTop: '3px', color: C.slate, fontSize: '11px', whiteSpace: 'pre-wrap' } }, card.body)])])), h('button', { key: 'save', onClick: saveConversationReview, style: { ...workbenchStyle.actionPrimary, width: '100%', marginTop: '12px' } }, '确认并沉淀为思考卡')]) : null
+        const reviewPanel = reviewOpen ? h('section', { role: 'dialog', 'aria-label': '对话复盘', style: { position: 'fixed', top: '12%', left: '50%', transform: 'translateX(-50%)', width: 'min(540px, calc(100vw - 32px))', maxHeight: '76vh', overflowY: 'auto', padding: '16px', boxSizing: 'border-box', border: `1px solid ${C.tealLine}`, borderRadius: '14px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20003 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between' } }, [h('div', { key: 'title' }, [h('strong', { key: 'strong-0', style: { fontSize: '16px' } }, '对话收束'), h('div', { key: 'div-1', style: { marginTop: '3px', color: C.muted, fontSize: '11px' } }, '确认后才会生成并关联思考卡。')]), h('button', { key: 'button-1', onClick: () => setReviewOpen(false), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer' } }, '关闭 ×')]), ...reviewCards.map(card => h('label', { key: card.id, style: { display: 'grid', gridTemplateColumns: '18px 1fr', gap: '8px', marginTop: '9px', padding: '8px', border: `1px solid ${card.checked ? C.tealLine : C.line}`, borderRadius: '8px', background: card.checked ? C.tealTint : C.surface, cursor: 'pointer' } }, [h('input', { key: 'input-0', type: 'checkbox', checked: card.checked, onChange: () => setReviewCards(cards => cards.map(item => item.id === card.id ? { ...item, checked: !item.checked } : item)), style: { accentColor: C.teal } }), h('div', { key: 'div-1' }, [h('strong', { key: 'strong-0', style: { fontSize: '12px' } }, card.title), h('div', { key: 'div-1', style: { marginTop: '3px', color: C.muted, fontSize: '10px' } }, `${thinkingLabel[card.thinkingKind]} · ${epistemicLabel[card.epistemicStatus]}`), h('div', { key: 'div-2', style: { marginTop: '3px', color: C.slate, fontSize: '11px', whiteSpace: 'pre-wrap' } }, card.body)])])), h('button', { key: 'save', onClick: saveConversationReview, style: { ...workbenchStyle.actionPrimary, width: '100%', marginTop: '12px' } }, '确认并沉淀为思考卡')]) : null
         const versionDiff = item => {
           const parent = item.parentId ? vaultById.get(item.parentId) : null
           return h('div', { style: { marginTop: '7px', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surfaceAlt, fontSize: '10px', lineHeight: 1.45 } }, parent ? [h('strong', { key: 'title', style: { color: C.teal } }, `与「${parent.title}」对比`), h('div', { key: 'grid', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', marginTop: '5px' } }, [h('div', { key: 'old', style: { whiteSpace: 'pre-wrap', color: C.muted, maxHeight: '96px', overflow: 'auto' } }, parent.body), h('div', { key: 'new', style: { whiteSpace: 'pre-wrap', color: C.ink, maxHeight: '96px', overflow: 'auto' } }, item.body)])] : '此资产没有可比较的父版本。')
@@ -3201,8 +3461,8 @@ window.__ModuleLoader__.load({
 
         // 入区薄封装：hook 管队列与持久化；notice（新增计数提示）留在主组件发，
         // 因为入区在增强完成时触发，提示应与「语义增强完成」一起出现。
-        const enqueueDiagnosisFindings = (diagnosis, draftFingerprint, methodTitle) => {
-          const added = knowledge.enqueue(diagnosis, draftFingerprint, methodTitle)
+        const enqueueDiagnosisFindings = (diagnosis, sourceDraft, methodTitle) => {
+          const added = knowledge.enqueue(diagnosis, sourceDraft, methodTitle)
           if (added) setNotice(`本次诊断发现 ${added} 条认识缺口，已放入灵感库「知识区」待你审阅——可存为假设卡或忽略。`)
         }
 
@@ -3210,10 +3470,10 @@ window.__ModuleLoader__.load({
         const vw = viewport?.width || (typeof window !== 'undefined' ? window.innerWidth : 1024)
         const wide = vw >= 620
         // 窄屏适配：<480px 时面板/抽屉铺满视口，避免双栏挤压成不可读的单列。
-        const panelW = vw < 480 ? vw - 16 : Math.min(wide ? 640 : 440, vw - 32)
+        const panelW = vw < 480 ? vw - 32 : Math.min(wide ? 640 : 440, vw - 32)
         const panelLeft = floatingPanelLeft(position.x, vw, panelW)
         const panelOffset = panelLeft - position.x
-        const vaultPanel = assetProvider ? h('aside', { key: 'vault-panel', ref: panelRef, role: 'dialog', 'aria-label': '灵感库', style: { position: 'fixed', top: 0, right: 0, width: vw < 480 ? 'calc(100vw - 16px)' : 'min(390px, calc(100vw - 24px))', height: '100vh', overflowY: 'auto', padding: '18px', boxSizing: 'border-box', borderLeft: `1px solid ${C.tealLine}`, background: C.surface, boxShadow: '-16px 0 38px var(--pk-shadow-lg)', zIndex: 20002, display: 'grid', alignContent: 'start', gap: '10px' } }, [
+        const vaultPanel = assetProvider ? h('aside', { key: 'vault-panel', ref: panelRef, popover: 'manual', role: 'dialog', 'aria-label': '灵感库', style: { position: 'fixed', inset: '0 0 auto auto', margin: 0, border: 0, width: vw < 480 ? 'calc(100vw - 16px)' : 'min(390px, calc(100vw - 24px))', height: '100vh', overflowY: 'auto', padding: '18px', boxSizing: 'border-box', borderLeft: `1px solid ${C.tealLine}`, background: C.surface, boxShadow: '-16px 0 38px var(--pk-shadow-lg)', zIndex: 20002, display: 'grid', alignContent: 'start', gap: '10px' } }, [
           h('div', { key: 'head', style: { display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: '10px', position: 'relative', zIndex: 1 } }, [
             // 左侧圆形控制沿用灵感库的 teal 主题；保留 macOS 式位置语义，但不引入突兀的红色。
             h('button', { key: 'close', ref: closeBtnRef, type: 'button', title: '关闭灵感库', 'aria-label': '关闭灵感库', onMouseEnter: event => { event.currentTarget.style.background = C.tealTint; event.currentTarget.style.borderColor = C.tealLineStrong }, onMouseLeave: event => { event.currentTarget.style.background = C.surfaceAlt; event.currentTarget.style.borderColor = C.tealLine }, style: { width: '26px', height: '26px', padding: 0, border: `1px solid ${C.tealLine}`, borderRadius: '50%', background: C.surfaceAlt, color: C.teal, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 1px 2px rgba(0,0,0,.12)' } }, h(Icon, { key: 'icon', name: 'close', size: 14, strokeWidth: 2 })),
@@ -3244,7 +3504,7 @@ window.__ModuleLoader__.load({
               h('textarea', { key: 'antithesis', value: vaultDialectic.antithesis || '', onChange: e => setVaultDialectic(value => ({ ...value, antithesis: e.target.value })), placeholder: '反观点', style: { ...workbenchStyle.input, width: '100%', minHeight: '38px', resize: 'vertical', fontSize: '11px' } }),
               h('textarea', { key: 'synthesis', value: vaultDialectic.synthesis || '', onChange: e => setVaultDialectic(value => ({ ...value, synthesis: e.target.value })), placeholder: '当前综合', style: { ...workbenchStyle.input, width: '100%', minHeight: '38px', resize: 'vertical', fontSize: '11px' } }),
             ]) : null,
-            vaultItems.length ? h('select', { multiple: true, value: vaultRelatedIds, onChange: e => setVaultRelatedIds([...e.target.selectedOptions].map(option => option.value)), style: { width: '100%', minHeight: '54px', marginTop: '6px', border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '10px' } }, vaultItems.filter(item => item.id !== vaultEditingId).map(item => h('option', { key: item.id, value: item.id }, `关联：${item.title}`))) : null,
+            vaultItems.length ? h('select', { key: 'select-11', multiple: true, value: vaultRelatedIds, onChange: e => setVaultRelatedIds([...e.target.selectedOptions].map(option => option.value)), style: { width: '100%', minHeight: '54px', marginTop: '6px', border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '10px' } }, vaultItems.filter(item => item.id !== vaultEditingId).map(item => h('option', { key: item.id, value: item.id }, `关联：${item.title}`))) : null,
             h('textarea', { key: 'body', value: vaultBody, onChange: e => setVaultBody(e.target.value), placeholder: '灵感正文（支持 $...$ 或 $$...$$ LaTeX；留空时保存 DSH 主输入框草稿）', style: { ...workbenchStyle.input, width: '100%', minHeight: '66px', marginTop: '6px', resize: 'vertical', fontSize: '11px', lineHeight: 1.45 } }),
             h('div', { key: 'actions', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '7px' } }, [
               h('button', { key: 'selection', className: 'pk-btn', disabled: !composer?.getSelection?.()?.text, onClick: () => saveToVault(composer.getSelection().text, { kind: 'composer-selection' }), style: { ...workbenchStyle.action, opacity: composer?.getSelection?.()?.text ? 1 : .5 } }, '保存选中片段'),
@@ -3260,7 +3520,7 @@ window.__ModuleLoader__.load({
           ])]),
           h('div', { key: 'filters', style: { display: 'grid', gridTemplateColumns: vaultProjects.length ? '1fr 120px' : '1fr', gap: '6px' } }, [
             h('input', { key: 'search', value: vaultSearch, onChange: e => setVaultSearch(e.target.value), placeholder: '搜索标题、标签、正文或备注', style: { ...workbenchStyle.input, padding: '8px 9px', fontSize: '12px' } }),
-            vaultProjects.length ? h('select', { key: 'project-filter', value: vaultProjectFilter, onChange: e => setVaultProjectFilter(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [h('option', { value: '' }, '全部项目'), ...vaultProjects.map(project => h('option', { key: project, value: project }, project))]) : null,
+            vaultProjects.length ? h('select', { key: 'project-filter', value: vaultProjectFilter, onChange: e => setVaultProjectFilter(e.target.value), style: { border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surface, fontSize: '11px' } }, [h('option', { key: 'option-0', value: '' }, '全部项目'), ...vaultProjects.map(project => h('option', { key: project, value: project }, project))]) : null,
           ]),
           h('div', { key: 'project-actions', style: { display: 'flex', gap: '8px' } }, [h('button', { key: 'export', onClick: exportProjectMarkdown, style: { ...workbenchStyle.action, fontSize: '11px' } }, '导出项目复盘 Markdown'), h('button', { key: 'organize', onClick: organizeVault, style: { ...workbenchStyle.action, fontSize: '11px' } }, '本地整理建议')]),
           h('details', { key: 'backup', style: { padding: '8px 9px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.surface, fontSize: '11px' } }, [
@@ -3324,10 +3584,13 @@ window.__ModuleLoader__.load({
         const methodCards = h('div', { key: 'cards', style: { display: 'grid', gap: '7px' } }, methodItems.map(method => h('button', { key: method.id, className: 'pk-btn', disabled: loading, onClick: () => setSelectedMethodId(method.id), style: { width: '100%', padding: '10px 11px', border: `1px solid ${selectedMethodId === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '10px', background: selectedMethodId === method.id ? C.tealTintDeep : C.surface, textAlign: 'left', color: C.ink, cursor: 'pointer' } }, [h('div', { key: 'title', style: { display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '12px', fontWeight: 800 } }, [h('span', { key: 'name' }, method.title), selectedMethodId === method.id ? h('span', { key: 'picked', style: { color: C.teal } }, '已选择') : recommended.includes(method) ? h('span', { key: 'recommended', style: { color: C.teal } }, '推荐') : null]), h('div', { key: 'purpose', style: { marginTop: '3px', color: C.slate, fontSize: '11px', lineHeight: 1.4 } }, method.purpose || '按该方法组织分析。')])) )
         const structurePreview = selectedMethod ? h('div', { key: 'structure-preview', style: { marginTop: '9px', padding: '9px 10px', border: `1px dashed ${C.tealLine}`, borderRadius: '9px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, `组装预览：草稿${useConversationContext ? ` + 已选对话 ${activeMessages.length} 条` : ''}${useMemoryContext ? ' + 项目记忆' : ''} · ${selectedMethod.title} 的分析结构`) : null
         const methodFooter = h('div', { key: 'footer', style: { position: 'sticky', bottom: '-14px', margin: '10px -14px -14px', padding: '11px 14px 14px', borderTop: `1px solid ${C.tealLine}`, background: C.surface } }, [selectedMethod ? h('div', { key: 'outcome', style: { marginBottom: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, fontSize: '12px', lineHeight: 1.5 } }, [h('strong', { key: 'title', style: { color: C.teal } }, `将使用「${selectedMethod.title}」`), h('div', { key: 'body', style: { marginTop: '3px', color: C.slate } }, selectedMethod.outcome || (selectedMethod.mode === 'guided' ? '先通过追问澄清问题，再推进下一步。' : '生成结构化分析、风险与下一步行动。'))]) : null, h('button', { key: 'generate', className: 'pk-btn', disabled: loading || !canCompose || !selectedMethod, onClick: () => composeIntoInput(selectedMethod), style: { width: '100%', padding: '11px 14px', border: 0, borderRadius: '9px', background: loading || !canCompose || !selectedMethod ? C.tealLine : C.teal, color: loading || !canCompose || !selectedMethod ? C.muted : C.surface, cursor: loading || !canCompose || !selectedMethod ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' } }, loading ? h(Spinner, { key: 'spin', text: '正在组装…' }) : selectedMethod ? '生成并填入消息框' : '请选择一种方法')])
-        const autoPlan = planPromptEnhancement(draft, requirement, methods, selectedContextText)
-        const enhancementPlan = matchedMethod && !autoPlan.tooShort
-          ? { ...autoPlan, method: matchedMethod.title, label: matchedMethod.title, ...lightTemplate(matchedMethod.title, draft, requirement ? `\n\n额外要求：${requirement}` : '') }
-          : autoPlan
+        const createEnhancementPlan = (text, method) => {
+          const plan = planPromptEnhancement(text, requirement, methods, selectedContextText)
+          return method && !plan.tooShort
+            ? { ...plan, method: method.title, label: method.title, ...lightTemplate(method.title, text, requirement ? `\n\n额外要求：${requirement}` : '') }
+            : plan
+        }
+        const enhancementPlan = createEnhancementPlan(enhancementInput, matchedMethod)
         const enhancementLang = detectLanguage(draft || '')
         const strategyNode = draft.trim() ? enhancementKind === 'semantic'
               ? [h('div', { key: 'meta', style: { marginBottom: '3px' } }, `将把当前 ${draft.trim().length} 个字符交给模型改写。`), autoMethods.length ? h('div', { key: 'method', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center', color: C.teal } }, [h('span', { key: 'label' }, '自动匹配：'), ...autoMethods.map(method => h('button', { key: method.id, className: 'pk-btn', onClick: () => setEnhancementMethodId(method.id), style: { border: `1px solid ${matchedMethod?.id === method.id ? C.tealLineActive : C.tealLine}`, borderRadius: '999px', background: matchedMethod?.id === method.id ? C.tealTintDeep : C.surface, color: C.teal, cursor: 'pointer', padding: '3px 7px', fontSize: '10px', fontWeight: 800 } }, matchedMethod?.id === method.id ? [h(Icon, { key: 'ck', name: 'check', size: 11, style: { marginRight: '2px' } }), method.title] : `改用 ${method.title}`))]) : h('div', { key: 'method', style: { color: C.muted } }, '未强行套用方法，只做结构化改写。'), h('div', { key: 'lang', style: { color: C.muted } }, `检测语言：${enhancementLang === 'en' ? '英文（输出与输入一致）' : enhancementLang === 'mixed' ? '中英混合（输出与输入一致）' : '中文'}。`), draft.trim().length > 3000 ? h('div', { key: 'warn', style: { marginTop: '3px', color: C.amber } }, '草稿超过 3000 字符，建议精简后再增强。') : null]
@@ -3341,7 +3604,7 @@ window.__ModuleLoader__.load({
         const methodSummaryNode = enhancementKind === 'light' && !enhancementPlan.tooShort ? h('div', { key: 'method-summary', style: { marginTop: '6px' } }, [h('div', { key: 'name', style: { fontSize: '12px', color: C.ink, fontWeight: 800 } }, enhancementPlan.label || '轻量整理'), enhancementPlan.reason ? h('div', { key: 'reason', style: { marginTop: '2px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, enhancementPlan.reason) : null]) : null
         const diffPreview = (() => { if (!draft.trim()) return null; if (enhancementKind === 'semantic') return h('div', { key: 'diff', style: { marginTop: '9px', padding: '9px 10px', border: `1px dashed ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.muted, fontSize: '11px', lineHeight: 1.5 } }, '语义档由模型改写，点击「应用」后生成结果，此处不提供实时预览。'); if (enhancementPlan.tooShort) return null; const after = (enhancementPlan.prompt || '').trim(); const before = draft.trim(); if (!after || before === after) return null; return h('div', { key: 'diff', style: { marginTop: '9px', overflow: 'hidden', border: `1px solid ${C.tealLine}`, borderRadius: '8px' } }, [h('div', { key: 'before', style: { padding: '8px 10px', background: C.redTint, color: C.slate, fontSize: '11px', lineHeight: 1.5, wordBreak: 'break-word' } }, [h('span', { key: 'tag', style: { display: 'block', color: C.red, fontSize: '10px', fontWeight: 800, marginBottom: '3px' } }, '原文'), before]), h('div', { key: 'after', style: { padding: '8px 10px', background: C.tealTintDeep, color: C.ink, fontSize: '11px', lineHeight: 1.5, wordBreak: 'break-word', borderTop: `1px solid ${C.tealLine}` } }, [h('span', { key: 'tag', style: { display: 'block', color: C.teal, fontSize: '10px', fontWeight: 800, marginBottom: '3px' } }, '增强后'), after])]) })()
         const costNode = enhancementKind === 'light' && draft.trim() && !enhancementPlan.tooShort ? h('div', { key: 'cost', style: { marginTop: '6px', display: 'flex', gap: '10px', color: C.muted, fontSize: '11px' } }, [h('span', { key: 'chars' }, `字符 ${draft.trim().length} → ${(enhancementPlan.prompt || '').trim().length}`), h('span', { key: 'token' }, 'Token 0'), h('span', { key: 'time' }, '本地 <1s')]) : null
-        const signalsNode = enhancementKind === 'light' && enhancementPlan.signals?.length ? h('details', { key: 'signals', style: { marginTop: '6px' } }, [h('summary', { style: { color: C.muted, fontSize: '11px', cursor: 'pointer', fontWeight: 700 } }, `识别信号（${enhancementPlan.signals.length} 条）`), h('div', { style: { marginTop: '4px', color: C.muted, fontSize: '11px', lineHeight: 1.5 } }, enhancementPlan.signals.join('、'))]) : null
+        const signalsNode = enhancementKind === 'light' && enhancementPlan.signals?.length ? h('details', { key: 'signals', style: { marginTop: '6px' } }, [h('summary', { key: 'summary-0', style: { color: C.muted, fontSize: '11px', cursor: 'pointer', fontWeight: 700 } }, `识别信号（${enhancementPlan.signals.length} 条）`), h('div', { key: 'div-1', style: { marginTop: '4px', color: C.muted, fontSize: '11px', lineHeight: 1.5 } }, enhancementPlan.signals.join('、'))]) : null
         const draftStatusNode = h('div', { key: 'draft-status', style: { marginTop: '10px', fontSize: '11px', color: draft.trim() ? C.teal : C.muted, fontWeight: 700 } }, draft.trim() ? `草稿 · ${draft.trim().length} 字符` : '尚未输入草稿')
         const requirementNode = h('div', { key: 'requirement', className: 'pk-field', style: { marginTop: '5px', marginBottom: '9px' } }, [h('span', { key: 'label', className: 'pk-label pk-label--muted' }, mode === 'enhance' ? '补充增强要求（可选）' : '本次要求 / 问题'), h('textarea', { key: 'input', value: requirement, onChange: event => setRequirement(event.target.value), placeholder: mode === 'enhance' ? '例如：使用简洁中文，先给结论，再列出实施步骤。' : '例如：请重点评估风险，并给出可执行的下一步。', style: { ...workbenchStyle.input, minHeight: '58px', resize: 'vertical', fontSize: '12px', lineHeight: 1.45 } })])
         const contextLevelNode = h('div', { key: 'context-level', style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '9px' } }, [msgs.length ? h('button', { key: 'conversation', className: 'pk-btn', onClick: () => setUseConversationContext(value => !value), style: { padding: '7px 9px', border: `1px solid ${useConversationContext ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: useConversationContext ? C.tealTintDeep : C.surface, color: useConversationContext ? C.teal : C.slate, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, useConversationContext ? '✓ 对话参考' : '加对话') : null, searchMemory ? h('button', { key: 'memory', className: 'pk-btn', onClick: () => setUseMemoryContext(value => !value), style: { padding: '7px 9px', border: `1px solid ${useMemoryContext ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: useMemoryContext ? C.tealTintDeep : C.surface, color: useMemoryContext ? C.teal : C.slate, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, useMemoryContext ? (enhancementKind === 'semantic' ? '✓ 项目记忆' : '✓ 项目记忆（语义档）') : '加项目记忆') : null])
@@ -3361,26 +3624,14 @@ window.__ModuleLoader__.load({
           onConfirm: () => { setContextOverlayOpen(false); if (!useConversationContext) setUseConversationContext(true) },
         })
 
-        const contextNode = msgs.length ? h(React.Fragment, null, [
-          h('button', { key: 'trigger', className: 'pk-btn', onClick: () => setContextOverlayOpen(true), style: { width: '100%', padding: '9px', border: `1px solid ${selected.length > 0 ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: selected.length > 0 ? C.tealTint : C.surface, color: selected.length > 0 ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' } }, [selected.length > 0 ? h('span', null, [`已选 ${selected.length} 条对话参考`]) : h('span', null, '可选：选择对话作为参考'), h('span', { style: { fontSize: '11px', opacity: 0.7 } }, '▸')]),
+        const contextNode = msgs.length ? h(React.Fragment, { key: 'context' }, [
+          h('button', { key: 'trigger', className: 'pk-btn', onClick: () => setContextOverlayOpen(true), style: { width: '100%', padding: '9px', border: `1px solid ${selected.length > 0 ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: selected.length > 0 ? C.tealTint : C.surface, color: selected.length > 0 ? C.teal : C.slate, cursor: 'pointer', fontSize: '12px', fontWeight: 800, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' } }, [selected.length > 0 ? h('span', { key: 'span-0' }, [`已选 ${selected.length} 条对话参考`]) : h('span', { key: 'span-0' }, '可选：选择对话作为参考'), h('span', { key: 'span-1', style: { fontSize: '11px', opacity: 0.7 } }, '▸')]),
           contextOverlayOpen ? contextOverlayNode() : null
         ]) : null
         const enhancementKinds = enhancer ? [['light', '轻量 · 零 Token'], ['semantic', '语义 · 模型']] : [['light', '轻量 · 零 Token']]
         const enhancerKindSection = h('div', { key: 'enhancer-kind-section', style: { marginTop: '10px' } }, [h('div', { key: 'kind', style: { display: 'grid', gridTemplateColumns: `repeat(${enhancementKinds.length},minmax(0,1fr))`, gap: '6px' } }, enhancementKinds.map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => setEnhancementKind(id), style: { padding: '7px', border: `1px solid ${enhancementKind === id ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: enhancementKind === id ? C.tealTintDeep : C.surface, color: enhancementKind === id ? C.teal : C.slate, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, label))), h('div', { key: 'description', style: { marginTop: '7px', color: C.slate, fontSize: '12px', lineHeight: 1.5 } }, enhancementKind === 'semantic' ? `模型会改写草稿${useConversationContext ? '，并引用已选对话' : ''}${useMemoryContext ? '，并检索项目记忆' : ''}。` : useMemoryContext ? '项目记忆已准备，但轻量档不会读取；切换到语义档后可预览并注入。' : '本地保守增强，最多采用一种合适方法，不产生额外模型调用。')])
-        const memorySourceLabels = sources => sources?.length ? h('div', { style: { marginTop: '6px', display: 'grid', gap: '3px', color: C.muted } }, sources.map((source, index) => h('div', { key: `${source.kind}:${index}` }, `来源：${source.label}`))) : null
-        const assetContextNode = assetContextIds.length ? h('div', { style: { marginTop: '9px', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', lineHeight: 1.45 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } }, [h('strong', { key: 'title', style: { color: C.teal } }, `思考卡上下文（${assetContextIds.length}/3）`), h('button', { key: 'clear', onClick: () => setAssetContextIds([]), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '10px' } }, '清除')]), h('div', { key: 'items', style: { marginTop: '4px', color: C.slate } }, vaultItems.filter(item => assetContextIds.includes(item.id)).map(item => `• ${item.title}（${epistemicLabel[item.epistemicStatus] || '推断'}）`).join('\n')), h('div', { key: 'hint', style: { marginTop: '4px', color: C.muted } }, '仅在“语义 · 模型”增强时注入；发送前可随时移除。')]) : null
-        const streamPanel = StreamPanel({ streamState, loading, onCancel: cancelEnhance })
-        // ── 五维诊断展示（哲学启发式量表）：概念清晰/隐含前提/可证伪性/可行动性/语境契合 ──
-        // 标签与 host 的 DIAGNOSIS_LABELS 保持同一键序；流式期间诊断行先于正文到达，
-        // enhanceDiagnosis 增量填充时诊断卡先亮起来，用户先看到「体检结果」再看改写。
-        // ── 诊断闭环：认识缺口 → 知识区暂存 → 用户主动决定 → Vault assumption 卡 ──
-        const diagnosisNode = DiagnosisSection({
-          diagnosis: enhanceDiagnosis,
-          matchedMethod,
-          knowledgeCount: knowledgeInbox.length,
-          hasAssetProvider: Boolean(assetProvider),
-          onOpenKnowledge: () => { setVaultTab('knowledge'); setVaultOpen(true) },
-        })
+        const memorySourceLabels = sources => sources?.length ? h('div', { key: 'memory-sources', style: { marginTop: '6px', display: 'grid', gap: '3px', color: C.muted } }, sources.map((source, index) => h('div', { key: `${source.kind}:${index}` }, `来源：${source.label}`))) : null
+        const assetContextNode = assetContextIds.length ? h('div', { key: 'asset-context', style: { marginTop: '9px', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.tealTint, fontSize: '11px', lineHeight: 1.45 } }, [h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } }, [h('strong', { key: 'title', style: { color: C.teal } }, `思考卡上下文（${assetContextIds.length}/3）`), h('button', { key: 'clear', onClick: () => setAssetContextIds([]), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '10px' } }, '清除')]), h('div', { key: 'items', style: { marginTop: '4px', color: C.slate } }, vaultItems.filter(item => assetContextIds.includes(item.id)).map(item => `• ${item.title}（${epistemicLabel[item.epistemicStatus] || '推断'}）`).join('\n')), h('div', { key: 'hint', style: { marginTop: '4px', color: C.muted } }, '仅在“语义 · 模型”增强时注入；发送前可随时移除。')]) : null
         const enhancerPanel = EnhancerPanel({
           mode,
           draft,
@@ -3400,17 +3651,11 @@ window.__ModuleLoader__.load({
           loading,
           onCancelEnhance: cancelEnhance,
           diagnosis: enhanceDiagnosis,
-          matchedMethod,
+          matchedMethod: diagnosisMethod,
           knowledgeCount: knowledgeInbox.length,
           hasAssetProvider: Boolean(assetProvider),
           onOpenKnowledge: () => { setVaultTab('knowledge'); setVaultOpen(true) },
           skillRestore,
-          onFixSkills: () => {
-            composer?.write(skillRestore.restored)
-            setUndoDraft(prev => prev ? { ...prev, after: skillRestore.restored } : prev)
-            setSkillRestore(null)
-            setNotice('已把丢失的技能引用补回草稿末尾。')
-          },
           onDismissSkills: () => setSkillRestore(null),
         })
         // 增强面板：极简模式单列只保留「草稿状态 + 档位」和结果预览；完整模式双栏全配置。
@@ -3448,7 +3693,7 @@ window.__ModuleLoader__.load({
                   h('button', { key: 'x', onClick: () => setSettingsOpen(false), style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '12px' } }, '×')
                 ]),
                 h('div', { key: 'pref' }, [
-                  h('div', { style: { fontSize: '10px', color: C.muted, fontWeight: 800, letterSpacing: '0.5px' } }, 'PREFERENCE · 偏好'),
+                  h('div', { key: 'div-0', style: { fontSize: '10px', color: C.muted, fontWeight: 800, letterSpacing: '0.5px' } }, 'PREFERENCE · 偏好'),
                   // 界面模式：auto = 前 3 次增强极简，之后自动展开完整模式；可手动锁定。
                   h('div', { key: 'display-mode', style: { marginTop: '6px' } }, [
                     h('div', { key: 'label', style: { fontSize: '11px', color: C.slate, marginBottom: '4px' } }, '界面模式'),
@@ -3466,7 +3711,7 @@ window.__ModuleLoader__.load({
                   ]),
                 ]),
                 h('details', { key: 'more', style: { marginTop: '10px', borderTop: `1px solid ${C.divide}`, paddingTop: '9px' } }, [
-                  h('summary', { style: { color: C.muted, cursor: 'pointer', fontSize: '10px', fontWeight: 800, letterSpacing: '0.5px' } }, '更多操作 · 统计 / 导入 / 备份 / 私有方法'),
+                  h('summary', { key: 'summary-0', style: { color: C.muted, cursor: 'pointer', fontSize: '10px', fontWeight: 800, letterSpacing: '0.5px' } }, '更多操作 · 统计 / 导入 / 备份 / 私有方法'),
                   h('div', { key: 'data', style: { marginTop: '8px', display: 'grid', gap: '6px' } }, [
                     h('button', { key: 'nudges', onClick: () => setActiveSettingsPanel('nudges'), style: { width: '100%', textAlign: 'left', padding: '7px 8px', border: `1px solid ${C.tealLine}`, borderRadius: '7px', background: C.surface, color: C.slate, cursor: 'pointer', fontSize: '11px' } }, '→ 行为助推效果（本地统计）'),
                     h('button', { key: 'import', onClick: () => setActiveSettingsPanel('import'), style: { width: '100%', textAlign: 'left', padding: '7px 8px', border: `1px solid ${C.tealLine}`, borderRadius: '7px', background: C.surface, color: C.slate, cursor: 'pointer', fontSize: '11px' } }, '→ 导入 Obsidian Prompt 卡片'),
@@ -3510,8 +3755,8 @@ window.__ModuleLoader__.load({
                 ]) : h(Card, { key: 'panel-manage' }, [
                   h('strong', { key: 't', style: { fontSize: '12px' } }, '管理我的私有方法'),
                   ...(methods.filter(method => method.source === 'private').length ? methods.filter(method => method.source === 'private').map(method => h('div', { key: method.id, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', marginTop: '7px', fontSize: '11px' } }, [
-                    h('span', { style: { color: C.slate } }, method.title),
-                    h('span', null, [
+                    h('span', { key: 'span-0', style: { color: C.slate } }, method.title),
+                    h('span', { key: 'span-1' }, [
                       h('button', { key: 'e', onClick: () => { editPrivateMethod(method); setActiveSettingsPanel('import') }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px' } }, '编辑'),
                       h('button', { key: 'd', onClick: () => deletePrivateMethod(method.id), style: { marginLeft: '6px', border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px' } }, confirmDeletePrivateId === method.id ? '再次点击删除' : '删除')
                     ])
@@ -3522,7 +3767,7 @@ window.__ModuleLoader__.load({
         const panel = open ? h('section', { key: 'panel', className: 'pk-scroll', role: 'dialog', 'aria-label': '对话增强器', style: { position: 'absolute', left: `${panelOffset}px`, transform: 'none', ...(panelAbove ? { bottom: '66px' } : { top: '66px' }), width: `${panelW}px`, boxSizing: 'border-box', maxHeight: `${panelMaxHeight}px`, overflowY: 'auto', overscrollBehavior: 'contain', padding: vw < 480 ? '10px' : '14px', border: `1px solid ${C.tealLine}`, borderRadius: '15px', background: C.surface, boxShadow: '0 20px 50px var(--pk-shadow-lg)', color: C.ink, zIndex: 30, animation: 'pk-pop .2s ease' } }, [
               h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'start' } }, [h('div', { key: 'copy' }, [h('strong', { key: 'title', style: { fontSize: '14px' } }, '对话增强器'), h('div', { key: 'sub', style: { marginTop: '3px', color: C.muted, fontSize: '12px', lineHeight: 1.45 } }, libraryOpen ? '从提示词库选择模板：可直接填入消息框，或基于当前草稿调用模型按该方法改造。' : mode === 'enhance' ? '把当前输入框提示词做增强或改写，只填入消息框，不会自动发送。' : '写问题即可直接处理；也可选择对话消息作为额外参考。生成内容只填入消息框，不会自动发送。')]), h('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 } }, [h('button', { key: 'gear', 'data-gear-button': 'true', onClick: () => { setSettingsOpen(value => !value); if (settingsOpen) setActiveSettingsPanel(null) }, style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: settingsOpen ? C.tealTint : 'transparent', color: C.teal, cursor: 'pointer' }, 'aria-label': '设置' }, h(Icon, { key: 'ic', name: 'settings', size: 16 })), h('button', { key: 'close', onClick: () => setOpen(false), style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: 'transparent', color: C.muted, cursor: 'pointer' }, 'aria-label': '关闭' }, h(Icon, { key: 'ic', name: 'close', size: 16 }))])]),
               libraryOpen || vaultOpen || mode === 'enhance' ? null : h('div', { key: 'summary', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', margin: '12px 0 5px', padding: '10px 11px', borderRadius: '10px', background: selectedChars > 1600 ? C.amberTint : C.tealTint, color: selectedChars > 1600 ? C.amber : C.teal, fontSize: '12px', fontWeight: 700 } }, [h('span', { key: 'count' }, activeMessages.length ? `已选 ${activeMessages.length} 条 · 约 ${selectedChars} 字符${selectedChars > 1600 ? ' · 建议精简' : ''}` : '未选择对话 · 可直接写问题'), msgs.length ? h('button', { key: 'recent', onClick: () => setSelected(msgs.slice(0, 4).map(item => item.id)), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 700 } }, '选择最近 4 条') : null]),
-              undoDraft ? h('div', { key: 'undo-area', style: { marginTop: '5px' } }, [h('button', { key: 'undo', onClick: () => { if (draft !== undoDraft.after) { setUndoDraft(null); setNotice('消息框内容已变化，无法撤销到之前状态。'); return } clearOutcomeAt('undo'); composer?.write(undoDraft.before); setUndoDraft(null); setNotice('已撤销上一次填入。') }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '撤销上一次填入'), h('details', { key: 'orig', style: { marginTop: '4px' } }, [h('summary', { style: { color: C.muted, fontSize: '11px', cursor: 'pointer', fontWeight: 700 } }, '查看原稿'), h('div', { style: { marginTop: '4px', padding: '8px', border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5, whiteSpace: 'pre-wrap', maxHeight: '120px', overflow: 'auto' } }, undoDraft.before || '（原稿为空）')])]) : null,
+              undoDraft ? h('div', { key: 'undo-area', style: { marginTop: '5px' } }, [h('button', { key: 'undo', onClick: () => { if (draft !== undoDraft.after) { setUndoDraft(null); setNotice('消息框内容已变化，无法撤销到之前状态。'); return } clearOutcomeAt('undo'); composer?.write(undoDraft.before); setUndoDraft(null); setNotice('已撤销上一次填入。') }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '撤销上一次填入'), h('details', { key: 'orig', style: { marginTop: '4px' } }, [h('summary', { key: 'summary-0', style: { color: C.muted, fontSize: '11px', cursor: 'pointer', fontWeight: 700 } }, '查看原稿'), h('div', { key: 'div-1', style: { marginTop: '4px', padding: '8px', border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5, whiteSpace: 'pre-wrap', maxHeight: '120px', overflow: 'auto' } }, undoDraft.before || '（原稿为空）')])]) : null,
               activeNudge ? h('div', { key: 'nudge', role: 'status', 'aria-live': 'polite', style: { marginTop: '8px', padding: '10px 11px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: activeNudge.type === 'awaken' ? C.tealTint : C.amberTint, color: C.ink, fontSize: '12px', lineHeight: 1.5, animation: 'pk-fade .2s ease' } }, activeNudge.type === 'awaken' ? [
                 h('strong', { key: 't', style: { color: C.teal, fontSize: '12px' } }, `🎯 这次自动用了「${activeNudge.methodTitle || '思考方法'}」`),
                 h('div', { key: 'd', style: { marginTop: '3px', color: C.slate } }, '10 秒看看它是怎么收敛这个问题的？'),
@@ -3624,93 +3869,15 @@ window.__ModuleLoader__.load({
 
       // @ 文件引用补全：经 node 半区的 workspace-files 路由检索工作区文件。
       // 返回 null 表示服务不可用（旧 host 未注册路由），UI 据此隐藏文件菜单入口。
-      async function promptkitSearchFiles(query) {
+      async function promptkitSearchFiles(sessionId, query) {
         const url = new URL('/dsh-promptkit/workspace-files', window.location.origin)
         url.searchParams.set('q', query)
+        url.searchParams.set('session_id', sessionId)
         url.searchParams.set('limit', '20')
         const response = await fetch(url).catch(() => null)
         if (!response || !response.ok) return null
         const body = await response.json().catch(() => ({}))
-        return Array.isArray(body.files) ? body.files : []
-      }
-
-      class DshSessionEnhancer {
-        constructor(getSessionId) { this.getSessionId = getSessionId; this.controller = null }
-        get loading() { return !!this.controller }
-        async enhance({ draft, extra, lang, method, strength, hasContext }) {
-          this.controller?.abort()
-          this.controller = new AbortController()
-          try {
-            const response = await fetch(`/dsh-promptkit/semantic-enhance?session_id=${encodeURIComponent(this.getSessionId())}`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose: true }),
-              signal: this.controller.signal,
-            })
-            const body = await response.json().catch(() => ({}))
-            if (!response.ok) {
-              if (response.status === 504) throw Object.assign(new Error(body.next_action || '模型响应超时，请稍后重试。'), { timeout: true })
-              throw new Error(body.next_action || body.error || '基于草稿改造失败')
-            }
-            return body
-          } finally { this.controller = null }
-        }
-        // SSE 流式增强：onDelta 逐段回调（含诊断行）；resolve 值与 enhance() 一致。
-        // 404/501（旧 host 未注册流式路由）时抛 fallback 错误，调用方退回非流式。
-        async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = true, onDelta }) {
-          this.controller?.abort()
-          this.controller = new AbortController()
-          const signal = this.controller.signal
-          try {
-            const response = await fetch(`/dsh-promptkit/semantic-enhance/stream?session_id=${encodeURIComponent(this.getSessionId())}`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose }),
-              signal,
-            })
-            if (response.status === 404 || response.status === 501) {
-              const error = new Error('stream_unavailable')
-              error.fallback = true
-              throw error
-            }
-            if (!response.ok || !response.body) {
-              const body = await response.json().catch(() => ({}))
-              if (response.status === 504) throw Object.assign(new Error(body.next_action || '模型响应超时，请稍后重试。'), { timeout: true })
-              throw new Error(body.next_action || body.error || '流式增强不可用')
-            }
-            const reader = response.body.getReader()
-            const decoder = new TextDecoder()
-            let buffer = ''
-            let final = null
-            let errorMessage = ''
-            for (;;) {
-              const { value, done } = await reader.read()
-              if (done) break
-              buffer += decoder.decode(value, { stream: true })
-              const frames = buffer.split('\n\n')
-              buffer = frames.pop() || ''
-              for (const frame of frames) {
-                const lines = frame.split('\n')
-                const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim()
-                const dataLine = lines.find(line => line.startsWith('data:'))?.slice(5).trim()
-                if (!event || !dataLine) continue
-                const data = JSON.parse(dataLine)
-                if (event === 'delta') onDelta?.(data.text)
-                if (event === 'done') final = data
-                if (event === 'error') errorMessage = data.message || data.error || '流式增强失败'
-              }
-            }
-            if (errorMessage) throw new Error(errorMessage)
-            if (!final) throw new Error('流式增强连接中断。')
-            return final
-          } catch (error) {
-            if (error?.name === 'AbortError') throw error
-            if (error?.fallback || error?.timeout) throw error
-            // 流式链路异常（网络截断等）且尚无输出时提示可重试；调用方决定是否退回非流式。
-            throw error
-          } finally { this.controller = null }
-        }
-        cancel() { this.controller?.abort(); this.controller = null }
+        return { files: Array.isArray(body.files) ? body.files : [], truncated: Boolean(body.truncated) }
       }
 
       // 桥接 DSH 输入框：inputActions 由槽位体系注入（InputActions.setDraft / submit）。
@@ -3738,10 +3905,11 @@ window.__ModuleLoader__.load({
         const hookedChat = useChat ? useChat(value => value) : undefined
         const chatSnapshot = session !== undefined ? session : hookedChat
         const messages = React.useMemo(() => conversationMessages(chatSnapshot), [chatSnapshot])
-        const composer = React.useMemo(() => new DshDraftComposer({ draft }, inputActions), [draft, inputActions])
+        const composer = React.useMemo(() => new DshDraftComposer({ draft }, inputActions), [sessionId, inputActions])
+        composer.input = { draft }
         const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
         const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
-        const searchFiles = React.useCallback(promptkitSearchFiles, [])
+        const searchFiles = React.useCallback(query => promptkitSearchFiles(sessionId, query), [sessionId])
         React.useEffect(() => { composer.notify(draft ?? '') }, [draft, composer])
         return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory, searchFiles })
       }

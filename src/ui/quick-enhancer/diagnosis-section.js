@@ -3,8 +3,7 @@
 // diagnosis 增量填充时诊断卡先亮起来，用户先看到「体检结果」再看改写。
 // 底部的「查看知识区」入口只负责跳转——存卡与否由用户在知识区里决定。
 import { h, C, Icon } from '../foundation.js'
-
-const DIAGNOSIS_LABELS = { concept_clarity: '概念清晰', hidden_premise: '隐含前提', falsifiability: '可证伪性', actionability: '可行动性', context_fit: '语境契合' }
+import { DIAGNOSIS_LABELS } from '../../lib/enhance-output.js'
 
 export function DiagnosisSection({ diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }) {
   if (!diagnosis) return null
@@ -17,7 +16,7 @@ export function DiagnosisSection({ diagnosis, matchedMethod, knowledgeCount, has
     ]),
     h('div', { key: 'rows', style: { marginTop: '6px', display: 'grid', gap: '3px' } }, Object.entries(DIAGNOSIS_LABELS).map(([key, label]) => h('div', { key, style: { color: C.slate } }, [
       h('strong', { key: 'l', style: { color: C.teal } }, `${label}：`),
-      diagnosis[key] || '—',
+      diagnosis[key]?.replace(/^\[(?:OK|GAP)\]\s*/i, '') || '未返回此项诊断',
     ]))),
     // 诊断闭环入口：发现自动进灵感库「知识区」暂存，用户审阅后主动决定存卡或忽略。
     // 这里只提供入口，不替用户做决定。

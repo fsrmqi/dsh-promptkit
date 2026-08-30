@@ -11,6 +11,12 @@ export class Composer {
   /** @returns {{start:number,end:number,text:string,draft:string}|null} 当前选区（可选实现） */
   getSelection() { return null }
 
+  /** 自动增强仅拦截本输入框的发送键；宿主需显式识别目标节点。 */
+  isInputTarget(target) { return false }
+
+  /** 选区变化订阅（可选），让预览与执行使用同一个片段。 */
+  onSelectionChange(cb) { return () => {} }
+
   /** 用 text 替换给定选区；不支持选区的宿主可不实现。 */
   replaceSelection(text, selection = this.getSelection()) { this.write(text) }
 

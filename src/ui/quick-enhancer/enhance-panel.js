@@ -23,12 +23,12 @@ export function StrengthSelector({ value, onChange }) {
 }
 
 // 发送前自动增强开关：仅在宿主注入 onSubmitDraft 时展示（否则没有可靠发送通道）。
-// fail-safe 语义在文案里说清楚：失败自动发原文，不阻塞对话。
+// 只有增强失败才回退原文；发送失败不得自动重试。
 export function AutoEnhanceToggle({ enabled, onChange }) {
   return h('label', { key: 'auto-enhance', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '8px', padding: '8px 10px', border: `1px solid ${enabled ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: enabled ? C.tealTint : C.surface, cursor: 'pointer', fontSize: '11px', color: C.slate } }, [
     h('span', { key: 'text' }, [
       h('strong', { key: 't', style: { color: enabled ? C.teal : C.slate } }, '发送前自动增强'),
-      h('div', { key: 'd', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, enabled ? '普通 Enter 发送前先改写草稿；失败自动发原文，不阻塞。' : '开启后按普通 Enter 时先增强再发送；Shift+Enter 换行不受影响。'),
+      h('div', { key: 'd', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, enabled ? '仅拦截消息框 Enter；增强失败发原文，发送失败不重试。' : '开启后按消息框 Enter 时先增强再发送；Shift+Enter 换行不受影响。'),
     ]),
     h('input', { key: 'cb', type: 'checkbox', checked: enabled, onChange: event => onChange(event.target.checked), style: { accentColor: C.teal, cursor: 'pointer', flexShrink: 0 } }),
   ])
@@ -42,10 +42,12 @@ export function StreamPanel({ streamState, loading, onCancel }) {
     ? '等待模型响应…'
     : streamState.phase === 'streaming'
       ? '正在输出优化稿…'
-      : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`
+      : streamState.phase === 'cancelled' ? '已取消，草稿未改动'
+        : streamState.phase === 'error' ? '增强失败，草稿未改动'
+          : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`
   return h('div', { key: 'stream-panel', role: 'status', 'aria-live': 'polite', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, fontSize: '11px', lineHeight: 1.5 } }, [
     h('div', { key: 'phase', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: C.teal, fontWeight: 800 } }, [
-      h('span', null, phaseText),
+      h('span', { key: 'text' }, phaseText),
       loading ? h('button', { key: 'cancel', onClick: onCancel, style: { border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '取消') : null,
     ]),
     streamState.segments.length ? h('div', { key: 'segments', style: { marginTop: '6px', display: 'grid', gap: '6px', maxHeight: '180px', overflowY: 'auto' } }, streamState.segments.map((segment, index) => h('div', { key: index, style: { padding: '6px 8px', borderRadius: '6px', background: C.surfaceAlt, color: C.slate, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, segment))) : null,
@@ -53,13 +55,12 @@ export function StreamPanel({ streamState, loading, onCancel }) {
 }
 
 // 技能引用修复提示：改写丢失草稿中的 /xxx 记号时出现；「补回」把引用还原到稿末。
-export function SkillRestoreNode({ skillRestore, onFix, onDismiss }) {
+export function SkillRestoreNode({ skillRestore, onDismiss }) {
   if (!skillRestore) return null
   return h('div', { key: 'skill-restore', role: 'status', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.amberLine}`, borderRadius: '8px', background: C.amberTint, fontSize: '11px', lineHeight: 1.5, display: 'flex', alignItems: 'center', gap: '8px' } }, [
     h(Icon, { key: 'ic', name: 'shield', size: 13, style: { color: C.amber, flexShrink: 0 } }),
-    h('span', { key: 'text', style: { flex: 1, color: C.slate } }, `改写丢失了技能引用：${skillRestore.lost.join('、')}`),
-    h('button', { key: 'fix', onClick: onFix, style: { border: 0, borderRadius: '7px', background: C.amber, color: '#fff', padding: '5px 10px', cursor: 'pointer', fontSize: '11px', fontWeight: 800, flexShrink: 0 } }, '补回'),
-    h('button', { key: 'dismiss', onClick: onDismiss, style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px', flexShrink: 0 } }, '忽略'),
+    h('span', { key: 'text', style: { flex: 1, color: C.slate } }, `已自动补回技能引用：${skillRestore.lost.join('、')}`),
+    h('button', { key: 'dismiss', onClick: onDismiss, style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px', flexShrink: 0 } }, '知道了'),
   ])
 }
 
@@ -71,7 +72,7 @@ export function EnhancerPanel({
   methodSummaryNode, diffPreview, costNode, signalsNode,
   streamState, loading, onCancelEnhance,
   diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge,
-  skillRestore, onFixSkills, onDismissSkills,
+  skillRestore, onDismissSkills,
 }) {
   const semantic = enhancementKind === 'semantic'
   return h('details', { key: 'enhancer', open: true, style: { marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [
@@ -98,8 +99,8 @@ export function EnhancerPanel({
     semantic
       ? h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode)
       : h('div', { key: 'summary', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [methodSummaryNode, diffPreview, costNode, signalsNode]),
-    semantic ? StreamPanel({ streamState, loading, onCancel: onCancelEnhance }) : null,
-    DiagnosisSection({ diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }),
-    SkillRestoreNode({ skillRestore, onFix: onFixSkills, onDismiss: onDismissSkills }),
+    semantic ? h(StreamPanel, { key: 'stream', streamState, loading, onCancel: onCancelEnhance }) : null,
+    h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }),
+    h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }),
   ])
 }

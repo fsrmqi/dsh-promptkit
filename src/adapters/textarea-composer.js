@@ -13,6 +13,13 @@ export class TextareaComposer extends Composer {
 
   getDraft() { return this.el ? this.el.value : '' }
 
+  isInputTarget(target) { return target === this.el }
+
+  onSelectionChange(cb) {
+    this.el?.addEventListener('select', cb)
+    return () => this.el?.removeEventListener('select', cb)
+  }
+
   write(text) {
     if (!this.el) return
     this.el.value = text

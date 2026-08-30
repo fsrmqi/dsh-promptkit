@@ -1,3 +1,5 @@
+import { parseEnhanceOutput, DIAGNOSIS_DIMENSIONS } from './enhance-output.js'
+
 // 纯函数工具（从 Memory Center 抽取，通用、不含宿主私有逻辑）。
 // 组件只消费宿主无关的数据结构：messages = [{ id, role: 'user'|'assistant', text }]。
 // 把宿主自有会话结构（如 DSH snapshot nodes）转成 messages 是宿主 adapter 的职责，不在本包内。
@@ -100,26 +102,6 @@
         skills.push(name)
       }
       return skills
-    }
-
-    // 语义增强输出解析（host/client 共用）：把模型输出拆成 { diagnosis, prompt }。
-    // 诊断行协议：[DIAG] <dimension>: <一句话>，之后 ===PROMPT=== 分隔改写正文。
-    // 诊断缺失（旧模型/旧指令/未开诊断）时 diagnosis 为 null，prompt 原样返回。
-    // DIAGNOSIS_DIMENSIONS 与 host 的指令同源；键序即客户端展示顺序。
-    const DIAGNOSIS_DIMENSIONS = ['concept_clarity', 'hidden_premise', 'falsifiability', 'actionability', 'context_fit']
-    function parseEnhanceOutput(raw) {
-      const text = String(raw || '')
-      const diagnosis = {}
-      let prompt = text
-      const marker = text.includes('===PROMPT===') ? '===PROMPT===' : null
-      const diagPart = marker ? text.slice(0, text.indexOf(marker)) : ''
-      for (const match of diagPart.matchAll(/\[DIAG\]\s*(\w+)\s*[:：]\s*(.+)/g)) {
-        if (DIAGNOSIS_DIMENSIONS.includes(match[1])) diagnosis[match[1]] = match[2].trim()
-      }
-      if (marker) prompt = text.slice(text.indexOf(marker) + marker.length)
-      prompt = prompt.trim()
-      const hasDiagnosis = DIAGNOSIS_DIMENSIONS.every(key => diagnosis[key])
-      return { diagnosis: hasDiagnosis ? diagnosis : null, prompt }
     }
 
     // 改写后 skill 引用丢失检查：before 里有、after 里没有的引用，原样补到末尾。

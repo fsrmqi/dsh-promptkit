@@ -14,11 +14,11 @@ export class Enhancer {
 
   /**
    * 可选实现：流式增强。组件检测到此方法时走逐段上屏；
-   * 未实现或中途失败（非 AbortError）时组件自动退回 enhance()。
+   * 仅抛出 fallback=true 且尚未输出时退回 enhance()；中途失败或取消不重复调用。
    * @param {typeof input & { onDelta?:(text:string)=>void }} input
    * @returns {Promise<{ prompt:string, model?:string, diagnosis?:object|null }>}
    */
-  async enhanceStream(input) { throw new Error('Enhancer.enhanceStream() 未实现') }
+  async enhanceStream(input) { throw Object.assign(new Error('Enhancer.enhanceStream() 未实现'), { fallback: true }) }
 
   /** 取消进行中的增强 */
   cancel() {}

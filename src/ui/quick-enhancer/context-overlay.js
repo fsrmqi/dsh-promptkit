@@ -10,13 +10,13 @@ export function ContextOverlay({
   return h('div', { key: 'overlay-backdrop', onClick: e => { if (e.target === e.currentTarget) onClose() }, style: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '10vh', paddingBottom: '4vh', paddingLeft: '16px', paddingRight: '16px', animation: 'pk-fade .15s ease', overflowY: 'auto' } }, [
     h('div', { key: 'overlay-panel', onClick: e => e.stopPropagation(), style: { width: 'min(360px, calc(100vw - 48px))', maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: '5px', padding: '10px', boxSizing: 'border-box', borderRadius: '10px', background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 24px 68px rgba(0,0,0,0.22), 0 8px 20px rgba(0,0,0,0.12)', overflow: 'hidden' } }, [
       h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
-        h('strong', { style: { fontSize: '12.5px', fontWeight: 700 } }, '选择对话参考'),
-        h('button', { onClick: onClose, style: { border: 0, background: 'transparent', color: C.muted, fontSize: '15px', cursor: 'pointer', padding: '1px 5px' } }, '×'),
+        h('strong', { key: 'strong-0', style: { fontSize: '12.5px', fontWeight: 700 } }, '选择对话参考'),
+        h('button', { key: 'button-1', onClick: onClose, style: { border: 0, background: 'transparent', color: C.muted, fontSize: '15px', cursor: 'pointer', padding: '1px 5px' } }, '×'),
       ]),
       h('div', { key: 'toolbar', style: { display: 'flex', flexWrap: 'nowrap', gap: '5px', alignItems: 'center' } }, [
         h('button', { key: 'sel-all', onClick: onSelectAll, style: { padding: '2px 7px', border: `1px solid ${C.tealLine}`, borderRadius: '5px', background: C.surfaceAlt, color: C.teal, cursor: 'pointer', fontSize: '10.5px', fontWeight: 700 } }, `全选 (${messages.length})`),
         h('div', { key: 'recent-group', style: { display: 'inline-flex', alignItems: 'center', gap: '3px', border: `1px solid ${C.line}`, borderRadius: '5px', padding: '1px 5px', background: C.surfaceAlt } }, [
-          h('span', { style: { fontSize: '11px', color: C.muted, fontWeight: 600 } }, '最近'),
+          h('span', { key: 'span-0', style: { fontSize: '11px', color: C.muted, fontWeight: 600 } }, '最近'),
           h('input', { key: 'recent-n', ref: recentInputRef, type: 'number', min: 1, max: messages.length, defaultValue: 3, style: { width: '32px', padding: '1px 3px', border: `1px solid ${C.line}`, borderRadius: '3px', fontSize: '11px', textAlign: 'center', background: C.surface, color: C.ink } }),
           h('button', { key: 'sel-recent', onClick: onSelectRecent, style: { padding: '2px 6px', border: `1px solid ${C.tealLine}`, borderRadius: '4px', background: C.tealTint, color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 700 } }, '选'),
         ]),

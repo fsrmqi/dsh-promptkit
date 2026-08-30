@@ -1,4 +1,5 @@
 import React from 'react'
+import { diagnosisFinding, diagnosisFingerprint } from '../../lib/diagnosis-findings.js'
 
 // 知识区（诊断发现暂存）容量上限：超限时挤掉最旧的未处理项。
 const KNOWLEDGE_INBOX_MAX = 12
@@ -21,49 +22,53 @@ export const DIAGNOSIS_GAP_FIELDS = [
  *
  * 返回：
  *   entries           暂存条目数组（旧→新）
- *   enqueue           (diagnosis, draftFingerprint, methodTitle) => 入区，返回本次新增数
+ *   enqueue           (diagnosis, 完整草稿, methodTitle) => 入区，返回本次新增数
  *   dismiss           (id) => 从暂存移除
- *   findByFingerprint (fingerprint) => boolean：Vault 查重之外的区内容重
+ *   existsInVault     (fingerprint) => boolean：检查是否已存为卡片
  */
 export function useKnowledgeInbox({ storageKey, notice, vaultItems }) {
   const [entries, setEntries] = React.useState(() => {
-    try { return JSON.parse(window.localStorage.getItem(storageKey('knowledge-inbox.v1')) || '[]') } catch { return [] }
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(storageKey('knowledge-inbox.v1')) || '[]')
+      return Array.isArray(saved) ? saved.filter(entry => entry && typeof entry.id === 'string' && typeof entry.finding === 'string') : []
+    } catch { return [] }
   })
   // 队列即改即持久化：面板关闭后暂存不丢。
   React.useEffect(() => {
     try { window.localStorage.setItem(storageKey('knowledge-inbox.v1'), JSON.stringify(entries)) } catch {}
   }, [entries])
 
-  const enqueue = (diagnosis, draftFingerprint, methodTitle) => {
+  const current = React.useRef(entries)
+  current.current = entries
+  const publish = next => { current.current = next; setEntries(next) }
+  const enqueue = (diagnosis, draft, methodTitle) => {
     let addedCount = 0
-    setEntries(prev => {
-      const next = [...prev]
-      for (const field of DIAGNOSIS_GAP_FIELDS) {
-        const finding = diagnosis?.[field.key]
-        if (!finding) continue
-        // 查重按「维度 + 草稿指纹」：同一草稿的同一缺口只入区一次。
-        const fingerprint = `${field.key}:${draftFingerprint}`
-        if (next.some(entry => entry.fingerprint === fingerprint)) continue
-        addedCount += 1
-        next.push({
-          id: `know:${Date.now()}:${field.key}:${Math.random().toString(36).slice(2, 6)}`,
-          fingerprint,
-          dimension: field.key,
-          label: field.label,
-          hint: field.hint,
-          finding,
-          draft: draftFingerprint,
-          method: methodTitle || '',
-          at: Date.now(),
-        })
-      }
-      // 区满裁剪：保留最新 N 条（旧未处理项被挤出，避免无限堆积）。
-      return next.slice(-KNOWLEDGE_INBOX_MAX)
-    })
+    const next = [...current.current]
+    for (const field of DIAGNOSIS_GAP_FIELDS) {
+      const finding = diagnosisFinding(diagnosis?.[field.key], field.key)
+      if (!finding) continue
+      // 查重按「维度 + 草稿指纹」：同一草稿的同一缺口只入区一次。
+      const fingerprint = diagnosisFingerprint(field.key, draft)
+      if (next.some(entry => entry.fingerprint === fingerprint) || vaultItems.some(item => item.provenance?.fingerprint === fingerprint)) continue
+      addedCount += 1
+      next.push({
+        id: `know:${Date.now()}:${field.key}:${Math.random().toString(36).slice(2, 6)}`,
+        fingerprint,
+        dimension: field.key,
+        label: field.label,
+        hint: field.hint,
+        finding,
+        draft: String(draft || '').trim(),
+        method: methodTitle || '',
+        at: Date.now(),
+      })
+    }
+    // 区满裁剪：保留最新 N 条（旧未处理项被挤出，避免无限堆积）。
+    if (addedCount) publish(next.slice(-KNOWLEDGE_INBOX_MAX))
     return addedCount
   }
 
-  const dismiss = id => setEntries(prev => prev.filter(item => item.id !== id))
+  const dismiss = id => publish(current.current.filter(item => item.id !== id))
 
   // 查重只针对 Vault 已有卡（provenance.fingerprint）：不能查暂存区——
   // 待晋升的条目自己就在区里，查区会把「自己」误判为重复，导致永远存不了卡。

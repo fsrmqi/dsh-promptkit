@@ -118,10 +118,10 @@ ${strategyLine}
 // 不可证伪要求→改写为可观察的验收表述。
 // 维度键序与解析协议（[DIAG] + ===PROMPT===）统一由 src/lib/utils.js 提供，
 // host 指令与客户端解析共用同一份定义，避免两端漂移。
-import { DIAGNOSIS_DIMENSIONS, parseEnhanceOutput } from '../src/lib/utils.js'
+import { DIAGNOSIS_LABELS, parseEnhanceOutput } from '../src/lib/enhance-output.js'
 
 // 诊断标签：客户端渲染顺序以此为准（host/client 各持一份，协议键保持一致）。
-export const DIAGNOSIS_LABELS = { concept_clarity: '概念清晰', hidden_premise: '隐含前提', falsifiability: '可证伪性', actionability: '可行动性', context_fit: '语境契合' }
+export { DIAGNOSIS_LABELS }
 
 // 方法感知诊断量表：用什么思想框架改写，就用同一框架体检。
 // 键为内置方法标题（21 个方法库的旗舰子集）；未命中的方法回退通用侧重。
@@ -150,6 +150,7 @@ function diagnosisInstruction(lang, methodTitle) {
 [DIAG] falsifiability: <which requirements cannot be judged by observation or test; one short sentence>
 [DIAG] actionability: <what observable outcome executing this prompt would produce, or why none; one short sentence>
 [DIAG] context_fit: <does the draft repeat or contradict what the context already establishes; one short sentence>
+For hidden_premise and falsifiability, prefix the sentence with [GAP] only when an actual issue exists; otherwise use [OK]. Never invent a gap to fill a dimension.
 Then a single line "===PROMPT===" and the rewritten prompt.
 The diagnosis must drive the rewrite: define or disambiguate flagged terms, surface flagged assumptions as [TBD], and restate unfalsifiable requirements as observable acceptance criteria.${rubricLine}`
     return `改写前先用五个问题审视草稿。先输出诊断块，再输出改写结果。诊断格式（每个维度恰好一行，不要多余文字）：
@@ -158,6 +159,7 @@ The diagnosis must drive the rewrite: define or disambiguate flagged terms, surf
 [DIAG] falsifiability: <哪些要求无法被观察或测试判定；一句话>
 [DIAG] actionability: <执行这份提示词会产出什么可观察的结果，或为什么没有；一句话>
 [DIAG] context_fit: <草稿是否重复或矛盾于上下文已确立的信息；一句话>
+hidden_premise 与 falsifiability 的描述必须以 [GAP]（确有缺口）或 [OK]（检查通过）开头；没有问题时不要为了凑维度编造缺口。
 然后单独一行 ===PROMPT===，其后是改写后的提示词正文。
 诊断必须驱动改写：被标记的未定义术语要在改写中显式定义或给出二选一；被标记的假设要标【待确认】或显式写出；不可证伪的要求要改写为可观察的验收表述。${rubricLine}`
 }
@@ -209,6 +211,7 @@ export async function streamEnhanceWithCurrentSessionModel({ llm, route, session
     throw new Error('语义增强模型未返回文本（模型可能只输出了思考内容）；请重试或改用非思考型模型。')
   }
   const parsed = parseEnhanceOutput(output)
+  if (!parsed.prompt) throw new Error('模型仅返回了诊断，未返回改写正文；草稿未改动，请重试。')
   return { ...parsed, model: route.model }
 }
 
@@ -228,6 +231,7 @@ async function readJson(req) {
 }
 
 function reply(res, status, body) {
+  if (res.destroyed || res.writableEnded) return
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
   res.end(JSON.stringify(body))
 }
@@ -244,6 +248,7 @@ function sseReply(res, status, headers = {}) {
   })
 }
 function sseSend(res, event, data) {
+  if (res.destroyed || res.writableEnded) return
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 }
 
@@ -252,7 +257,7 @@ function parseSession(req) {
   return String(url.searchParams.get('session_id') || '')
 }
 
-// 共享的请求守卫：方法校验、session 解析、30s 超时与客户端断开联动。
+// 共享请求守卫：方法校验、会话标识、90 秒超时与客户端断开联动。
 function withRequestGuards(req, res, handler) {
   if (req.method !== 'POST') { res.writeHead(405, { allow: 'POST' }); res.end(); return Promise.resolve() }
   const sessionId = parseSession(req)
@@ -264,12 +269,11 @@ function withRequestGuards(req, res, handler) {
   // 挂 req 会把每个正常请求都立刻 abort，进而被 catch 误报为「模型响应超时」。
   // res 'close' 在连接提前断开（客户端取消）时才会触发。
   const abort = () => controller.abort()
-  // 测试/嵌入式宿主可能传入无事件能力的 res 桩：此时跳过断开联动，仅保留 30s 超时。
+  // 无事件能力的嵌入式 response 只启用超时。
+  let offAbort = () => {}
   if (typeof res.on === 'function' && typeof res.off === 'function') {
     res.on('close', abort)
-    var offAbort = () => res.off('close', abort)
-  } else {
-    var offAbort = () => {}
+    offAbort = () => res.off('close', abort)
   }
   return handler(sessionId, controller).finally(() => {
     clearTimeout(timeout)
@@ -342,7 +346,8 @@ export function semanticEnhanceStreamRoute({ llm, routes }) {
         } catch (error) {
           const message = controller.signal.aborted ? '模型响应超时，请稍后重试。' : String(error?.message || error)
           // 头已发出（SSE）只能走事件通道报错；否则退回 JSON 错误响应。
-          if (res.writableEnded || res.headersSent) sseSend(res, 'error', { error: 'semantic_enhance_failed', message })
+          if (res.destroyed || res.writableEnded) return
+          if (res.headersSent) sseSend(res, 'error', { error: 'semantic_enhance_failed', message, timeout: controller.signal.aborted })
           else reply(res, controller.signal.aborted ? 504 : 503, { error: 'semantic_enhance_failed', next_action: message })
         } finally {
           res.end()
@@ -352,66 +357,30 @@ export function semanticEnhanceStreamRoute({ llm, routes }) {
   }
 }
 
-// 工作区文件检索：@ 文件引用补全的数据源。宿主注入 workspaceRoots（绝对路径数组）
-// 与可选 fs（测试注入内存实现）；缺省用 node:fs。只读、只列名，绝不读文件内容。
-// import 置于文件中部：本模块优先暴露协议常量与路由，node 内建模块依赖次之；
-// 产物构建器会剥除 import 行，位置不影响语义。
-import { readdirSync, statSync } from 'node:fs'
-import { join, relative, sep } from 'node:path'
+// 工作区文件检索复用有界索引；仅返回相对路径，不读取文件正文。
+import { createWorkspaceFileIndex } from './workspace-files.js'
 
-// 检索时跳过的目录：依赖/构建产物/版本库/虚拟环境——引用它们没有意义且拖慢遍历。
-const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__', '.venv'])
-
-// 深度受限的目录遍历：候选池上限 = limit × 4，排序后裁回 limit，
-// 保证大仓库下响应时间有界，不会全量扫描。
-function listWorkspaceFiles({ workspaceRoots, fs, query, limit }) {
-  const nodeFs = fs || { readdirSync, statSync }
-  const poolCap = limit * 4
-  const results = []
-  for (const root of workspaceRoots) {
-    const walk = dir => {
-      if (results.length >= poolCap) return // 超额即止，避免大仓库全量遍历
-      let entries
-      try { entries = nodeFs.readdirSync(dir, { withFileTypes: true }) } catch { return }
-      for (const entry of entries) {
-        if (results.length >= poolCap) return
-        const full = join(dir, entry.name)
-        if (entry.isDirectory()) {
-          if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue
-          walk(full)
-          continue
-        }
-        if (!entry.isFile()) continue
-        // 统一为 POSIX 风格相对路径：前端 @ 引用与排序都以这个字符串为准。
-        const rel = relative(root, full).split(sep).join('/')
-        if (query && !rel.toLowerCase().includes(query)) continue
-        results.push(rel)
-        if (results.length >= poolCap) return
-      }
-    }
-    walk(root)
-  }
-  // 短路径优先（靠近根的文件更可能是用户想引用的），再按字典序稳定输出
-  results.sort((a, b) => a.length - b.length || a.localeCompare(b))
-  return results.slice(0, limit)
-}
-
-export function workspaceFilesRoute({ workspaceRoots = [], fs = undefined } = {}) {
-  const nodeFs = fs || undefined
+export function workspaceFilesRoute(options = {}) {
+  const indexes = new Map()
   return {
     kind: 'exact',
     path: WORKSPACE_FILES_PATH,
     async handler(req, res) {
       if (req.method !== 'GET') { res.writeHead(405, { allow: 'GET' }); res.end(); return }
       const url = new URL(req.url || WORKSPACE_FILES_PATH, 'http://localhost')
-      const query = String(url.searchParams.get('q') || '').trim().toLowerCase()
-      const limit = Math.min(Number(url.searchParams.get('limit')) || 20, 50)
       try {
-        const files = listWorkspaceFiles({ workspaceRoots, fs: nodeFs, query, limit })
-        reply(res, 200, { files })
+        const sessionId = url.searchParams.get('session_id') || ''
+        if (options.resolveWorkspaceRoots && !sessionId) { reply(res, 400, { files: [], error: 'session_id_required' }); return }
+        const roots = options.resolveWorkspaceRoots ? await options.resolveWorkspaceRoots(sessionId) : options.workspaceRoots || []
+        if (options.resolveWorkspaceRoots && !roots.length) { reply(res, 404, { files: [], error: 'session_workspace_unavailable' }); return }
+        const key = JSON.stringify(roots)
+        const index = indexes.get(key) || createWorkspaceFileIndex({ ...options, workspaceRoots: roots })
+        indexes.delete(key)
+        indexes.set(key, index)
+        if (indexes.size > 8) indexes.delete(indexes.keys().next().value)
+        reply(res, 200, await index.search(url.searchParams.get('q') || '', url.searchParams.get('limit') || 20))
       } catch (error) {
-        // 文件检索失败不影响主流程：返回空列表 + 错误信息，前端菜单显示「无匹配」。
-        reply(res, 200, { files: [], error: String(error?.message || error) })
+        reply(res, 503, { files: [], error: String(error?.message || error) })
       }
     },
   }

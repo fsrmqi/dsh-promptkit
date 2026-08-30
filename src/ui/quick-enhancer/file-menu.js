@@ -13,6 +13,7 @@ export function FileMenuNode({ fileMenu, onHoverIndex, onInsert }) {
       `文件引用 · @${fileMenu.query || '…'} · ↑↓ 选择，Enter 插入`,
     ]),
     fileMenu.status === 'loading' ? h('div', { key: 'loading', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '正在检索工作区文件…') : null,
+    fileMenu.truncated ? h('div', { key: 'partial', style: { padding: '6px 8px', color: C.amber, fontSize: '11px' } }, '工作区较大或部分目录不可读，当前仅显示已索引文件。') : null,
     fileMenu.status === 'empty' ? h('div', { key: 'empty', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '未匹配到文件；继续输入路径关键词，或按 Esc 关闭。') : null,
     // 等宽字体呈现路径；悬停与键盘导航共用 activeIndex，保证两者视觉一致。
     ...fileMenu.files.map((path, index) => h('button', {
@@ -41,6 +42,7 @@ export function VariableFillNode({ fill, onCancel, onConfirm }) {
     ...templateVariables(fill.item.body).map(name => h('label', { key: name, style: { display: 'grid', gap: '3px', fontSize: '11px', color: C.slate } }, [
       `{{${name}}}`,
       h('textarea', {
+        key: 'value',
         value: fill.values[name] || '',
         onChange: event => fill.onChange(name, event.target.value),
         placeholder: `填入 ${name}（留空则保留占位符）`,
