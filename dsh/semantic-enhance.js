@@ -33,21 +33,26 @@ function instructionFor(lang, { strength, hasContext } = {}) {
   const strategyLine = strategyRule(lang, hasContext)
   if (lang === 'en') return `You are a prompt rewriter. Rewrite the user's draft into a clear, executable prompt without inventing information.
 
-Only use information present in the draft${hasContext ? ' and the conversation context' : ''}.
+Base the rewrite only on information present in the draft${hasContext ? ' and the conversation context' : ''}; never fabricate facts. Note: the rewritten prompt MAY instruct its executor to verify facts on its own (read code, consult docs, run commands) — that is not fabrication; verification instructions are part of the prompt.
 
-# Output structure (use as needed, mark missing items with [TBD])
+# Output structure (use as needed)
 - Goal
 - Background
-- Known information
+- Known information (include verification instructions: for anything missing, state what the executor should look up and how)
 - Constraints
 - Acceptance criteria
 - Output requirements
+
+# Information acquisition priority (core rule)
+For missing information, handle it in this order:
+1. Prefer turning it into a self-verification instruction for the executor — state what to look up, with what means (read code / docs / records / ls / git log), and how to use the result;
+2. Only if the executor truly cannot obtain it and it must come from the user (preferences, decisions to make), gather those into ONE batched request list at the end of the prompt, each item stating what is needed, why, and what it blocks;
+3. Only when such information does not affect the main execution may you mark it [TBD: ...], at most 1-2 items total. Never mark information the executor can look up itself (paths, change history, doc lists) as [TBD] and ask the user.
 
 # Rules
 - Keep the same language as the draft; never switch languages;
 - Always restructure the draft even if it looks clear; do not return it unchanged;
 - Keep numbers, proper nouns, file paths, code snippets, and skill mentions (slash tokens like /tdd) verbatim;
-- Mark missing critical information as [TBD: what needs confirmation]; do not assume for the user;
 - If the draft is already a prompt (has an imperative tone), reformat only; do not change its meaning;
 ${strengthLine}
 ${strategyLine}
@@ -57,29 +62,34 @@ ${strategyLine}
 User draft: Optimize the login flow, users keep forgetting their passwords.
 Rewritten prompt:
 Goal: Improve the login experience for users who forget passwords.
-Background: Users frequently forget passwords.
-Known information: [TBD: current login and recovery flow]
-Constraints: [TBD: account-system constraints]
-Acceptance criteria: [TBD: measurable success criteria]
-Output requirements: [TBD: expected deliverable]
-[TBD: where the current forgot-password flow lives]`
+Background: Users frequently forget passwords and the recovery flow is poor.
+Known information: First map the current login and password-recovery flow and its entry points (read the relevant code and docs) to establish the baseline.
+Constraints: Respect the actual constraints of the existing account system (per code and docs).
+Acceptance criteria: Define measurable success criteria (e.g. recovery success rate, time spent); measure the current state as the baseline first.
+Output requirements: Deliver an improvement plan with a step-by-step implementation checklist.
+[TBD: expected deliverable form — a plan document, or direct code changes]`
   return `你是提示词改写助手。把用户草稿改写为结构化、可直接执行的提示词。
 
-只使用草稿里已有的信息${hasContext ? '和会话上下文' : ''}，绝不编造、推断或补全用户没给的内容。
+改写时只依据草稿里已有的信息${hasContext ? '和会话上下文' : ''}，不得虚构、推断或补全用户没给的事实。注意：改写产物可以指示执行者自行查证事实（读代码、查文档、跑命令），这不是编造——查证指令本身就是提示词的一部分。
 
-# 输出结构（按需组织，缺失项标注【待确认：…】）
+# 输出结构（按需组织）
 - 目标
 - 背景
-- 已知信息
+- 已知信息（含查证指令：缺什么就写「执行者先用什么手段查证什么」）
 - 约束
 - 验收标准
 - 输出要求
+
+# 信息获取优先级（核心规则）
+草稿缺失的信息，按以下顺序处理：
+1. 优先改写为执行者的自查指令——写明查什么、用什么手段（读代码/查文档/查记录/ls/git log 等）、查到后怎么用；
+2. 执行者确实查不到、只能由用户提供的（如偏好、拍板类决策），汇总成一次性信息索取清单放在提示词末尾，每条注明要什么、为什么、缺了阻塞什么；
+3. 只有当该信息不影响主干执行时，才允许标【待确认：…】，且全文至多 1~2 条。禁止把执行者本可自行查到的信息（路径、改动记录、文档清单等）标成【待确认】反问用户。
 
 # 硬规则
 - 输出语言必须与草稿一致，禁止切换语言；
 - 草稿即使看起来清晰也要做结构化整理，不要原样返回；
 - 关键数字、日期、专有名词、文件路径、代码片段、技能引用记号（/tdd 这类斜杠记号）原样保留；
-- 必要信息缺失时用【待确认：需要补充什么】标出，不要替用户默认；
 - 若草稿本身已经是一条提示词（带指令口吻），只整理格式，不许改动语义；
 ${strengthLine}
 ${strategyLine}
@@ -89,12 +99,12 @@ ${strategyLine}
 用户草稿：帮我优化登录，用户总忘记密码。
 改写为：
 目标：改善用户忘记密码时的登录体验。
-背景：用户经常忘记密码。
-已知信息：【待确认：当前登录与找回密码流程】
-约束：【待确认：账号体系限制】
-验收标准：【待确认：可衡量的成功标准】
-输出要求：【待确认：期望交付物】
-【待确认：当前忘记密码的完整流程和入口在哪里】`
+背景：用户经常忘记密码，现有找回流程体验差。
+已知信息：先自行梳理当前登录与找回密码的完整流程和入口（读相关代码与文档），作为改造基线。
+约束：遵守现有账号体系的实际限制（以代码与文档为准）。
+验收标准：定义可衡量的成功标准（如找回成功率、平均耗时），先测量现状作为对比基线。
+输出要求：给出改造方案与分步实施清单。
+【待确认：期望的交付形式——方案文档还是直接改代码】`
 }
 
 // 诊断维度（哲学启发式，2026-08）：五个维度各有明确的思想根源，但提示词里
@@ -151,7 +161,7 @@ function diagnosisInstruction(lang, methodTitle) {
 [DIAG] context_fit: <does the draft repeat or contradict what the context already establishes; one short sentence>
 For hidden_premise and falsifiability, prefix the sentence with [GAP] only when an actual issue exists; otherwise use [OK]. Never invent a gap to fill a dimension.
 Then a single line "===PROMPT===" and the rewritten prompt.
-The diagnosis must drive the rewrite: define or disambiguate flagged terms, surface flagged assumptions as [TBD], and restate unfalsifiable requirements as observable acceptance criteria.${rubricLine}`
+The diagnosis must drive the rewrite: define or disambiguate flagged terms, handle flagged assumptions per the information acquisition priority (self-verification instruction > one batched request list > at most 1-2 [TBD] items), and restate unfalsifiable requirements as observable acceptance criteria.${rubricLine}`
     return `改写前先用五个问题审视草稿。先输出诊断块，再输出改写结果。诊断格式（每个维度恰好一行，不要多余文字）：
 [DIAG] concept_clarity: <哪些关键词未定义或一词多义；一句话>
 [DIAG] hidden_premise: <草稿默认了哪些未言明的假设；一句话>
@@ -160,7 +170,7 @@ The diagnosis must drive the rewrite: define or disambiguate flagged terms, surf
 [DIAG] context_fit: <草稿是否重复或矛盾于上下文已确立的信息；一句话>
 hidden_premise 与 falsifiability 的描述必须以 [GAP]（确有缺口）或 [OK]（检查通过）开头；没有问题时不要为了凑维度编造缺口。
 然后单独一行 ===PROMPT===，其后是改写后的提示词正文。
-诊断必须驱动改写：被标记的未定义术语要在改写中显式定义或给出二选一；被标记的假设要标【待确认】或显式写出；不可证伪的要求要改写为可观察的验收表述。${rubricLine}`
+诊断必须驱动改写：被标记的未定义术语要在改写中显式定义或给出二选一；被标记的假设要按「信息获取优先级」处理（自查指令 > 一次性索取清单 > 至多 1~2 条【待确认】）；不可证伪的要求要改写为可观察的验收表述。${rubricLine}`
 }
 
 // parseEnhanceOutput 统一从 src/lib/utils.js 导入（host/client 共用一份协议解析）。
