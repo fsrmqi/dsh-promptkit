@@ -511,7 +511,7 @@ window.__ModuleLoader__.load({
             if (method === '苏格拉底式提问') return { label, reason: '排障信息通常不完整，应先收敛关键假设，再做最小验证。', prompt: `请排查这个问题：${source}\n\n先给出最可能的原因排序；对每个原因说明已有证据、最小验证步骤和修复建议。若关键信息不足，只询问最能缩小范围的一个问题；不要假设未提供的环境、配置或日志。${suffix}` }
             if (method === '用最小实验替代空想') return { label, reason: '开发任务优先收敛范围与验收，避免在未验证前扩大改动。', prompt: `请完成这个开发任务：${source}\n\n先明确最小改动范围、兼容边界和验收标准；优先用最小验证确认关键假设，再实施。完成后说明改动、验证结果、已知风险和下一步。不要进行超出任务范围的重构。${suffix}` }
             if (method === '双向钢人论证') return { label, reason: '存在方案取舍时，需要完整呈现支持与反对理由再做判断。', prompt: `请分析这项决策：${source}\n\n分别完整说明主要方案的支持理由、反对理由、适用条件和风险；再给出推荐方案、成立前提与最小验证动作。不要把不确定信息当作事实。${suffix}` }
-            return { label, reason: '任务意图已较清楚，不强行套用方法，只做最小化表达整理。', prompt: `请直接处理这项任务：${source}\n\n先给出结论或可执行方案；再说明关键依据、资源/时间/数据可得性等现实限制与下一步。若信息不足，只提出最关键的澄清问题，不要编造事实。${suffix}` }
+            return { label, reason: '任务意图已较清楚，不强行套用方法，只做最小化表达整理。', prompt: `请处理这项任务：${source}\n\n保持原任务的目标、范围和语气；只在确有必要时补充一条执行边界，不要自行增加计划、验收标准、固定输出格式或额外阶段。${suffix}` }
           }
 
           function classify(source, guidance, signatures, promptSource = source, singleTriggerTitles = new Set()) {
@@ -546,8 +546,8 @@ window.__ModuleLoader__.load({
             const lang = detectLanguage(source)
             if (source && source.length < 8) return { lang, method: '', label: '', signals: [], conflicts: [], tooShort: true, reason: '输入过短，直接使用原文，不做增强。', prompt: source }
             const classified = classify(signals, guidance, buildSignatures(methods), source, privateTitles)
-            if (lang === 'en') return { lang, ...classified, reason: '检测到英文输入，采用英文整理模板；方法匹配仍按触发词执行。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
-            if (lang === 'mixed') return { lang, ...classified, reason: '检测到中英混合输入，保留原语言比例；方法匹配仍按触发词执行。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. Keep the output language proportional to the input (mixed Chinese/English). If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
+            if (lang === 'en') return { lang, ...classified, reason: '检测到英文输入，采用英文整理模板；方法匹配仍按触发词执行。', prompt: `Please handle this task: ${source}\n\nPreserve the task's goal, scope, and tone. Add at most one necessary execution boundary; do not invent plans, acceptance criteria, fixed output formats, or extra phases.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
+            if (lang === 'mixed') return { lang, ...classified, reason: '检测到中英混合输入，保留原语言比例；方法匹配仍按触发词执行。', prompt: `Please handle this task: ${source}\n\nPreserve the task's goal, scope, and tone. Add at most one necessary execution boundary; do not invent plans, acceptance criteria, fixed output formats, or extra phases. Keep the output language proportional to the input (mixed Chinese/English).${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
             return { lang, ...classified }
           }
 
@@ -1182,7 +1182,7 @@ window.__ModuleLoader__.load({
       class DshSessionEnhancer {
         constructor(getSessionId) { this.getSessionId = getSessionId; this.controller = null }
         get loading() { return !!this.controller }
-        async enhance({ draft, extra, lang, method, strength, hasContext }) {
+        async enhance({ draft, extra, lang, method, strength, hasContext, diagnose = false }) {
           this.controller?.abort()
           const controller = new AbortController()
           this.controller = controller
@@ -1190,7 +1190,7 @@ window.__ModuleLoader__.load({
             const response = await fetch(`/dsh-promptkit/semantic-enhance?session_id=${encodeURIComponent(this.getSessionId())}`, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose: true }),
+              body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose }),
               signal: controller.signal,
             })
             const body = await response.json().catch(() => ({}))
@@ -1203,7 +1203,7 @@ window.__ModuleLoader__.load({
         }
         // SSE 流式增强：onDelta 逐段回调（含诊断行）；onStage 收到阶段切换（diagnosing/writing）；
         // resolve 值与 enhance() 一致。404/501（旧 host 未注册流式路由）时抛 fallback 错误，调用方退回非流式。
-        async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = true, onDelta, onStage }) {
+        async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = false, onDelta, onStage }) {
           this.controller?.abort()
           const controller = new AbortController()
           this.controller = controller
@@ -1948,7 +1948,7 @@ window.__ModuleLoader__.load({
       /* ================= QuickEnhancer 增强事务与流式状态 ================= */
       /** 增强事务：准备上下文、流式预览、取消、校验草稿、提交；成功后的统计由调用方处理。 */
       function useEnhancementFlow({ composer, enhancer, draft, draftGuard, config, context, getPlan, importCard, onApplied, onDiagnosis, notice, setLoading }) {
-        const { enhancementKind, enhanceStrength, requirement, matchedMethod: defaultMethod, selectedContextText, referencedFiles, useMemoryContext } = config
+        const { enhancementKind, enhanceStrength, requirement, matchedMethod: defaultMethod, selectedContextText, referencedFiles, useMemoryContext, diagnose = false } = config
         const { vaultItems, assetContextIds, memoryPreview, searchMemory, loadMemory, methodProvider } = context
         const { setNotice, setWarn, setError, setMemoryReceipt } = notice
         const [enhanceDiagnosis, setEnhanceDiagnosis] = React.useState(null)
@@ -2027,7 +2027,7 @@ window.__ModuleLoader__.load({
                 `内容：${item.body}`,
               ].filter(Boolean).join('\n')),
             ].join('\n\n') : ''
-            let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', assetContextText,
+            let extra = ['上下文优先级：当前草稿与本次补充要求优先于对话参考；对话参考优先于项目记忆和思考卡。上下文只可补充背景，不得新增目标、范围、交付物或约束；存在冲突时以当前草稿为准。', requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', assetContextText,
               referencedFiles.length ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。` : '',
             ].filter(Boolean).join('\n\n')
             let remembered = ''
@@ -2038,7 +2038,7 @@ window.__ModuleLoader__.load({
             assertActive()
             const template = matchedMethod ? await methodProvider.getTemplate(matchedMethod.id) : null
             assertActive()
-            const options = { draft: original, extra, lang: detectLanguage(original), kind: 'semantic', strength: enhanceStrength,
+            const options = { draft: original, extra, lang: detectLanguage(original), kind: 'semantic', strength: enhanceStrength, diagnose,
               hasContext: Boolean(selectedContextText || remembered || assetContextText),
               method: matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined }
             let body
@@ -2069,7 +2069,7 @@ window.__ModuleLoader__.load({
             if (typeof body.prompt !== 'string' || !body.prompt.trim()) throw new Error('模型未返回改写正文，草稿未改动。')
             const after = applyEnhanced(repaired || body.prompt)
             setEnhanceDiagnosis(body.diagnosis || null)
-            if (body.diagnosis) onDiagnosis(body.diagnosis, original.trim(), matchedMethod?.title || '')
+            if (body.diagnosis) onDiagnosis?.(body.diagnosis, original.trim(), matchedMethod?.title || '')
             if (repaired) setSkillRestore({ lost: skillMentions(original).filter(name => !skillMentions(body.prompt).includes(name)) })
             setStreamState(prev => prev ? { ...prev, segments: splitOutputSegments(body.prompt) } : prev)
             onApplied({ original, after, selection, matchedMethod, kind: 'semantic', method: matchedMethod?.title, body, remembered, contextAssets })
@@ -2487,8 +2487,8 @@ window.__ModuleLoader__.load({
       //   五维诊断 + 知识区入口 → DiagnosisSection
       //   技能引用修复提示 → skillRestore
 
-      // 强度三档（仅语义档生效）：档位注入 host 指令控制篇幅预算（≈1x/1.5x/3x）。
-      const STRENGTH_OPTIONS = [['low', '低 · 润色'], ['mid', '中 · 标准'], ['high', '高 · 展开']]
+      // 强度三档（仅语义档生效）：只控制措辞细致度，不扩大任务范围。
+      const STRENGTH_OPTIONS = [['low', '低 · 润色'], ['mid', '中 · 细化'], ['high', '高 · 详述']]
 
       function StrengthSelector({ value, onChange }) {
         return h('div', { key: 'strength', style: { marginTop: '7px', display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' } }, [
@@ -2508,7 +2508,7 @@ window.__ModuleLoader__.load({
         return h('label', { key: 'auto-enhance', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '8px', padding: '8px 10px', border: `1px solid ${enabled ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: enabled ? C.tealTint : C.surface, cursor: 'pointer', fontSize: '11px', color: C.slate } }, [
           h('span', { key: 'text' }, [
             h('strong', { key: 't', style: { color: enabled ? C.teal : C.slate } }, '发送前自动增强'),
-            h('div', { key: 'd', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, enabled ? '仅拦截消息框 Enter；增强失败发原文，发送失败不重试。' : '开启后按消息框 Enter 时先增强再发送；Shift+Enter 换行不受影响。'),
+            h('div', { key: 'd', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, enabled ? '仅拦截消息框 Enter；只做保守润色，失败发原文，发送失败不重试。' : '开启后按消息框 Enter 时先润色再发送；Shift+Enter 换行不受影响。'),
           ]),
           h('input', { key: 'cb', type: 'checkbox', checked: enabled, onChange: event => onChange(event.target.checked), style: { accentColor: C.teal, cursor: 'pointer', flexShrink: 0 } }),
         ])
@@ -2834,7 +2834,9 @@ window.__ModuleLoader__.load({
         const referencedFiles = fileMentions(draft)
         const enhancementInput = composer?.getSelection?.()?.text || draft
         const autoMethods = recommendMethods(methods, [enhancementInput, requirement, selectedContextText].filter(Boolean).join('\n'))
-        const matchedMethod = methods.find(method => method.id === enhancementMethodId) || autoMethods[0]
+        const explicitEnhancementMethod = methods.find(method => method.id === enhancementMethodId)
+        // 自动匹配只负责推荐；只有用户明确点选后才把方法模板注入改写，避免普通请求被框架劫持。
+        const matchedMethod = explicitEnhancementMethod || autoMethods[0]
         // 异步记忆检索的代际守卫：返回时若 query 已变化则丢弃过期结果，避免旧摘要覆盖新输入。
         const memoryRequestId = React.useRef(0)
         const loadMemory = async query => {
@@ -2932,7 +2934,8 @@ window.__ModuleLoader__.load({
         const suggestThinkingCard = source => {
           const text = String(source || '').trim()
           const kind = /假设|可能|也许|推测|猜想/.test(text) ? 'assumption' : /应该|建议|下一步|行动/.test(text) ? 'action' : /决定|选择|方案/.test(text) ? 'decision' : /问题|为什么|如何|是否/.test(text) ? 'question' : /事实|数据|显示|确认/.test(text) ? 'fact' : 'conclusion'
-          return { kind, epistemic: kind === 'assumption' ? 'to_verify' : kind === 'fact' ? 'verified' : 'inferred' }
+          // 文本关键词只能推测卡片类型，不能证明事实已经核验。
+          return { kind, epistemic: kind === 'assumption' ? 'to_verify' : 'inferred' }
         }
         const createThinkingCardFromConversation = () => {
           const body = selectedMessageBody()
@@ -2946,7 +2949,7 @@ window.__ModuleLoader__.load({
           if (!source) { setWarn('请先选择至少一条对话。'); return }
           const derived = selectedConversationDraft(activeMessages)
           const rows = [
-            ['fact', 'verified', '已证实的事实', derived.facts],
+            ['fact', 'inferred', '待核实的事实', derived.facts],
             ['assumption', 'to_verify', '待验证的假设', derived.constraints],
             ['decision', 'inferred', '已做出的决策', derived.options],
             ['question', 'to_verify', '尚未解决的问题', derived.unresolved || derived.question],
@@ -3295,11 +3298,12 @@ window.__ModuleLoader__.load({
         }
         const { enhanceIntoInput, cancelEnhance, enhanceDiagnosis, diagnosisMethod, streamState, setStreamState, skillRestore, setSkillRestore } = useEnhancementFlow({
           composer, enhancer, draft, draftGuard, importCard, setLoading,
-          config: { enhancementKind, enhanceStrength, requirement, matchedMethod, selectedContextText, referencedFiles, useMemoryContext },
+          config: { enhancementKind, enhanceStrength, requirement, matchedMethod: explicitEnhancementMethod, selectedContextText, referencedFiles, useMemoryContext, diagnose: advancedEnhancement && Boolean(explicitEnhancementMethod) },
           context: { vaultItems, assetContextIds, memoryPreview, searchMemory, loadMemory, methodProvider },
           getPlan: (text, method) => createEnhancementPlan(text, method),
           notice: { setNotice, setWarn, setError, setMemoryReceipt },
-          onDiagnosis: (...args) => enqueueDiagnosisFindings(...args),
+          // 诊断仅供本次查看；不再自动写入知识区或本地持久化。
+          onDiagnosis: undefined,
           onApplied: ({ original, after, selection, matchedMethod, kind, method, remembered, contextAssets }) => {
             onboarding.recordSuccess()
             setUndoDraft({ before: selection?.draft || original, after })
@@ -3315,13 +3319,14 @@ window.__ModuleLoader__.load({
               try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}
               return nextUsage
             })
+            // 只有用户明确评价“有用”后才建议存入灵感库，避免把模型中间产物误当作长期资产。
             pushNudges([
               matchedMethod ? { type: 'awaken', methodId: matchedMethod.id, methodTitle: matchedMethod.title } : null,
-              { type: 'vault', methodId: matchedMethod?.id, methodTitle: matchedMethod?.title, body: after, draftTitle: deriveVaultTitle(original, matchedMethod) }
-            ])
+            ].filter(Boolean))
           },
         })
-        useAutoEnhance({ enabled: autoEnhanceEnabled, composer, enhancer, onSubmitDraft, strength: enhanceStrength, draftGuard, loading, setLoading, setStreamState, setNotice, setWarn, setError })
+        // 自动发送是不可预览路径，只允许保守润色，不继承用户上次选择的扩展强度。
+        useAutoEnhance({ enabled: autoEnhanceEnabled, composer, enhancer, onSubmitDraft, strength: 'low', draftGuard, loading, setLoading, setStreamState, setNotice, setWarn, setError })
         const common = ['苏格拉底式提问', '第一性原理', '双向钢人论证'].map(title => methodChoice(methods, title)).filter(Boolean)
         // 快捷键仍可直达常用方法；这里不把常用方法当成“智能推荐”的兜底，避免 UI 误称为自动判断。
         keyboardRef.current = { enhanceIntoInput, composeIntoInput, autoMethods: autoMethods.length ? autoMethods : common, mode, methods, selectedMethodId, loading }
@@ -3776,7 +3781,7 @@ window.__ModuleLoader__.load({
               mode === 'enhance' && !libraryOpen && (requirement.trim() || useConversationContext || useMemoryContext) ? stepperNode : null,
               settingsOpen ? settingsSection : null,
               mode === 'enhance' ? enhanceBody : null,
-              lastEnhancement ? h('div', { key: 'feedback', style: { marginTop: '12px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint, color: C.slate, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' } }, [h(Icon, { key: 'ck', name: 'check', size: 14, style: { color: C.teal } }), h('span', { key: 'label', style: { flex: 1 } }, '增强完成，可在此撤销或反馈'), h('button', { key: 'up', onClick: () => saveFeedback('up'), title: '有用', 'aria-label': '有用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-u', name: 'thumbsUp', size: 15 })), h('button', { key: 'down', onClick: () => saveFeedback('down'), title: '没用', 'aria-label': '没用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-d', name: 'thumbsDown', size: 15 }))]) : null,
+              lastEnhancement ? h('div', { key: 'feedback', style: { marginTop: '12px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint, color: C.slate, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, [h(Icon, { key: 'ck', name: 'check', size: 14, style: { color: C.teal } }), h('span', { key: 'label', style: { flex: 1 } }, '增强完成'), undoDraft ? h('button', { key: 'undo-visible', onClick: () => { if (draft !== undoDraft.after) { setUndoDraft(null); setNotice('消息框内容已变化，无法撤销到之前状态。'); return } clearOutcomeAt('undo'); composer?.write(undoDraft.before); setUndoDraft(null); setNotice('已撤销上一次填入。') }, style: { border: `1px solid ${C.tealLineActive}`, borderRadius: '7px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '4px 8px', fontSize: '11px', fontWeight: 800 } }, '撤销上一次填入') : null, h('button', { key: 'up', onClick: () => saveFeedback('up'), title: '有用', 'aria-label': '有用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-u', name: 'thumbsUp', size: 15 })), h('button', { key: 'down', onClick: () => saveFeedback('down'), title: '没用', 'aria-label': '没用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-d', name: 'thumbsDown', size: 15 }))]) : null,
               h('div', { key: 'methods', style: { display: 'none' } }, [
                 h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '4px' } }, [h('div', { key: 'label', style: { color: C.muted, fontSize: '13px', fontWeight: 800 } }, showAllMethods ? '全部思考方法' : '常用思考方法'), h('button', { key: 'toggle', disabled: loading, onClick: () => setShowAllMethods(value => !value), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '13px', fontWeight: 800 } }, showAllMethods ? '返回常用 3 个' : `全部方法（${methods.length}）`)]),
                 h('div', { key: 'tip', style: { marginBottom: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.4 } }, requirement.trim() && recommended.length ? `推荐：${recommended.map(method => method.title).join('、')}；常用三种方法始终可选。` : '默认提供三种常用方法；也可以展开全部方法。'),

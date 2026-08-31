@@ -170,7 +170,7 @@ import { parseEnhanceOutput, DIAGNOSIS_DIMENSIONS } from './enhance-output.js'
       if (method === '苏格拉底式提问') return { label, reason: '排障信息通常不完整，应先收敛关键假设，再做最小验证。', prompt: `请排查这个问题：${source}\n\n先给出最可能的原因排序；对每个原因说明已有证据、最小验证步骤和修复建议。若关键信息不足，只询问最能缩小范围的一个问题；不要假设未提供的环境、配置或日志。${suffix}` }
       if (method === '用最小实验替代空想') return { label, reason: '开发任务优先收敛范围与验收，避免在未验证前扩大改动。', prompt: `请完成这个开发任务：${source}\n\n先明确最小改动范围、兼容边界和验收标准；优先用最小验证确认关键假设，再实施。完成后说明改动、验证结果、已知风险和下一步。不要进行超出任务范围的重构。${suffix}` }
       if (method === '双向钢人论证') return { label, reason: '存在方案取舍时，需要完整呈现支持与反对理由再做判断。', prompt: `请分析这项决策：${source}\n\n分别完整说明主要方案的支持理由、反对理由、适用条件和风险；再给出推荐方案、成立前提与最小验证动作。不要把不确定信息当作事实。${suffix}` }
-      return { label, reason: '任务意图已较清楚，不强行套用方法，只做最小化表达整理。', prompt: `请直接处理这项任务：${source}\n\n先给出结论或可执行方案；再说明关键依据、资源/时间/数据可得性等现实限制与下一步。若信息不足，只提出最关键的澄清问题，不要编造事实。${suffix}` }
+      return { label, reason: '任务意图已较清楚，不强行套用方法，只做最小化表达整理。', prompt: `请处理这项任务：${source}\n\n保持原任务的目标、范围和语气；只在确有必要时补充一条执行边界，不要自行增加计划、验收标准、固定输出格式或额外阶段。${suffix}` }
     }
 
     function classify(source, guidance, signatures, promptSource = source, singleTriggerTitles = new Set()) {
@@ -205,8 +205,8 @@ import { parseEnhanceOutput, DIAGNOSIS_DIMENSIONS } from './enhance-output.js'
       const lang = detectLanguage(source)
       if (source && source.length < 8) return { lang, method: '', label: '', signals: [], conflicts: [], tooShort: true, reason: '输入过短，直接使用原文，不做增强。', prompt: source }
       const classified = classify(signals, guidance, buildSignatures(methods), source, privateTitles)
-      if (lang === 'en') return { lang, ...classified, reason: '检测到英文输入，采用英文整理模板；方法匹配仍按触发词执行。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
-      if (lang === 'mixed') return { lang, ...classified, reason: '检测到中英混合输入，保留原语言比例；方法匹配仍按触发词执行。', prompt: `Please handle this task directly: ${source}\n\nGive the conclusion or an actionable plan first, then briefly state the key reasoning, practical constraints (resources, time, data availability), and next steps. Keep the output language proportional to the input (mixed Chinese/English). If information is insufficient, ask only the most critical clarifying question. Do not invent facts.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
+      if (lang === 'en') return { lang, ...classified, reason: '检测到英文输入，采用英文整理模板；方法匹配仍按触发词执行。', prompt: `Please handle this task: ${source}\n\nPreserve the task's goal, scope, and tone. Add at most one necessary execution boundary; do not invent plans, acceptance criteria, fixed output formats, or extra phases.${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
+      if (lang === 'mixed') return { lang, ...classified, reason: '检测到中英混合输入，保留原语言比例；方法匹配仍按触发词执行。', prompt: `Please handle this task: ${source}\n\nPreserve the task's goal, scope, and tone. Add at most one necessary execution boundary; do not invent plans, acceptance criteria, fixed output formats, or extra phases. Keep the output language proportional to the input (mixed Chinese/English).${guidance ? `\n\nAdditional requirement: ${guidance}` : ''}` }
       return { lang, ...classified }
     }
 

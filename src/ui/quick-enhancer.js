@@ -92,6 +92,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   // ── 语义增强强度档位（低=润色 / 中=标准 / 高=充分展开），仅语义档生效 ──
   const [enhanceStrength, setEnhanceStrength] = React.useState(() => { try { return window.localStorage.getItem(storageKey('enhance.strength.v1')) || 'mid' } catch { return 'mid' } })
   React.useEffect(() => { try { window.localStorage.setItem(storageKey('enhance.strength.v1'), enhanceStrength) } catch {} }, [enhanceStrength])
+  const [diagnoseEnabled, setDiagnoseEnabled] = React.useState(false)
   // ── 诊断闭环（知识区）：发现 → 知识区暂存 → 用户主动决定 → Vault 思考卡 ──
   // 状态与持久化在 use-knowledge-inbox.js；这里只接出入口，主组件保留
   // promote（写 Vault 假设卡）的编排，因为它依赖 saveToVault 之外的 Vault 查重。
@@ -254,7 +255,9 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const referencedFiles = fileMentions(draft)
   const enhancementInput = composer?.getSelection?.()?.text || draft
   const autoMethods = recommendMethods(methods, [enhancementInput, requirement, selectedContextText].filter(Boolean).join('\n'))
-  const matchedMethod = methods.find(method => method.id === enhancementMethodId) || autoMethods[0]
+  const explicitEnhancementMethod = methods.find(method => method.id === enhancementMethodId)
+  // 自动匹配只负责推荐；只有用户明确点选后才把方法模板注入改写，避免普通请求被框架劫持。
+  const matchedMethod = explicitEnhancementMethod || autoMethods[0]
   // 异步记忆检索的代际守卫：返回时若 query 已变化则丢弃过期结果，避免旧摘要覆盖新输入。
   const memoryRequestId = React.useRef(0)
   const loadMemory = async query => {
@@ -352,7 +355,8 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const suggestThinkingCard = source => {
     const text = String(source || '').trim()
     const kind = /假设|可能|也许|推测|猜想/.test(text) ? 'assumption' : /应该|建议|下一步|行动/.test(text) ? 'action' : /决定|选择|方案/.test(text) ? 'decision' : /问题|为什么|如何|是否/.test(text) ? 'question' : /事实|数据|显示|确认/.test(text) ? 'fact' : 'conclusion'
-    return { kind, epistemic: kind === 'assumption' ? 'to_verify' : kind === 'fact' ? 'verified' : 'inferred' }
+    // 文本关键词只能推测卡片类型，不能证明事实已经核验。
+    return { kind, epistemic: kind === 'assumption' ? 'to_verify' : 'inferred' }
   }
   const createThinkingCardFromConversation = () => {
     const body = selectedMessageBody()
@@ -366,7 +370,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     if (!source) { setWarn('请先选择至少一条对话。'); return }
     const derived = selectedConversationDraft(activeMessages)
     const rows = [
-      ['fact', 'verified', '已证实的事实', derived.facts],
+      ['fact', 'inferred', '待核实的事实', derived.facts],
       ['assumption', 'to_verify', '待验证的假设', derived.constraints],
       ['decision', 'inferred', '已做出的决策', derived.options],
       ['question', 'to_verify', '尚未解决的问题', derived.unresolved || derived.question],
@@ -715,11 +719,12 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   }
   const { enhanceIntoInput, cancelEnhance, enhanceDiagnosis, diagnosisMethod, streamState, setStreamState, skillRestore, setSkillRestore } = useEnhancementFlow({
     composer, enhancer, draft, draftGuard, importCard, setLoading,
-    config: { enhancementKind, enhanceStrength, requirement, matchedMethod, selectedContextText, referencedFiles, useMemoryContext },
+    config: { enhancementKind, enhanceStrength, requirement, matchedMethod: explicitEnhancementMethod, selectedContextText, referencedFiles, useMemoryContext, diagnose: diagnoseEnabled },
     context: { vaultItems, assetContextIds, memoryPreview, searchMemory, loadMemory, methodProvider },
     getPlan: (text, method) => createEnhancementPlan(text, method),
     notice: { setNotice, setWarn, setError, setMemoryReceipt },
-    onDiagnosis: (...args) => enqueueDiagnosisFindings(...args),
+    // 诊断仅供本次查看；不再自动写入知识区或本地持久化。
+    onDiagnosis: undefined,
     onApplied: ({ original, after, selection, matchedMethod, kind, method, remembered, contextAssets }) => {
       onboarding.recordSuccess()
       setUndoDraft({ before: selection?.draft || original, after })
@@ -735,13 +740,14 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
         try { window.localStorage.setItem(storageKey('method-usage.v1'), JSON.stringify(nextUsage)) } catch {}
         return nextUsage
       })
+      // 只有用户明确评价“有用”后才建议存入灵感库，避免把模型中间产物误当作长期资产。
       pushNudges([
         matchedMethod ? { type: 'awaken', methodId: matchedMethod.id, methodTitle: matchedMethod.title } : null,
-        { type: 'vault', methodId: matchedMethod?.id, methodTitle: matchedMethod?.title, body: after, draftTitle: deriveVaultTitle(original, matchedMethod) }
-      ])
+      ].filter(Boolean))
     },
   })
-  useAutoEnhance({ enabled: autoEnhanceEnabled, composer, enhancer, onSubmitDraft, strength: enhanceStrength, draftGuard, loading, setLoading, setStreamState, setNotice, setWarn, setError })
+  // 自动发送是不可预览路径，只允许保守润色，不继承用户上次选择的扩展强度。
+  useAutoEnhance({ enabled: autoEnhanceEnabled, composer, enhancer, onSubmitDraft, strength: 'low', draftGuard, loading, setLoading, setStreamState, setNotice, setWarn, setError })
   const common = ['苏格拉底式提问', '第一性原理', '双向钢人论证'].map(title => methodChoice(methods, title)).filter(Boolean)
   // 快捷键仍可直达常用方法；这里不把常用方法当成“智能推荐”的兜底，避免 UI 误称为自动判断。
   keyboardRef.current = { enhanceIntoInput, composeIntoInput, autoMethods: autoMethods.length ? autoMethods : common, mode, methods, selectedMethodId, loading }
@@ -1049,6 +1055,8 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     selectedMethodId: enhancementMethodId,
     suggestedMethod: autoMethods[0],
     onMethodChange: setEnhancementMethodId,
+    diagnose: diagnoseEnabled,
+    onDiagnoseChange: setDiagnoseEnabled,
     streamState,
     loading,
     onCancelEnhance: cancelEnhance,
@@ -1196,7 +1204,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
         mode === 'enhance' && !libraryOpen && (requirement.trim() || useConversationContext || useMemoryContext) ? stepperNode : null,
         settingsOpen ? settingsSection : null,
         mode === 'enhance' ? enhanceBody : null,
-        lastEnhancement ? h('div', { key: 'feedback', style: { marginTop: '12px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint, color: C.slate, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' } }, [h(Icon, { key: 'ck', name: 'check', size: 14, style: { color: C.teal } }), h('span', { key: 'label', style: { flex: 1 } }, '增强完成，可在此撤销或反馈'), h('button', { key: 'up', onClick: () => saveFeedback('up'), title: '有用', 'aria-label': '有用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-u', name: 'thumbsUp', size: 15 })), h('button', { key: 'down', onClick: () => saveFeedback('down'), title: '没用', 'aria-label': '没用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-d', name: 'thumbsDown', size: 15 }))]) : null,
+        lastEnhancement ? h('div', { key: 'feedback', style: { marginTop: '12px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint, color: C.slate, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, [h(Icon, { key: 'ck', name: 'check', size: 14, style: { color: C.teal } }), h('span', { key: 'label', style: { flex: 1 } }, '增强完成'), undoDraft ? h('button', { key: 'undo-visible', onClick: () => { if (draft !== undoDraft.after) { setUndoDraft(null); setNotice('消息框内容已变化，无法撤销到之前状态。'); return } clearOutcomeAt('undo'); composer?.write(undoDraft.before); setUndoDraft(null); setNotice('已撤销上一次填入。') }, style: { border: `1px solid ${C.tealLineActive}`, borderRadius: '7px', background: C.surface, color: C.teal, cursor: 'pointer', padding: '4px 8px', fontSize: '11px', fontWeight: 800 } }, '撤销上一次填入') : null, h('button', { key: 'up', onClick: () => saveFeedback('up'), title: '有用', 'aria-label': '有用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-u', name: 'thumbsUp', size: 15 })), h('button', { key: 'down', onClick: () => saveFeedback('down'), title: '没用', 'aria-label': '没用', style: { border: 0, background: 'transparent', cursor: 'pointer', color: C.ink, display: 'inline-flex' } }, h(Icon, { key: 'ic-d', name: 'thumbsDown', size: 15 }))]) : null,
         h('div', { key: 'methods', style: { display: 'none' } }, [
           h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '4px' } }, [h('div', { key: 'label', style: { color: C.muted, fontSize: '13px', fontWeight: 800 } }, showAllMethods ? '全部思考方法' : '常用思考方法'), h('button', { key: 'toggle', disabled: loading, onClick: () => setShowAllMethods(value => !value), style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '13px', fontWeight: 800 } }, showAllMethods ? '返回常用 3 个' : `全部方法（${methods.length}）`)]),
           h('div', { key: 'tip', style: { marginBottom: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.4 } }, requirement.trim() && recommended.length ? `推荐：${recommended.map(method => method.title).join('、')}；常用三种方法始终可选。` : '默认提供三种常用方法；也可以展开全部方法。'),

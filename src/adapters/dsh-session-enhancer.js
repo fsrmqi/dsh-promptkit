@@ -1,7 +1,7 @@
 export class DshSessionEnhancer {
   constructor(getSessionId) { this.getSessionId = getSessionId; this.controller = null }
   get loading() { return !!this.controller }
-  async enhance({ draft, extra, lang, method, strength, hasContext }) {
+  async enhance({ draft, extra, lang, method, strength, hasContext, diagnose = false }) {
     this.controller?.abort()
     const controller = new AbortController()
     this.controller = controller
@@ -9,7 +9,7 @@ export class DshSessionEnhancer {
       const response = await fetch(`/dsh-promptkit/semantic-enhance?session_id=${encodeURIComponent(this.getSessionId())}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose: true }),
+        body: JSON.stringify({ draft, extra, lang, method, strength, hasContext, diagnose }),
         signal: controller.signal,
       })
       const body = await response.json().catch(() => ({}))
@@ -22,7 +22,7 @@ export class DshSessionEnhancer {
   }
   // SSE 流式增强：onDelta 逐段回调（含诊断行）；onStage 收到阶段切换（diagnosing/writing）；
   // resolve 值与 enhance() 一致。404/501（旧 host 未注册流式路由）时抛 fallback 错误，调用方退回非流式。
-  async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = true, onDelta, onStage }) {
+  async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = false, onDelta, onStage }) {
     this.controller?.abort()
     const controller = new AbortController()
     this.controller = controller

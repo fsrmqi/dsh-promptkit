@@ -1,10 +1,10 @@
 export const SEMANTIC_ENHANCE_PATH = '/dsh-promptkit/semantic-enhance'
 export const SEMANTIC_ENHANCE_STREAM_PATH = '/dsh-promptkit/semantic-enhance/stream'
 
-// 增强强度档位：控制输出篇幅与展开深度（借鉴社区头部插件的三档设计）。
-//   low  ≈ 原文 1 倍：只做措辞与结构润色，不带文件引用节
-//   mid  ≈ 原文 1.5 倍：标准结构化，参考文件只列路径
-//   high ≈ 原文 3 倍：充分展开背景/步骤/验收，参考文件带说明
+// 增强强度档位只控制表达细节，不得扩大任务范围或凭空增加交付阶段。
+//   low  ≈ 原文 1 倍：只做措辞与结构润色
+//   mid  ≈ 原文 1.5 倍：补足必要的执行边界
+//   high ≈ 原文 3 倍上限：可补充细节，但仍保留原任务的粒度与语气
 const STRENGTH_BUDGET = { low: 1.0, mid: 1.5, high: 3.0 }
 
 function normalizeStrength(strength) {
@@ -14,9 +14,9 @@ function normalizeStrength(strength) {
 function strengthRule(lang, strength) {
   const budget = STRENGTH_BUDGET[normalizeStrength(strength)]
   if (lang === 'en') {
-    return `- Length budget: about ${budget}x the draft. ${strength === 'low' ? 'Polish wording and structure only; do not expand content.' : strength === 'high' ? 'Fully expand background, steps and acceptance criteria; add explanations to referenced files.' : 'Standard restructuring; keep it compact.'}`
+    return `- Length budget: up to about ${budget}x the draft. ${strength === 'low' ? 'Polish wording and structure only; do not expand content.' : strength === 'high' ? 'Add detail only when it directly helps execute the original request; never add workstreams, acceptance criteria, or delivery phases the user did not ask for.' : 'Clarify only the necessary execution boundaries; keep it compact.'}`
   }
-  return `- 篇幅约为草稿的 ${budget} 倍。${strength === 'low' ? '只做措辞与结构润色，不展开内容。' : strength === 'high' ? '充分展开背景、步骤与验收标准；参考文件条目带一句说明。' : '标准结构化整理，输出紧凑。'}`
+  return `- 篇幅最多约为草稿的 ${budget} 倍。${strength === 'low' ? '只做措辞与结构润色，不展开内容。' : strength === 'high' ? '只补充直接有助于执行原请求的细节；不得新增用户未要求的工作流、验收标准或交付阶段。' : '只澄清必要的执行边界，保持紧凑。'}`
 }
 
 // 双策略：无会话上下文时按结构模板规范化；有上下文时先提炼真实意图、
@@ -35,23 +35,16 @@ function instructionFor(lang, { strength, hasContext } = {}) {
 
 Base the rewrite only on information present in the draft${hasContext ? ' and the conversation context' : ''}; never fabricate facts. Note: the rewritten prompt MAY instruct its executor to verify facts on its own (read code, consult docs, run commands) — that is not fabrication; verification instructions are part of the prompt.
 
-# Output structure (use as needed)
-- Goal
-- Background
-- Known information (include verification instructions: for anything missing, state what the executor should look up and how)
-- Constraints
-- Acceptance criteria
-- Output requirements
+# Output shape
+Use the draft's natural form whenever possible. Add headings or bullets only when they make the request clearer; do not manufacture a full template, project plan, audit checklist, or staged deliverable.
 
 # Information acquisition priority (core rule)
-For missing information, handle it in this order:
-1. Prefer turning it into a self-verification instruction for the executor — state what to look up, with what means (read code / docs / records / ls / git log), and how to use the result;
-2. Only if the executor truly cannot obtain it and it must come from the user (preferences, decisions to make), gather those into ONE batched request list at the end of the prompt, each item stating what is needed, why, and what it blocks;
-3. Only when such information does not affect the main execution may you mark it [TBD: ...], at most 1-2 items total. Never mark information the executor can look up itself (paths, change history, doc lists) as [TBD] and ask the user.
+For genuinely essential missing information, prefer a short instruction to inspect the relevant source of truth. Do not prescribe commands, inventories, boundaries, or reporting formats unless the draft requires them. Ask the user only for a decision that cannot be discovered by the executor; otherwise keep uncertainty concise.
 
 # Rules
 - Keep the same language as the draft; never switch languages;
-- Always restructure the draft even if it looks clear; do not return it unchanged;
+- Preserve the task type, scope, autonomy, and conversational tone of the draft. Do not turn a simple request into a project plan, audit, investigation, or multi-stage SOP;
+- If the draft is already clear, make only minimal edits; returning a lightly polished version is valid;
 - Keep numbers, proper nouns, file paths, code snippets, and skill mentions (slash tokens like /tdd) verbatim;
 - If the draft is already a prompt (has an imperative tone), reformat only; do not change its meaning;
 ${strengthLine}
@@ -61,34 +54,21 @@ ${strategyLine}
 # Example
 User draft: Optimize the login flow, users keep forgetting their passwords.
 Rewritten prompt:
-Goal: Improve the login experience for users who forget passwords.
-Background: Users frequently forget passwords and the recovery flow is poor.
-Known information: First map the current login and password-recovery flow and its entry points (read the relevant code and docs) to establish the baseline.
-Constraints: Respect the actual constraints of the existing account system (per code and docs).
-Acceptance criteria: Define measurable success criteria (e.g. recovery success rate, time spent); measure the current state as the baseline first.
-Output requirements: Deliver an improvement plan with a step-by-step implementation checklist.
-[TBD: expected deliverable form — a plan document, or direct code changes]`
+Please improve the login experience for users who forget their passwords. First review the current password-recovery flow and its existing constraints, then make the smallest useful improvements. Briefly summarize what changed and any open decisions.`
   return `你是提示词改写助手。把用户草稿改写为结构化、可直接执行的提示词。
 
 改写时只依据草稿里已有的信息${hasContext ? '和会话上下文' : ''}，不得虚构、推断或补全用户没给的事实。注意：改写产物可以指示执行者自行查证事实（读代码、查文档、跑命令），这不是编造——查证指令本身就是提示词的一部分。
 
-# 输出结构（按需组织）
-- 目标
-- 背景
-- 已知信息（含查证指令：缺什么就写「执行者先用什么手段查证什么」）
-- 约束
-- 验收标准
-- 输出要求
+# 输出形式
+尽量沿用草稿自然的表达。只有确实能提升清晰度时才加标题或列表；不得为了套模板而生成完整结构、项目计划、审计清单或分阶段交付。
 
 # 信息获取优先级（核心规则）
-草稿缺失的信息，按以下顺序处理：
-1. 优先改写为执行者的自查指令——写明查什么、用什么手段（读代码/查文档/查记录/ls/git log 等）、查到后怎么用；
-2. 执行者确实查不到、只能由用户提供的（如偏好、拍板类决策），汇总成一次性信息索取清单放在提示词末尾，每条注明要什么、为什么、缺了阻塞什么；
-3. 只有当该信息不影响主干执行时，才允许标【待确认：…】，且全文至多 1~2 条。禁止把执行者本可自行查到的信息（路径、改动记录、文档清单等）标成【待确认】反问用户。
+只有缺失信息确实影响执行时，才简短指示执行者查看相关事实来源。不要擅自规定命令、盘点范围、时间边界或汇报格式，除非草稿本身需要。只有执行者无法自行获知的决策才向用户索取；其余不确定性保持简洁。
 
 # 硬规则
 - 输出语言必须与草稿一致，禁止切换语言；
-- 草稿即使看起来清晰也要做结构化整理，不要原样返回；
+- 保留草稿的任务类型、范围、自主程度与对话语气；不得把一句普通请求改成项目计划、审计、调查或多阶段 SOP；
+- 草稿已经清楚时只做最小编辑；轻度润色后接近原文是有效结果；
 - 关键数字、日期、专有名词、文件路径、代码片段、技能引用记号（/tdd 这类斜杠记号）原样保留；
 - 若草稿本身已经是一条提示词（带指令口吻），只整理格式，不许改动语义；
 ${strengthLine}
@@ -98,13 +78,7 @@ ${strategyLine}
 # 示例
 用户草稿：帮我优化登录，用户总忘记密码。
 改写为：
-目标：改善用户忘记密码时的登录体验。
-背景：用户经常忘记密码，现有找回流程体验差。
-已知信息：先自行梳理当前登录与找回密码的完整流程和入口（读相关代码与文档），作为改造基线。
-约束：遵守现有账号体系的实际限制（以代码与文档为准）。
-验收标准：定义可衡量的成功标准（如找回成功率、平均耗时），先测量现状作为对比基线。
-输出要求：给出改造方案与分步实施清单。
-【待确认：期望的交付形式——方案文档还是直接改代码】`
+请改善用户忘记密码时的登录体验。先查看现有找回密码流程及其限制，再做最小且有价值的改进；完成后简要说明改了什么，以及仍需决定的事项。`
 }
 
 // 诊断维度（哲学启发式，2026-08）：五个维度各有明确的思想根源，但提示词里
@@ -161,7 +135,7 @@ function diagnosisInstruction(lang, methodTitle) {
 [DIAG] context_fit: <does the draft repeat or contradict what the context already establishes; one short sentence>
 For hidden_premise and falsifiability, prefix the sentence with [GAP] only when an actual issue exists; otherwise use [OK]. Never invent a gap to fill a dimension.
 Then a single line "===PROMPT===" and the rewritten prompt.
-The diagnosis must drive the rewrite: define or disambiguate flagged terms, handle flagged assumptions per the information acquisition priority (self-verification instruction > one batched request list > at most 1-2 [TBD] items), and restate unfalsifiable requirements as observable acceptance criteria.${rubricLine}`
+Treat the diagnosis as optional review notes, not requirements to expand the task. Only reflect a finding in the rewrite when it blocks execution of the user's original request; keep it to one concise clarification. Never add acceptance criteria, investigations, reporting phases, or a user-question list merely to address a diagnosis.${rubricLine}`
     return `改写前先用五个问题审视草稿。先输出诊断块，再输出改写结果。诊断格式（每个维度恰好一行，不要多余文字）：
 [DIAG] concept_clarity: <哪些关键词未定义或一词多义；一句话>
 [DIAG] hidden_premise: <草稿默认了哪些未言明的假设；一句话>
@@ -170,7 +144,7 @@ The diagnosis must drive the rewrite: define or disambiguate flagged terms, hand
 [DIAG] context_fit: <草稿是否重复或矛盾于上下文已确立的信息；一句话>
 hidden_premise 与 falsifiability 的描述必须以 [GAP]（确有缺口）或 [OK]（检查通过）开头；没有问题时不要为了凑维度编造缺口。
 然后单独一行 ===PROMPT===，其后是改写后的提示词正文。
-诊断必须驱动改写：被标记的未定义术语要在改写中显式定义或给出二选一；被标记的假设要按「信息获取优先级」处理（自查指令 > 一次性索取清单 > 至多 1~2 条【待确认】）；不可证伪的要求要改写为可观察的验收表述。${rubricLine}`
+诊断是可选的审阅备注，不是扩张任务的理由。只有某项发现确实阻塞原任务执行时，才在改写中用一句简短澄清处理；不得为了回应诊断而新增验收标准、调查、汇报阶段或向用户索取信息清单。${rubricLine}`
 }
 
 // parseEnhanceOutput 统一从 src/lib/utils.js 导入（host/client 共用一份协议解析）。

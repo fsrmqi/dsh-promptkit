@@ -190,7 +190,7 @@ test('自动发送：等待期间新编辑阻止旧请求发送', async t => {
   assert.equal(sent.length, 0)
 })
 
-test('知识区：检查通过不入区，共同长前缀的不同草稿各自留证', async t => {
+test('知识区：诊断默认只供查看，不自动持久化', async t => {
   const prefix = '同一段任务背景。'.repeat(20)
   const { click, composer } = await mount(t, { initialDraft: prefix + '任务甲', enhancer: {
     async enhance() { return { prompt: '改写完成', diagnosis: { hidden_premise: '[GAP] 部署环境未确认', falsifiability: '[OK] 要求可验证' } } }, cancel() {},
@@ -202,9 +202,7 @@ test('知识区：检查通过不入区，共同长前缀的不同草稿各自�
   await act(async () => composer.write(prefix + '任务乙'))
   await click('应用增强到消息框')
   const entries = JSON.parse(window.localStorage.getItem('regression.quick-action.knowledge-inbox.v1'))
-  assert.equal(entries.length, 2)
-  assert.notEqual(entries[0].fingerprint, entries[1].fingerprint)
-  assert.ok(entries.every(entry => entry.dimension === 'hidden_premise' && !entry.finding.includes('[GAP]')))
+  assert.equal(entries.length, 0)
 })
 
 test('技能引用：选区自动补回保留外围文本，关闭提示不再次写回', async t => {

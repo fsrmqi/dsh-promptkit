@@ -3,7 +3,7 @@ import { detectLanguage, restoreLostSkillMentions, skillMentions, splitOutputSeg
 
 /** 增强事务：准备上下文、流式预览、取消、校验草稿、提交；成功后的统计由调用方处理。 */
 export function useEnhancementFlow({ composer, enhancer, draft, draftGuard, config, context, getPlan, importCard, onApplied, onDiagnosis, notice, setLoading }) {
-  const { enhancementKind, enhanceStrength, requirement, matchedMethod: defaultMethod, selectedContextText, referencedFiles, useMemoryContext } = config
+  const { enhancementKind, enhanceStrength, requirement, matchedMethod: defaultMethod, selectedContextText, referencedFiles, useMemoryContext, diagnose = false } = config
   const { vaultItems, assetContextIds, memoryPreview, searchMemory, loadMemory, methodProvider } = context
   const { setNotice, setWarn, setError, setMemoryReceipt } = notice
   const [enhanceDiagnosis, setEnhanceDiagnosis] = React.useState(null)
@@ -82,7 +82,7 @@ export function useEnhancementFlow({ composer, enhancer, draft, draftGuard, conf
           `内容：${item.body}`,
         ].filter(Boolean).join('\n')),
       ].join('\n\n') : ''
-      let extra = [requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', assetContextText,
+      let extra = ['上下文优先级：当前草稿与本次补充要求优先于对话参考；对话参考优先于项目记忆和思考卡。上下文只可补充背景，不得新增目标、范围、交付物或约束；存在冲突时以当前草稿为准。', requirement.trim(), selectedContextText ? `对话参考：\n${selectedContextText}` : '', assetContextText,
         referencedFiles.length ? `已引用工作区文件：${referencedFiles.map(path => `@${path}`).join('、')}。请完整保留这些引用；文件内容会在用户发送后由 DSH @file 处理，当前改写不得假设或编造其内容。` : '',
       ].filter(Boolean).join('\n\n')
       let remembered = ''
@@ -93,7 +93,7 @@ export function useEnhancementFlow({ composer, enhancer, draft, draftGuard, conf
       assertActive()
       const template = matchedMethod ? await methodProvider.getTemplate(matchedMethod.id) : null
       assertActive()
-      const options = { draft: original, extra, lang: detectLanguage(original), kind: 'semantic', strength: enhanceStrength,
+      const options = { draft: original, extra, lang: detectLanguage(original), kind: 'semantic', strength: enhanceStrength, diagnose,
         hasContext: Boolean(selectedContextText || remembered || assetContextText),
         method: matchedMethod ? { title: matchedMethod.title, template: template.prompt } : undefined }
       let body
@@ -124,7 +124,7 @@ export function useEnhancementFlow({ composer, enhancer, draft, draftGuard, conf
       if (typeof body.prompt !== 'string' || !body.prompt.trim()) throw new Error('模型未返回改写正文，草稿未改动。')
       const after = applyEnhanced(repaired || body.prompt)
       setEnhanceDiagnosis(body.diagnosis || null)
-      if (body.diagnosis) onDiagnosis(body.diagnosis, original.trim(), matchedMethod?.title || '')
+      if (body.diagnosis) onDiagnosis?.(body.diagnosis, original.trim(), matchedMethod?.title || '')
       if (repaired) setSkillRestore({ lost: skillMentions(original).filter(name => !skillMentions(body.prompt).includes(name)) })
       setStreamState(prev => prev ? { ...prev, segments: splitOutputSegments(body.prompt) } : prev)
       onApplied({ original, after, selection, matchedMethod, kind: 'semantic', method: matchedMethod?.title, body, remembered, contextAssets })

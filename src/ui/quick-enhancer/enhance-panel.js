@@ -7,8 +7,8 @@
 import { h, C, Icon, workbenchStyle } from '../foundation.js'
 import { DiagnosisSection } from './diagnosis-section.js'
 
-// 强度三档（仅语义档生效）：档位注入 host 指令控制篇幅预算（≈1x/1.5x/3x）。
-const STRENGTH_OPTIONS = [['low', '低 · 润色'], ['mid', '中 · 标准'], ['high', '高 · 展开']]
+// 强度三档（仅语义档生效）：只控制措辞细致度，不扩大任务范围。
+const STRENGTH_OPTIONS = [['low', '低 · 润色'], ['mid', '中 · 细化'], ['high', '高 · 详述']]
 
 export function StrengthSelector({ value, onChange }) {
   return h('div', { key: 'strength', style: { marginTop: '7px', display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' } }, [
@@ -28,7 +28,7 @@ export function AutoEnhanceToggle({ enabled, onChange }) {
   return h('label', { key: 'auto-enhance', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '8px', padding: '8px 10px', border: `1px solid ${enabled ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: enabled ? C.tealTint : C.surface, cursor: 'pointer', fontSize: '11px', color: C.slate } }, [
     h('span', { key: 'text' }, [
       h('strong', { key: 't', style: { color: enabled ? C.teal : C.slate } }, '发送前自动增强'),
-      h('div', { key: 'd', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, enabled ? '仅拦截消息框 Enter；增强失败发原文，发送失败不重试。' : '开启后按消息框 Enter 时先增强再发送；Shift+Enter 换行不受影响。'),
+      h('div', { key: 'd', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, enabled ? '仅拦截消息框 Enter；只做保守润色，失败发原文，发送失败不重试。' : '开启后按消息框 Enter 时先润色再发送；Shift+Enter 换行不受影响。'),
     ]),
     h('input', { key: 'cb', type: 'checkbox', checked: enabled, onChange: event => onChange(event.target.checked), style: { accentColor: C.teal, cursor: 'pointer', flexShrink: 0 } }),
   ])
@@ -74,6 +74,7 @@ export function EnhancerPanel({
   methodSummaryNode, diffPreview, costNode, signalsNode,
   showAdvanced, onRefine,
   methodOptions, selectedMethodId, suggestedMethod, onMethodChange,
+  diagnose, onDiagnoseChange,
   streamState, loading, onCancelEnhance,
   diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge,
   skillRestore, onDismissSkills,
@@ -110,6 +111,10 @@ export function EnhancerPanel({
     semantic
       ? h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode)
       : h('div', { key: 'summary', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [methodSummaryNode, diffPreview, costNode, signalsNode]),
+    semantic ? h('label', { key: 'diagnose-toggle', style: { marginTop: '8px', padding: '8px 10px', border: `1px solid ${diagnose ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: diagnose ? C.tealTint : C.surface, color: C.slate, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', cursor: 'pointer', fontSize: '11px' } }, [
+      h('span', { key: 'copy' }, [h('strong', { key: 'title', style: { color: diagnose ? C.teal : C.slate } }, '五维诊断（可选）'), h('div', { key: 'hint', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, diagnose ? '本次会额外显示诊断，仅在确实阻塞任务时给出简短澄清。' : '默认关闭；开启后在本次增强中查看任务缺口，不会自动存入记忆。')]),
+      h('input', { key: 'input', type: 'checkbox', checked: diagnose, onChange: event => onDiagnoseChange(event.target.checked), style: { accentColor: C.teal, cursor: 'pointer', flexShrink: 0 } }),
+    ]) : null,
     semantic ? h(StreamPanel, { key: 'stream', streamState, loading, onCancel: onCancelEnhance }) : null,
     showAdvanced ? h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }) : null,
     showAdvanced ? h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }) : null,
