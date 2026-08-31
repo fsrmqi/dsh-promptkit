@@ -83,6 +83,7 @@ test('流式增强：onDelta 收到全部增量，最终结果含诊断', async 
     async *stream() {
       yield { type: 'text-delta', text: '[DIAG] concept_clarity: 好\n' }
       yield { type: 'text-delta', text: '[DIAG] hidden_premise: 无\n[DIAG] falsifiability: 可判定\n[DIAG] actionability: 有产出\n[DIAG] context_fit: 契合\n===PROMPT===\n改写稿' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
     },
   }
   const result = await streamEnhanceWithCurrentSessionModel({
@@ -102,13 +103,13 @@ test('流式增强：onDelta 收到全部增量，最终结果含诊断', async 
 // ── 方法感知诊断：诊断指令按匹配方法注入检查侧重 ──
 test('方法感知诊断：苏格拉底式提问时指令带方法侧重，未匹配时为通用侧重', async () => {
   let capturedSystem
-  const llm = { async *stream() { yield { type: 'text-delta', text: '正文' } } }
+  const llm = { async *stream() { yield { type: 'text-delta', text: '正文' }; yield { type: 'finish', reason: { kind: 'stop' } } } }
   const run = method => streamEnhanceWithCurrentSessionModel({
     llm, route: { provider: 'p', model: 'm' }, sessionId: 's', draft: '草稿内容', diagnose: true, method,
   }).then(() => capturedSystem)
   // 通过 llm.stream 的入参捕获 system
   const spy = {
-    async *stream(value) { capturedSystem = value.system; yield { type: 'text-delta', text: '正文' } },
+    async *stream(value) { capturedSystem = value.system; yield { type: 'text-delta', text: '正文' }; yield { type: 'finish', reason: { kind: 'stop' } } },
   }
   const withMethod = await streamEnhanceWithCurrentSessionModel({
     llm: spy, route: { provider: 'p', model: 'm' }, sessionId: 's', draft: '草稿内容', diagnose: true,

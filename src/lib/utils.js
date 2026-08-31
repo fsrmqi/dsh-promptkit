@@ -225,6 +225,7 @@ import { parseEnhanceOutput, DIAGNOSIS_DIMENSIONS } from './enhance-output.js'
 // 宿主快照兼容层：旧宿主传 `{ nodes: [] }`，DSH 0.1.2+ 传
 // `{ order: [], nodes: MapLike }`。公共 utils 不能因宿主升级而静默丢失会话。
 function snapshotNodes(snapshot) {
+  if (Array.isArray(snapshot?.legacy?.nodes)) return snapshot.legacy.nodes
   const rawNodes = snapshot?.nodes
   if (Array.isArray(snapshot?.order) && typeof rawNodes?.get === 'function') {
     return snapshot.order.map(key => rawNodes.get(key)).filter(Boolean)
@@ -252,12 +253,14 @@ function conversationDraft(snapshot) {
   }
 }
 function conversationMessages(snapshot, limit = 12) {
-  const nodes = snapshotNodes(snapshot)
+  const legacy = snapshot?.legacy ?? snapshot
+  const keyed = Array.isArray(legacy?.order) && typeof legacy?.nodes?.get === 'function'
+  const nodes = keyed ? legacy.order : snapshotNodes(legacy)
   const messages = []
   // The launcher only ever renders a small recent window. Scan backwards
   // and stop once it is full so a long-lived DSH session stays responsive.
   for (let index = nodes.length - 1; index >= 0 && messages.length < limit; index -= 1) {
-    const node = nodes[index]
+    const node = keyed ? legacy.nodes.get(nodes[index]) : nodes[index]
     const role = node?.kind === 'user' ? 'user' : node?.kind === 'assistant' ? 'assistant' : ''
     if (!role) continue
     const blocks = role === 'user' ? list(node.content) : list(node.blocks)

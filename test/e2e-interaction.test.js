@@ -269,15 +269,13 @@ test('e2e：DSH 0.1.2-alpha InputZone 契约 —— zone={session,input} 点时�
   })
   const session = {
     sessionId: 'e2e-zone-1',
-    order: ['u1'],
-    nodes: new Map([
-      ['u1', { kind: 'user', content: [{ type: 'text', text: '请评审这段接口设计' }] }],
-    ]),
+    running: false,
   }
   const element = React.createElement(quickActionHost.Component, {
     sessionId: 'e2e-zone-1',
     // 新契约：InputZone 点时快照（不经 hook 订阅）
     session,
+    useChat: selector => selector({ legacy: { nodes: [{ kind: 'user', content: [{ type: 'text', text: '请评审这段接口设计' }] }] } }),
     input: { draft: 'zone 草稿' },
     inputActions: { setDraft: () => {} },
   })

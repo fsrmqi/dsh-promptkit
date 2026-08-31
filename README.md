@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/fsrmqi/dsh-promptkit/actions/workflows/ci.yml/badge.svg)](https://github.com/fsrmqi/dsh-promptkit/actions/workflows/ci.yml)
 [![DSH Plugin](https://img.shields.io/badge/DSH-Plugin-blue.svg)](https://github.com/topics/dsh-plugin)
-[![Node: >=18](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
+[![Node: >=22.6](https://img.shields.io/badge/node-%3E%3D22.6-green.svg)](https://nodejs.org)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/fsrmqi/dsh-promptkit)
 
 [English](README.md) · [简体中文](README.zh.md)
@@ -31,7 +31,7 @@ Write a draft, hit **✦ Enhance**, and receive a structured prompt in the previ
 
 **🔌 Zero telemetry, with a zero-token option.** Local lightweight enhancement works offline. Semantic enhancement sends the draft and selected context to the host's configured model service. File completion and optional project-memory searches make requests when those features are used.
 
-**Compatibility:** verified on a real DSH `0.1.2-alpha.1` instance. The older `0.1.0-rc` slot adapter is covered by simulated contract tests; this does not establish real-instance compatibility for every older release.
+**Compatibility:** verified by a real DSH `0.1.2-alpha.2` profile boot after installing the local bundle; CI runs the same alpha-channel smoke test. Running the DSH plugin requires Node `>=22.6`. The older `0.1.0-rc` slot adapter is covered by simulated contract tests; this does not establish real-instance compatibility for every older release.
 
 <details>
 <summary><strong>More capabilities</strong> (click to expand)</summary>
@@ -114,7 +114,7 @@ const composer = new TextareaComposer(document.querySelector('textarea'))
 <QuickEnhancer methodProvider={methodProvider} assetProvider={assetProvider} composer={composer} messages={messages} />
 ```
 
-Missing optional capabilities are hidden or degraded. Bundlers supporting the `browser` condition can also import the root package; its default Node entry additionally exports DSH registration. Runtime requirements are Node 18+ / React 17+; source development and tests use Node 24.15+. See the [embed contract](docs/EMBED.md) and [verified upgrade combinations](docs/UPGRADE-HISTORY.md#v021).
+Missing optional capabilities are hidden or degraded. Bundlers supporting the `browser` condition can also import the root package; its default Node entry additionally exports DSH registration. Runtime requirements are Node `>=22.6` / React 17+; source development and tests use Node 24.15+. See the [embed contract](docs/EMBED.md) and [verified upgrade combinations](docs/UPGRADE-HISTORY.md#v021).
 
 ## Embedding in other hosts (Embed Protocol v1)
 

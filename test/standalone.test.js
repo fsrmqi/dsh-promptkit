@@ -112,3 +112,17 @@ test('轻量 DSH 浏览器产物不内联 KaTeX 运行时', () => {
   assert.ok(!lite.includes('KaTeX runtime'), '轻量版不应内联 KaTeX')
   assert.ok(lite.length < full.length, '轻量版应小于完整版')
 })
+
+test('新版会话状态不得覆盖 Chat 消息投影，历史随 Chat 更新', () => {
+  const { plugin } = loadStandalone()
+  let Host
+  plugin.apply({ slots: { inject: (_, f) => f(), register: (entry, component) => { if (entry.name === 'conversation.input.right') Host = component; return () => {} } } })
+  const props = { sessionId: 's', session: { sessionId: 's', running: false }, input: { draft: '当前草稿' }, inputActions: {} }
+  for (const text of ['历史一', '历史二']) {
+    const chat = { order: ['u'], nodes: new Map([['u', { kind: 'chat.user', data: {} }]]), legacy: { nodes: [{ kind: 'user', content: [{ type: 'text', text }] }] } }
+    const element = Host({ ...props, useChat: selector => selector(chat) })
+    assert.equal(element.props.messages.length, 1)
+    assert.equal(element.props.messages[0].text, text)
+    assert.equal(element.props.composer.getDraft(), '当前草稿')
+  }
+})

@@ -52,7 +52,7 @@
     "react"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22.6"
   },
   "peerDependencies": {
     "react": ">=17"
@@ -64,7 +64,8 @@
     "build": "npm run check && npm run build:methods && npm run build:ui && npm run build:ui:lite",
     "build:methods": "node scripts/build-methods.mjs",
     "build:embed": "node scripts/build-client.mjs --embed",
-    "test": "node --test"
+    "test": "node --test",
+    "test:dsh-smoke": "node scripts/dsh-profile-smoke.mjs"
   },
   "dsh": {
     "bundle": {

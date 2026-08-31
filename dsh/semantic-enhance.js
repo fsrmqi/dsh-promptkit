@@ -184,6 +184,7 @@ export async function streamEnhanceWithCurrentSessionModel({ llm, route, session
   // 方法感知诊断：匹配到旗舰方法时，诊断按该方法的检查侧重执行。
   const system = [instructionFor(lang, { strength: normalizedStrength, hasContext }), diagnose ? diagnosisInstruction(lang, method?.title) : ''].filter(Boolean).join('\n\n')
   let output = ''
+  let finished = false
   for await (const chunk of llm.stream({
     provider: route.provider,
     model: route.model,
@@ -198,6 +199,16 @@ export async function streamEnhanceWithCurrentSessionModel({ llm, route, session
     // 拒绝请求（UNSUPPORTED_REASONING_EFFORT）；思考开销由上面的 maxTokens 预算兜底。
     ...(signal ? { signal } : {}),
   })) {
+    signal?.throwIfAborted()
+    if (chunk.type === 'finish') {
+      const kind = chunk.reason?.kind
+      if (kind === 'aborted') throw Object.assign(new Error('模型调用已取消，草稿未改动。'), { name: 'AbortError' })
+      if (kind === 'error') throw new Error('模型调用失败，草稿未改动。', { cause: chunk.reason.failure })
+      if (kind === 'max-tokens') throw new Error('模型输出达到长度上限，结果不完整；请缩短草稿后重试。')
+      if (kind !== 'stop') throw new Error('模型未正常完成文本输出，草稿未改动。')
+      finished = true
+      break
+    }
     if (chunk.type === 'text-delta') {
       output += chunk.text
       onDelta?.(chunk.text)
@@ -207,6 +218,8 @@ export async function streamEnhanceWithCurrentSessionModel({ llm, route, session
       onDelta?.(chunk.block.text)
     }
   }
+  signal?.throwIfAborted()
+  if (!finished) throw new Error('模型流缺少结束标记，结果不完整；草稿未改动。')
   if (!output.trim()) {
     throw new Error('语义增强模型未返回文本（模型可能只输出了思考内容）；请重试或改用非思考型模型。')
   }

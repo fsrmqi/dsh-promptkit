@@ -33,3 +33,9 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Install DSH smoke-test runtime
+        run: npm install --global pnpm@11.7.0 @deepseek-ai/dsh@alpha
+
+      - name: DSH profile smoke test
+        run: npm run test:dsh-smoke

@@ -2,7 +2,7 @@
 
 当前验收版本为 **0.2.1**。用户可见功能与升级操作见 [升级记录](UPGRADE-HISTORY.md#v021)；本文维护可重复执行的检查步骤。
 
-自动化入口是 `npm run build && npm test`。测试包含源码与 Embed 实际 React 交互、新旧输入槽位的模拟契约，以及 Node HTTP 服务到 DSH 请求适配器的往返。HTTP 测试的模型为确定性桩，不调用外部服务。
+自动化入口是 `npm run build && npm test`。测试包含源码与 Embed 实际 React 交互、新旧输入槽位的模拟契约，以及 Node HTTP 服务到 DSH 请求适配器的往返。另有 `npm run test:dsh-smoke`：以 DSH `0.1.2-alpha` 在临时空 profile 安装本地 bundle 并启动 Web。HTTP 测试的模型为确定性桩，不调用外部服务。
 
 ## 真机清单
 
@@ -23,9 +23,11 @@
 
 ## 版本与限制
 
-安装包验收同时检查 `package.json`、锁文件、`ui/package.json` 与两份版本记录保持一致；从 `npm pack` 产物创建独立安装目录，不能用仓库软链接代替安装。分别验证默认 Node 导出、浏览器条件导出、21 个方法、Embed 及标准/轻量插件。Node 18/React 17 等运行下限只验证包消费，不使用需要更高 Node 版本的 jsdom 开发依赖。
+安装包验收同时检查 `package.json`、锁文件、`ui/package.json` 与两份版本记录保持一致；从 `npm pack` 产物创建独立安装目录，不能用仓库软链接代替安装。分别验证默认 Node 导出、浏览器条件导出、21 个方法、Embed 及标准/轻量插件。当前包消费要求 Node >=22.6 / React 17+；开发测试仍使用满足 jsdom 要求的 Node 24.15+。
 
-- `0.1.2-alpha`：`session/input` 快照和 `inputActions` 路径。
+- `0.1.2-alpha.2`：`InputZone.session` 是会话状态；草稿由 `input/useInput` 获取，消息从 `useChat` 的 `legacy.nodes` 读取。必须断言消息内容，不能只断言入口按钮出现。
+- `npm run test:dsh-smoke` 需要 PATH 中的 DSH alpha 和 pnpm（CI 使用 11.7.0）；可通过 `DSH_BIN=/绝对路径/dsh` 选择版本。脚本使用临时 DSH_HOME、安装 npm pack 产物、跟随同源登录跳转并探测 HTTP，等待正常退出后清理目录；不会修改现有 profile。
+- 流必须有正常 `stop` 结束帧；错误、取消、长度截断或缺帧时，JSON 路由失败，SSE 发送 error 而不是 done，草稿不被残缺结果覆盖。
 - 旧版：`useInput/useChat` 订阅路径；未安装对应宿主版本时，只能声明模拟契约通过。
 - 模型路由缺失时应提示先正常发送一次消息；没有用户授权不要为建立路由发送会话消息。
 - 仅 404/501 或 adapter 显式 `fallback=true` 且尚无输出时自动改用 JSON；断流、模型错误和超时不自动重试，避免重复调用。

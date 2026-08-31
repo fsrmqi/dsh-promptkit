@@ -26,6 +26,7 @@ test('真实 HTTP：请求体读完不误取消，JSON/SSE 贯通，客户端取
       }
       yield { type: 'text-delta', text: '[DIAG] hidden_premise: 缺少运行环境\n' }
       yield { type: 'text-delta', text: '===PROMPT===\n请补充运行环境，再评审接口方案。' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
     } },
   })
   listeners.get('agent/created')({ agent: { session: { id: 'test-session' }, options: { provider: 'fixture', model: 'fixture-model' } } })

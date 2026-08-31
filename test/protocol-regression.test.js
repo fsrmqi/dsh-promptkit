@@ -33,7 +33,7 @@ test('诊断：分块传输中的标记不闪现为正文', () => {
 test('诊断：只有诊断没有正文时拒绝返回可应用结果', async () => {
   await assert.rejects(streamEnhanceWithCurrentSessionModel({
     route: { provider: 'test', model: 'test' }, draft: '优化提示词',
-    llm: { async *stream() { yield { type: 'text-delta', text: '[DIAG] concept_clarity: 未定义\n===PROMPT===\n' } } },
+    llm: { async *stream() { yield { type: 'text-delta', text: '[DIAG] concept_clarity: 未定义\n===PROMPT===\n' }; yield { type: 'finish', reason: { kind: 'stop' } } } },
   }), /未返回改写正文/)
 })
 

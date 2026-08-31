@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/fsrmqi/dsh-promptkit/actions/workflows/ci.yml/badge.svg)](https://github.com/fsrmqi/dsh-promptkit/actions/workflows/ci.yml)
 [![DSH Plugin](https://img.shields.io/badge/DSH-Plugin-blue.svg)](https://github.com/topics/dsh-plugin)
-[![Node: >=18](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
+[![Node: >=22.6](https://img.shields.io/badge/node-%3E%3D22.6-green.svg)](https://nodejs.org)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/fsrmqi/dsh-promptkit)
 
 [English](README.md) · [简体中文](README.zh.md)
@@ -31,7 +31,7 @@ dsh plugin --profile web add dsh-promptkit
 
 **🔌 零遥测，支持零 Token 模式。** 本地轻量模式离线可用；语义增强会把草稿和选定上下文交给宿主配置的模型服务。文件补全、项目记忆检索按对应操作触发。
 
-**兼容性：** DSH `0.1.2-alpha.1` 已完成真机验证；保留旧版 `0.1.0-rc` 槽位适配，其覆盖来自模拟契约测试，不代表所有旧版本均已完成真机验证。
+**兼容性：** DSH `0.1.2-alpha.2` 已完成真实 profile 启动验证（安装本地 bundle 后启动 Web）；CI 使用同一 alpha 通道执行该烟测。运行 DSH 插件需要 Node `>=22.6`。保留旧版 `0.1.0-rc` 槽位适配，其覆盖来自模拟契约测试，不代表所有旧版本均已完成真机验证。
 
 <details>
 <summary><strong>更多能力</strong>（点击展开）</summary>
@@ -114,7 +114,7 @@ const composer = new TextareaComposer(document.querySelector('textarea'))
 <QuickEnhancer methodProvider={methodProvider} assetProvider={assetProvider} composer={composer} messages={messages} />
 ```
 
-未注入的可选能力会隐藏或降级。支持 `browser` 条件的构建器也可导入根包；默认 Node 入口额外导出 DSH 插件注册能力。运行要求 Node 18+ / React 17+，源码开发测试使用 Node 24.15+。完整契约和已验证组合见 [嵌入协议](docs/EMBED.md) 与 [升级记录](docs/UPGRADE-HISTORY.md#v021)。
+未注入的可选能力会隐藏或降级。支持 `browser` 条件的构建器也可导入根包；默认 Node 入口额外导出 DSH 插件注册能力。运行要求 Node `>=22.6` / React 17+，源码开发测试使用 Node 24.15+。完整契约和已验证组合见 [嵌入协议](docs/EMBED.md) 与 [升级记录](docs/UPGRADE-HISTORY.md#v021)。
 
 ## 嵌入其他宿主（Embed Protocol v1）
 

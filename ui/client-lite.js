@@ -566,6 +566,7 @@ window.__ModuleLoader__.load({
       // 宿主快照兼容层：旧宿主传 `{ nodes: [] }`，DSH 0.1.2+ 传
       // `{ order: [], nodes: MapLike }`。公共 utils 不能因宿主升级而静默丢失会话。
       function snapshotNodes(snapshot) {
+        if (Array.isArray(snapshot?.legacy?.nodes)) return snapshot.legacy.nodes
         const rawNodes = snapshot?.nodes
         if (Array.isArray(snapshot?.order) && typeof rawNodes?.get === 'function') {
           return snapshot.order.map(key => rawNodes.get(key)).filter(Boolean)
@@ -593,12 +594,14 @@ window.__ModuleLoader__.load({
         }
       }
       function conversationMessages(snapshot, limit = 12) {
-        const nodes = snapshotNodes(snapshot)
+        const legacy = snapshot?.legacy ?? snapshot
+        const keyed = Array.isArray(legacy?.order) && typeof legacy?.nodes?.get === 'function'
+        const nodes = keyed ? legacy.order : snapshotNodes(legacy)
         const messages = []
         // The launcher only ever renders a small recent window. Scan backwards
         // and stop once it is full so a long-lived DSH session stays responsive.
         for (let index = nodes.length - 1; index >= 0 && messages.length < limit; index -= 1) {
-          const node = nodes[index]
+          const node = keyed ? legacy.nodes.get(nodes[index]) : nodes[index]
           const role = node?.kind === 'user' ? 'user' : node?.kind === 'assistant' ? 'assistant' : ''
           if (!role) continue
           const blocks = role === 'user' ? list(node.content) : list(node.blocks)
@@ -3891,19 +3894,17 @@ window.__ModuleLoader__.load({
       }
 
       // 快捷助手宿主：适配两代 DSH 槽位契约。
-      //   0.1.2-alpha（InputZone）：props = { sessionId, session, input, useInput, inputActions }，
-      //     其中 session 是 ConversationSnapshot（含 nodes/order），input 是 InputState（含 draft）；
-      //     props 属点时快照，骨架重渲染自动带来最新值，无需订阅。
+      //   0.1.2-alpha：InputZone.session 仅包含会话状态，消息由 useChat 订阅。
+      //     input 是含 draft 的点时快照；Chat.legacy.nodes 是消息兼容投影。
       //   0.1.0-rc（旧）：props = { sessionId, useInput, useChat, inputActions }，经 hooks 订阅。
       function PromptkitQuickActionHost(props) {
-        const { sessionId, session, input, useInput, useChat, inputActions } = props
+        const { sessionId, input, useInput, useChat, inputActions } = props
         // 草稿真源：新契约直接读 zone.input.draft；旧契约用 useInput hook 订阅。
         const zonedDraft = input?.draft
         const hookedInput = useInput ? useInput(value => value) : undefined
         const draft = zonedDraft !== undefined ? zonedDraft : hookedInput?.draft
-        // 对话快照：新契约取 session（点时快照）；旧契约用 useChat hook 订阅。
-        const hookedChat = useChat ? useChat(value => value) : undefined
-        const chatSnapshot = session !== undefined ? session : hookedChat
+        // 选择消息投影，避免无关的会话状态/工具流更新触发整段历史重算。
+        const chatSnapshot = useChat ? useChat(value => value?.legacy ?? value) : undefined
         const messages = React.useMemo(() => conversationMessages(chatSnapshot), [chatSnapshot])
         const composer = React.useMemo(() => new DshDraftComposer({ draft }, inputActions), [sessionId, inputActions])
         composer.input = { draft }
