@@ -190,19 +190,6 @@ test('自动发送：等待期间新编辑阻止旧请求发送', async t => {
   assert.equal(sent.length, 0)
 })
 
-test('首次体验：关闭统计也会在第三次成功后展开，统计数据仍不写入', async t => {
-  const { click, composer } = await mount(t, { displayMode: 'auto' })
-  const original = composer.getDraft()
-  assert.match(document.body.textContent, /展开全部功能/)
-  for (let i = 0; i < 3; i += 1) {
-    await act(async () => composer.write(original))
-    await click('应用增强到消息框')
-  }
-  assert.doesNotMatch(document.body.textContent, /展开全部功能/)
-  assert.equal(window.localStorage.getItem('regression.quick-action.onboarding-successes.v1'), '3')
-  assert.equal(window.localStorage.getItem('regression.quick-action.metrics.v1'), null)
-})
-
 test('知识区：检查通过不入区，共同长前缀的不同草稿各自留证', async t => {
   const prefix = '同一段任务背景。'.repeat(20)
   const { click, composer } = await mount(t, { initialDraft: prefix + '任务甲', enhancer: {

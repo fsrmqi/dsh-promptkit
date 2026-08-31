@@ -118,18 +118,12 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const [confirmDeletePrivateId, setConfirmDeletePrivateId] = React.useState('')
   const [metricsEnabled, setMetricsEnabled] = React.useState(() => { try { return window.localStorage.getItem(storageKey('metrics.enabled.v1')) === 'true' } catch { return false } })
   const [metrics, setMetrics] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('metrics.v1')) || '{}') } catch { return {} } })
-  // ── 极简模式（首次体验优先）：新用户默认极简态，深度功能折叠进「展开全部」──
-  // 独立保存前三次成功增强的体验进度，不依赖用户是否开启详细统计。
-  // 用户也可在设置里手动锁定模式。默认极简只露出：草稿状态 + 增强主按钮 + 结果。
-  const [displayModePref, setDisplayModePref] = React.useState(() => { try { return window.localStorage.getItem(storageKey('display-mode.v1')) || 'auto' } catch { return 'auto' } })
   const onboarding = useOnboardingProgress(storageKey)
-  const simpleMode = displayModePref === 'simple' || (displayModePref === 'auto' && !onboarding.completed)
-  // 完整模式是显式偏好；自动模式即便完成引导，也先保持“看结果 → 应用”的轻路径。
-  const [advancedEnhancement, setAdvancedEnhancement] = React.useState(() => displayModePref === 'full')
-  const setDisplayMode = value => {
-    setDisplayModePref(value)
-    try { window.localStorage.setItem(storageKey('display-mode.v1'), value) } catch {}
-  }
+  // 只保留一套稳定界面：默认轻路径，需要时通过“再细化…”展开。
+  const simpleMode = false
+  // 兼容已保存的旧“完整”偏好；新界面不再提供此项设置。
+  const legacyFullMode = () => { try { return window.localStorage.getItem(storageKey('display-mode.v1')) === 'full' } catch { return false } }
+  const [advancedEnhancement, setAdvancedEnhancement] = React.useState(legacyFullMode)
   const [feedback, setFeedback] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('feedback.v1')) || '[]') } catch { return [] } })
   const [lastEnhancement, setLastEnhancement] = React.useState(null)
   const [confirmClearMetrics, setConfirmClearMetrics] = React.useState(false)
@@ -1111,12 +1105,6 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
           ]),
           h('div', { key: 'pref' }, [
             h('div', { key: 'div-0', style: { fontSize: '10px', color: C.muted, fontWeight: 800, letterSpacing: '0.5px' } }, 'PREFERENCE · 偏好'),
-            // 界面模式：auto = 前 3 次增强极简，之后自动展开完整模式；可手动锁定。
-            h('div', { key: 'display-mode', style: { marginTop: '6px' } }, [
-              h('div', { key: 'label', style: { fontSize: '11px', color: C.slate, marginBottom: '4px' } }, '界面模式'),
-              h('div', { key: 'seg', style: { display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '4px' } }, [['auto', '自动（推荐）'], ['simple', '极简'], ['full', '完整']].map(([id, label]) => h('button', { key: id, className: 'pk-btn', onClick: () => setDisplayMode(id), style: { padding: '5px 4px', border: `1px solid ${displayModePref === id ? C.tealLineActive : C.tealLine}`, borderRadius: '7px', background: displayModePref === id ? C.tealTintDeep : C.surface, color: displayModePref === id ? C.teal : C.slate, cursor: 'pointer', fontSize: '10px', fontWeight: 800 } }, displayModePref === id ? [h(Icon, { key: 'ck', name: 'check', size: 10, style: { marginRight: '2px' } }), label] : label))),
-              h('div', { key: 'hint', style: { marginTop: '3px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, displayModePref === 'auto' ? '新用户默认极简；成功增强 3 次后自动展开完整模式。' : displayModePref === 'simple' ? '只保留核心增强流程。' : '显示全部功能区块。'),
-            ]),
             h('label', { key: 'toggle', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginTop: '6px', padding: '6px 8px', borderRadius: '7px', cursor: 'pointer' } }, [
               h('span', { key: 'name', style: { fontSize: '11px', color: C.slate } }, '本地使用信号（默认关闭）'),
               h('input', { key: 'cb', type: 'checkbox', checked: metricsEnabled, onChange: toggleMetrics, style: { accentColor: C.teal, cursor: 'pointer' } })
@@ -1204,10 +1192,6 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
             h('button', { key: 'no', onClick: () => dismissNudge(activeNudge, 'dismiss'), style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px' } }, '不用')
           ])
         ]) : null,
-        // 极简模式折叠区：方法收集进度 / 收藏草稿 / 工坊桥 / 模式切换 tab 都属于
-        // 「第二周功能」——新用户前三次增强只看到草稿 → 增强 → 结果这条主线。
-        // 保留 nudge 卡（它是主动引导，不算噪音）与 notice（操作反馈必须可见）。
-        simpleMode ? h('button', { key: 'expand-full', onClick: () => setDisplayMode('full'), style: { marginTop: '10px', width: '100%', padding: '7px', border: `1px dashed ${C.tealLine}`, borderRadius: '8px', background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px' } }, '展开全部功能（方法库 · 灵感库 · 统计）') : null,
 
         mode === 'enhance' && !libraryOpen && (requirement.trim() || useConversationContext || useMemoryContext) ? stepperNode : null,
         settingsOpen ? settingsSection : null,
@@ -1237,7 +1221,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       void applyVaultItem(payload.item, payload.mode, payload.current, payload.slashInvocation, payload.values)
     },
   })
-  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setEnhancementKind('light'); setAdvancedEnhancement(displayModePref === 'full'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
+  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setEnhancementKind('light'); setAdvancedEnhancement(legacyFullMode()); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
 }
 
 export { ConversationQuickAction as QuickEnhancer }
