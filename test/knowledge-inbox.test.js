@@ -106,7 +106,7 @@ async function mountKit(W, PromptKit, providers, enhancer) {
 }
 
 const vaultVisible = container => !!container.querySelector('aside[aria-label="灵感库"]')
-const findBtn = (container, pattern, scope) => [...(scope || container).querySelectorAll('button')].find(b => pattern.test(b.textContent))
+const findBtn = (container, pattern, scope) => [...(scope || container).querySelectorAll('button')].find(b => pattern.test(b.textContent) || pattern.test(b.getAttribute('aria-label') || ''))
 
 test('知识区：语义增强后认识缺口自动入区，Vault 无写入（暂存≠存卡）', async () => {
   const dom = setupDom()

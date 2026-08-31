@@ -219,7 +219,9 @@ import { parseEnhanceOutput, DIAGNOSIS_DIMENSIONS } from './enhance-output.js'
         const candidates = [plan.method, ...plan.conflicts.map(item => item.title)].map(title => methodChoice(methods, title)).filter(Boolean)
         return candidates.slice(0, 2)
       }
-      return [methodChoice(methods, '苏格拉底式提问'), methodChoice(methods, '第一性原理')].filter(Boolean)
+      // 没有命中时不再用“苏格拉底式提问 / 第一性原理”兜底。兜底会让普通短问题
+      // 被误包装成多轮问诊或深度审查，用户看到的是模板意图，不是可靠的判断。
+      return []
     }
 
 // 宿主快照兼容层：旧宿主传 `{ nodes: [] }`，DSH 0.1.2+ 传

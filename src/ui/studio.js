@@ -232,7 +232,7 @@ function PromptStudio({ methodProvider, assetProvider, messages, onSend, compose
       ))
     )
   ) : null
-  return h('main', { style: { ...S.page, width: '100%', boxSizing: 'border-box', background: 'transparent', margin: '0 auto' } }, [
+  return h('main', { style: { ...S.page, width: 'min(1240px, max(100%, calc(100vw - 280px)))', minWidth: 0, boxSizing: 'border-box', background: 'transparent', margin: '0 auto', padding: '28px clamp(20px, 3vw, 42px) 48px' } }, [
     h(GlobalStyle, { key: 'gcss' }),
     h('header', { key: 'header', style: { marginBottom: '20px', paddingBottom: '14px', borderBottom: `1px solid ${C.divide}` } }, [
       h('div', { key: 't-row', style: { display: 'flex', alignItems: 'baseline', gap: '12px', justifyContent: 'space-between' } }, [
@@ -245,8 +245,8 @@ function PromptStudio({ methodProvider, assetProvider, messages, onSend, compose
       key: 'layout',
       style: {
         display: 'grid',
-        gridTemplateColumns: 'minmax(280px, 320px) minmax(0, 1fr)',
-        gap: '36px',
+        gridTemplateColumns: 'minmax(300px, 340px) minmax(0, 1fr)',
+        gap: '32px',
         alignItems: 'start',
       }
     }, [

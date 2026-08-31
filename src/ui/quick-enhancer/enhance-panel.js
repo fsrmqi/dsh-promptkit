@@ -72,16 +72,16 @@ export function EnhancerPanel({
   mode, draft, enhancementKind, enhancementPlan, strategyNode,
   useMemoryContext, memoryPreview, onLoadMemory, memorySourceLabels, memoryReceipt,
   methodSummaryNode, diffPreview, costNode, signalsNode,
+  actionNode,
   streamState, loading, onCancelEnhance,
   diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge,
   skillRestore, onDismissSkills,
 }) {
   const semantic = enhancementKind === 'semantic'
-  return h('details', { key: 'enhancer', open: true, style: { marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [
-    h('summary', { key: 'title', style: { fontSize: '13px', color: C.ink, cursor: 'pointer', fontWeight: 800, display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [
-      h('span', { key: 't' }, '决策摘要'),
-      h('span', { key: 'hint', style: { fontSize: '11px', color: C.muted, fontWeight: 600 } }, mode === 'enhance' && draft.trim() ? (semantic ? '语义档 · 待模型改写' : (enhancementPlan.tooShort ? '直接采用原文' : `拟采用：${enhancementPlan.label || '轻量整理'}`)) : ''),
-    ]),
+  return h('details', { key: 'enhancer', open: true, style: { position: 'relative', marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [
+    h('summary', { key: 'title', style: { paddingRight: '70px', fontSize: '13px', color: C.ink, cursor: 'pointer', fontWeight: 800 } }, '决策摘要'),
+    h('div', { key: 'apply', style: { position: 'absolute', top: '8px', right: '10px' } }, actionNode),
+    h('div', { key: 'apply-hint', style: { marginTop: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, '应用后仍可编辑，不会自动发送。'),
     // 项目记忆预览：语义档 + 勾选「加项目记忆」时出现，先看命中再决定注入。
     useMemoryContext && semantic ? h('div', { key: 'memory-preview', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [
       h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [

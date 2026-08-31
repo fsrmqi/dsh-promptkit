@@ -54,14 +54,14 @@ for (const bundle of [false, true]) test(`${bundle ? '构建产物' : '源码入
   assert.notEqual(composer.getDraft(), original)
   await click('撤销上一次填入')
   assert.equal(composer.getDraft(), original)
-  await click('可选：选择对话作为参考▸')
+  await click('选择对话')
   await click('全选 (1)')
   await click('确认选择 (1)')
   await click('打开灵感库 →')
   assert.ok(document.querySelector('aside[aria-label="灵感库"]'))
   await act(async () => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   assert.equal(document.querySelector('aside[aria-label="灵感库"]'), null)
-  assert.ok([...document.querySelectorAll('button')].some(b => b.textContent === '应用增强到消息框'))
+  assert.ok([...document.querySelectorAll('button')].some(b => b.getAttribute('aria-label') === '应用增强到消息框'))
 })
 
 test('语义增强：仅明确不支持流式时降级；普通模型错误不重复请求', async t => {

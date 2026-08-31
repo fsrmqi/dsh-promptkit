@@ -60,6 +60,7 @@ test('mini-bench：无强信号时不强行套用方法，回退通用模板', (
   const plan = planPromptEnhancement('帮我把这段话整理一下', '', methods)
   assert.equal(plan.method, '', '无强信号不应指派方法')
   assert.ok(plan.prompt.includes('请直接处理这项任务'), '回退为通用轻量模板')
+  assert.deepEqual(recommendMethods(methods, '我那个查询接口，能知道发送成功不'), [], '短接口疑问不应默认套进苏格拉底式问诊')
 })
 
 test('mini-bench：输入过短直接返回原文，不强增强', () => {
