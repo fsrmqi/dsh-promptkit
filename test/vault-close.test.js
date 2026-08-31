@@ -283,13 +283,8 @@ test('灵感库关闭：抽屉内「引用已选对话」后点 ×，主面板�
     messages,
   }))
   await tick()
-  // 主面板打开 → 切到「自选方法」（方法选择区在该模式渲染）
-  // → 选择对话 → 打开灵感库抽屉
+  // 主面板打开 → 选择对话 → 打开灵感库抽屉
   container.querySelector('.pk-fab').dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
-  await tick()
-  const methodTab = [...container.querySelectorAll('button')].find(b => b.textContent.trim() === '自选方法')
-  assert.ok(methodTab, '主面板应有「自选方法」切换')
-  methodTab.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
   const contextBtn = [...container.querySelectorAll('button')].find(b => b.textContent.trim() === '选择对话')
   assert.ok(contextBtn, '主面板应出现「选择对话」入口')

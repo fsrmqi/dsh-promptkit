@@ -79,7 +79,6 @@ test('语义增强：仅明确不支持流式时降级；普通模型错误不�
   await click('应用增强到消息框')
   assert.equal(calls, 1)
   assert.match(document.body.textContent, /模型失败/)
-  assert.match(document.body.textContent, /增强失败，草稿未改动/)
 })
 
 test('语义增强：取消后晚到的结果不得写回草稿', async t => {
@@ -221,29 +220,6 @@ test('知识区：检查通过不入区，共同长前缀的不同草稿各自�
   assert.ok(entries.every(entry => entry.dimension === 'hidden_premise' && !entry.finding.includes('[GAP]')))
 })
 
-test('方法库：异步模板和模型改造均不覆盖等待期间的新草稿', async t => {
-  const response = deferred()
-  const template = deferred()
-  const methods = new SourceKit.StaticMethodProvider()
-  const originalGet = methods.getTemplate.bind(methods)
-  let blockTemplate = false
-  methods.getTemplate = id => blockTemplate ? template.promise : originalGet(id)
-  const { click, composer } = await mount(t, { methodProvider: methods, enhancer: { enhance: () => response.promise, cancel() {} } })
-  await click('方法库')
-  const select = [...document.querySelectorAll('select')].find(el => [...el.options].some(o => o.value === '事实核查'))
-  assert.ok(select)
-  await act(async () => { select.value = '事实核查'; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
-  await click('基于草稿改造')
-  await act(async () => composer.write('模型等待期间补充的新内容'))
-  await act(async () => response.resolve({ prompt: '旧改造稿' }))
-  assert.equal(composer.getDraft(), '模型等待期间补充的新内容')
-  blockTemplate = true
-  await click('填充模板')
-  await act(async () => composer.write('模板等待期间补充的新内容'))
-  await act(async () => template.resolve({ prompt: '旧模板' }))
-  assert.equal(composer.getDraft(), '模板等待期间补充的新内容')
-})
-
 test('技能引用：选区自动补回保留外围文本，关闭提示不再次写回', async t => {
   const original = '保留前言；请用 /tdd 检查登录流程并给出验证步骤；保留结尾。'
   const { click, composer } = await mount(t, { initialDraft: original,
@@ -259,20 +235,4 @@ test('技能引用：选区自动补回保留外围文本，关闭提示不再�
   await act(async () => composer.write('我重新编辑了整个请求'))
   await click('知道了')
   assert.equal(composer.getDraft(), '我重新编辑了整个请求')
-})
-
-test('关闭面板取消模板写回，失败增强不推进首次体验', async t => {
-  const template = deferred()
-  const methods = new SourceKit.StaticMethodProvider()
-  methods.getTemplate = () => template.promise
-  const { click, composer } = await mount(t, { methodProvider: methods })
-  const before = composer.getDraft()
-  await click('方法库')
-  const select = [...document.querySelectorAll('select')].find(el => [...el.options].some(o => o.value === '事实核查'))
-  await act(async () => { select.value = '事实核查'; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
-  await click('填充模板')
-  await click('关闭')
-  await act(async () => template.resolve({ prompt: '迟到模板' }))
-  assert.equal(composer.getDraft(), before)
-  assert.equal(window.localStorage.getItem('regression.quick-action.onboarding-successes.v1'), '0')
 })

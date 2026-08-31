@@ -38,19 +38,19 @@ export function AutoEnhanceToggle({ enabled, onChange }) {
 // segments 已经过 [DIAG]/===PROMPT=== 过滤，只含真正的改写内容。
 export function StreamPanel({ streamState, loading, onCancel }) {
   if (!streamState) return null
+  if (streamState.phase === 'error') return null
   const phaseText = streamState.phase === 'waiting'
     ? '等待模型响应…'
-    : streamState.phase === 'diagnosing'
-      ? '模型正在做五维诊断…（输出开始后自动进入改写）'
+      : streamState.phase === 'diagnosing'
+      ? '正在分析任务信息…'
       : streamState.phase === 'streaming'
         ? '正在输出优化稿…'
-        : streamState.phase === 'cancelled' ? '已取消，草稿未改动'
-          : streamState.phase === 'error' ? '增强失败，草稿未改动'
+      : streamState.phase === 'cancelled' ? '已取消，草稿未改动'
             : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`
   return h('div', { key: 'stream-panel', role: 'status', 'aria-live': 'polite', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, fontSize: '11px', lineHeight: 1.5 } }, [
     h('div', { key: 'phase', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: C.teal, fontWeight: 800 } }, [
       h('span', { key: 'text' }, loading && (streamState.phase === 'waiting' || streamState.phase === 'diagnosing' || streamState.phase === 'streaming') ? `${phaseText} ${(streamState.elapsedMs / 1000).toFixed(0)}s` : phaseText),
-      loading ? h('button', { key: 'cancel', onClick: onCancel, style: { border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '取消') : null,
+      null,
     ]),
     streamState.segments.length ? h('div', { key: 'segments', style: { marginTop: '6px', display: 'grid', gap: '6px', maxHeight: '180px', overflowY: 'auto' } }, streamState.segments.map((segment, index) => h('div', { key: index, style: { padding: '6px 8px', borderRadius: '6px', background: C.surfaceAlt, color: C.slate, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, segment))) : null,
   ])
@@ -72,7 +72,8 @@ export function EnhancerPanel({
   mode, draft, enhancementKind, enhancementPlan, strategyNode,
   useMemoryContext, memoryPreview, onLoadMemory, memorySourceLabels, memoryReceipt,
   methodSummaryNode, diffPreview, costNode, signalsNode,
-  actionNode,
+  actionNode, showAdvanced, onRefine,
+  methodOptions, selectedMethodId, suggestedMethod, onMethodChange,
   streamState, loading, onCancelEnhance,
   diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge,
   skillRestore, onDismissSkills,
@@ -81,7 +82,16 @@ export function EnhancerPanel({
   return h('details', { key: 'enhancer', open: true, style: { position: 'relative', marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [
     h('summary', { key: 'title', style: { paddingRight: '70px', fontSize: '13px', color: C.ink, cursor: 'pointer', fontWeight: 800 } }, '决策摘要'),
     h('div', { key: 'apply', style: { position: 'absolute', top: '8px', right: '10px' } }, actionNode),
-    h('div', { key: 'apply-hint', style: { marginTop: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, '应用后仍可编辑，不会自动发送。'),
+    h('div', { key: 'apply-hint', style: { marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, [
+      h('label', { key: 'method', style: { display: 'inline-flex', alignItems: 'center', gap: '5px', minWidth: 0 } }, [
+        h('span', { key: 'label', style: { flexShrink: 0 } }, '处理方式：'),
+        h('select', { key: 'select', value: selectedMethodId || '', onChange: event => onMethodChange(event.target.value), 'aria-label': '选择增强方法', style: { maxWidth: '150px', border: `1px solid ${C.tealLineActive}`, borderRadius: '999px', background: C.surface, color: C.teal, padding: '3px 22px 3px 7px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' } }, [
+          h('option', { key: 'auto', value: '' }, suggestedMethod ? `智能推荐：${suggestedMethod.title}` : '智能推荐：轻量整理'),
+          ...methodOptions.map(method => h('option', { key: method.id, value: method.id }, method.title))
+        ])
+      ]),
+      !showAdvanced ? h('button', { key: 'refine', className: 'pk-btn', onClick: onRefine, style: { flexShrink: 0, border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', padding: 0, fontSize: '11px', fontWeight: 800 } }, '再细化…') : null
+    ]),
     // 项目记忆预览：语义档 + 勾选「加项目记忆」时出现，先看命中再决定注入。
     useMemoryContext && semantic ? h('div', { key: 'memory-preview', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [
       h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [
@@ -102,7 +112,7 @@ export function EnhancerPanel({
       ? h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode)
       : h('div', { key: 'summary', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [methodSummaryNode, diffPreview, costNode, signalsNode]),
     semantic ? h(StreamPanel, { key: 'stream', streamState, loading, onCancel: onCancelEnhance }) : null,
-    h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }),
-    h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }),
+    showAdvanced ? h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }) : null,
+    showAdvanced ? h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }) : null,
   ])
 }
