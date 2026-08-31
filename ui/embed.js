@@ -2553,8 +2553,8 @@ function EnhancerPanel({
   mode, draft, enhancementKind, enhancementPlan, strategyNode,
   useMemoryContext, memoryPreview, onLoadMemory, memorySourceLabels, memoryReceipt,
   methodSummaryNode, diffPreview, costNode, signalsNode,
-  showAdvanced, onRefine,
   methodOptions, selectedMethodId, suggestedMethod, onMethodChange,
+  diagnose, onDiagnoseChange,
   streamState, loading, onCancelEnhance,
   diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge,
   skillRestore, onDismissSkills,
@@ -2569,8 +2569,7 @@ function EnhancerPanel({
           h('option', { key: 'auto', value: '' }, suggestedMethod ? `智能推荐：${suggestedMethod.title}` : '智能推荐：轻量整理'),
           ...methodOptions.map(method => h('option', { key: method.id, value: method.id }, method.title))
         ])
-      ]),
-      !showAdvanced ? h('button', { key: 'refine', className: 'pk-btn', onClick: onRefine, style: { flexShrink: 0, border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', padding: 0, fontSize: '11px', fontWeight: 800 } }, '再细化…') : null
+      ])
     ]),
     // 项目记忆预览：语义档 + 勾选「加项目记忆」时出现，先看命中再决定注入。
     useMemoryContext && semantic ? h('div', { key: 'memory-preview', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [
@@ -2591,9 +2590,13 @@ function EnhancerPanel({
     semantic
       ? h('div', { key: 'strategy', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, strategyNode)
       : h('div', { key: 'summary', style: { marginTop: '9px', padding: '9px 10px', borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [methodSummaryNode, diffPreview, costNode, signalsNode]),
+    semantic ? h('label', { key: 'diagnose-toggle', style: { marginTop: '8px', padding: '8px 10px', border: `1px solid ${diagnose ? C.tealLineActive : C.tealLine}`, borderRadius: '8px', background: diagnose ? C.tealTint : C.surface, color: C.slate, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', cursor: 'pointer', fontSize: '11px' } }, [
+      h('span', { key: 'copy' }, [h('strong', { key: 'title', style: { color: diagnose ? C.teal : C.slate } }, '五维诊断（可选）'), h('div', { key: 'hint', style: { marginTop: '2px', color: C.muted, fontSize: '10px', lineHeight: 1.4 } }, diagnose ? '本次会额外显示诊断，仅在确实阻塞任务时给出简短澄清。' : '默认关闭；开启后在本次增强中查看任务缺口，不会自动存入记忆。')]),
+      h('input', { key: 'input', type: 'checkbox', checked: diagnose, onChange: event => onDiagnoseChange(event.target.checked), style: { accentColor: C.teal, cursor: 'pointer', flexShrink: 0 } }),
+    ]) : null,
     semantic ? h(StreamPanel, { key: 'stream', streamState, loading, onCancel: onCancelEnhance }) : null,
-    showAdvanced ? h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }) : null,
-    showAdvanced ? h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }) : null,
+    h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }),
+    h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }),
   ])
 }
 
@@ -2673,6 +2676,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   // ── 语义增强强度档位（低=润色 / 中=标准 / 高=充分展开），仅语义档生效 ──
   const [enhanceStrength, setEnhanceStrength] = React.useState(() => { try { return window.localStorage.getItem(storageKey('enhance.strength.v1')) || 'mid' } catch { return 'mid' } })
   React.useEffect(() => { try { window.localStorage.setItem(storageKey('enhance.strength.v1'), enhanceStrength) } catch {} }, [enhanceStrength])
+  const [diagnoseEnabled, setDiagnoseEnabled] = React.useState(false)
   // ── 诊断闭环（知识区）：发现 → 知识区暂存 → 用户主动决定 → Vault 思考卡 ──
   // 状态与持久化在 use-knowledge-inbox.js；这里只接出入口，主组件保留
   // promote（写 Vault 假设卡）的编排，因为它依赖 saveToVault 之外的 Vault 查重。
@@ -2700,11 +2704,6 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const [metricsEnabled, setMetricsEnabled] = React.useState(() => { try { return window.localStorage.getItem(storageKey('metrics.enabled.v1')) === 'true' } catch { return false } })
   const [metrics, setMetrics] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('metrics.v1')) || '{}') } catch { return {} } })
   const onboarding = useOnboardingProgress(storageKey)
-  // 只保留一套稳定界面：默认轻路径，需要时通过“再细化…”展开。
-  const simpleMode = false
-  // 兼容已保存的旧“完整”偏好；新界面不再提供此项设置。
-  const legacyFullMode = () => { try { return window.localStorage.getItem(storageKey('display-mode.v1')) === 'full' } catch { return false } }
-  const [advancedEnhancement, setAdvancedEnhancement] = React.useState(legacyFullMode)
   const [feedback, setFeedback] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('feedback.v1')) || '[]') } catch { return [] } })
   const [lastEnhancement, setLastEnhancement] = React.useState(null)
   const [confirmClearMetrics, setConfirmClearMetrics] = React.useState(false)
@@ -3299,7 +3298,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   }
   const { enhanceIntoInput, cancelEnhance, enhanceDiagnosis, diagnosisMethod, streamState, setStreamState, skillRestore, setSkillRestore } = useEnhancementFlow({
     composer, enhancer, draft, draftGuard, importCard, setLoading,
-    config: { enhancementKind, enhanceStrength, requirement, matchedMethod: explicitEnhancementMethod, selectedContextText, referencedFiles, useMemoryContext, diagnose: advancedEnhancement && Boolean(explicitEnhancementMethod) },
+    config: { enhancementKind, enhanceStrength, requirement, matchedMethod: explicitEnhancementMethod, selectedContextText, referencedFiles, useMemoryContext, diagnose: diagnoseEnabled },
     context: { vaultItems, assetContextIds, memoryPreview, searchMemory, loadMemory, methodProvider },
     getPlan: (text, method) => createEnhancementPlan(text, method),
     notice: { setNotice, setWarn, setError, setMemoryReceipt },
@@ -3629,12 +3628,12 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     diffPreview,
     costNode,
     signalsNode,
-    showAdvanced: advancedEnhancement,
-    onRefine: () => setAdvancedEnhancement(true),
     methodOptions: methods,
     selectedMethodId: enhancementMethodId,
     suggestedMethod: autoMethods[0],
     onMethodChange: setEnhancementMethodId,
+    diagnose: diagnoseEnabled,
+    onDiagnoseChange: setDiagnoseEnabled,
     streamState,
     loading,
     onCancelEnhance: cancelEnhance,
@@ -3646,10 +3645,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     skillRestore,
     onDismissSkills: () => setSkillRestore(null),
   })
-  // 增强面板：极简模式单列只保留「草稿状态 + 档位」和结果预览；完整模式双栏全配置。
-  const enhanceBody = !advancedEnhancement
-    ? h('div', { key: 'enhance-body', style: { display: 'grid', gap: '8px', animation: 'pk-fade .2s ease' } }, [draftStatusNode, enhancerPanel])
-    : h('div', { key: 'enhance-body', style: { display: 'grid', gridTemplateColumns: wide ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)', gap: '10px', alignItems: 'start', animation: 'pk-fade .2s ease' } }, [h('div', { key: 'config', style: { minWidth: 0 } }, [enhancerKindSection, draftStatusNode, requirementNode, contextLevelNode, contextNode, assetContextNode, strengthNode, autoEnhanceNode]), h('div', { key: 'preview', style: { minWidth: 0 } }, [enhancerPanel])])
+  const enhanceBody = h('div', { key: 'enhance-body', style: { display: 'grid', gridTemplateColumns: wide ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)', gap: '10px', alignItems: 'start', animation: 'pk-fade .2s ease' } }, [h('div', { key: 'config', style: { minWidth: 0 } }, [enhancerKindSection, draftStatusNode, requirementNode, contextLevelNode, contextNode, assetContextNode, strengthNode, autoEnhanceNode]), h('div', { key: 'preview', style: { minWidth: 0 } }, [enhancerPanel])])
   // 方法收集进度（助推③）：本地计数的唯一真源为 methodUsage，此处仅派生展示数据，
   // 不额外写存储。usedIds 去重后用于「已用 N / 总数」进度，助长收集动量。
   const usageSum = Object.values(methodUsage || {}).reduce((sum, n) => sum + Number(n || 0), 0)
@@ -3807,7 +3803,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       void applyVaultItem(payload.item, payload.mode, payload.current, payload.slashInvocation, payload.values)
     },
   })
-  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setEnhancementKind('light'); setAdvancedEnhancement(legacyFullMode()); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
+  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setEnhancementKind('light'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
 }
 
   return {

@@ -72,7 +72,6 @@ export function EnhancerPanel({
   mode, draft, enhancementKind, enhancementPlan, strategyNode,
   useMemoryContext, memoryPreview, onLoadMemory, memorySourceLabels, memoryReceipt,
   methodSummaryNode, diffPreview, costNode, signalsNode,
-  showAdvanced, onRefine,
   methodOptions, selectedMethodId, suggestedMethod, onMethodChange,
   diagnose, onDiagnoseChange,
   streamState, loading, onCancelEnhance,
@@ -89,8 +88,7 @@ export function EnhancerPanel({
           h('option', { key: 'auto', value: '' }, suggestedMethod ? `智能推荐：${suggestedMethod.title}` : '智能推荐：轻量整理'),
           ...methodOptions.map(method => h('option', { key: method.id, value: method.id }, method.title))
         ])
-      ]),
-      !showAdvanced ? h('button', { key: 'refine', className: 'pk-btn', onClick: onRefine, style: { flexShrink: 0, border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', padding: 0, fontSize: '11px', fontWeight: 800 } }, '再细化…') : null
+      ])
     ]),
     // 项目记忆预览：语义档 + 勾选「加项目记忆」时出现，先看命中再决定注入。
     useMemoryContext && semantic ? h('div', { key: 'memory-preview', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.slate, fontSize: '11px', lineHeight: 1.5 } }, [
@@ -116,7 +114,7 @@ export function EnhancerPanel({
       h('input', { key: 'input', type: 'checkbox', checked: diagnose, onChange: event => onDiagnoseChange(event.target.checked), style: { accentColor: C.teal, cursor: 'pointer', flexShrink: 0 } }),
     ]) : null,
     semantic ? h(StreamPanel, { key: 'stream', streamState, loading, onCancel: onCancelEnhance }) : null,
-    showAdvanced ? h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }) : null,
-    showAdvanced ? h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }) : null,
+    h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }),
+    h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }),
   ])
 }

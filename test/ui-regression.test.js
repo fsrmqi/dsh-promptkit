@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom'
 import * as SourceKit from '../src/index.js'
 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
-async function mount(t, { enhancer, bundle = false, searchFiles, initialDraft = '帮我优化登录流程并明确验收标准', displayMode = 'full', auto = false, onSubmitDraft, selection, methodProvider: providedMethods } = {}) {
+async function mount(t, { enhancer, bundle = false, searchFiles, initialDraft = '帮我优化登录流程并明确验收标准', auto = false, onSubmitDraft, selection, methodProvider: providedMethods } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><textarea id="target"></textarea><input id="other"><div id="root"></div></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
   globalThis.window = dom.window
   globalThis.document = dom.window.document
@@ -25,7 +25,6 @@ async function mount(t, { enhancer, bundle = false, searchFiles, initialDraft = 
     onSelectionChange(cb) { selectionListeners.add(cb); return () => selectionListeners.delete(cb) },
   }
   const methodProvider = providedMethods || new Kit.StaticMethodProvider()
-  window.localStorage.setItem('regression.quick-action.display-mode.v1', displayMode)
   if (auto) window.localStorage.setItem('regression.quick-action.auto-enhance.enabled.v1', 'true')
   const root = createRoot(document.getElementById('root'))
   await act(async () => root.render(React.createElement(Kit.QuickEnhancer, {

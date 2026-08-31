@@ -120,11 +120,6 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
   const [metricsEnabled, setMetricsEnabled] = React.useState(() => { try { return window.localStorage.getItem(storageKey('metrics.enabled.v1')) === 'true' } catch { return false } })
   const [metrics, setMetrics] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('metrics.v1')) || '{}') } catch { return {} } })
   const onboarding = useOnboardingProgress(storageKey)
-  // 只保留一套稳定界面：默认轻路径，需要时通过“再细化…”展开。
-  const simpleMode = false
-  // 兼容已保存的旧“完整”偏好；新界面不再提供此项设置。
-  const legacyFullMode = () => { try { return window.localStorage.getItem(storageKey('display-mode.v1')) === 'full' } catch { return false } }
-  const [advancedEnhancement, setAdvancedEnhancement] = React.useState(legacyFullMode)
   const [feedback, setFeedback] = React.useState(() => { try { return JSON.parse(window.localStorage.getItem(storageKey('feedback.v1')) || '[]') } catch { return [] } })
   const [lastEnhancement, setLastEnhancement] = React.useState(null)
   const [confirmClearMetrics, setConfirmClearMetrics] = React.useState(false)
@@ -1049,8 +1044,6 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     diffPreview,
     costNode,
     signalsNode,
-    showAdvanced: advancedEnhancement,
-    onRefine: () => setAdvancedEnhancement(true),
     methodOptions: methods,
     selectedMethodId: enhancementMethodId,
     suggestedMethod: autoMethods[0],
@@ -1068,10 +1061,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     skillRestore,
     onDismissSkills: () => setSkillRestore(null),
   })
-  // 增强面板：极简模式单列只保留「草稿状态 + 档位」和结果预览；完整模式双栏全配置。
-  const enhanceBody = !advancedEnhancement
-    ? h('div', { key: 'enhance-body', style: { display: 'grid', gap: '8px', animation: 'pk-fade .2s ease' } }, [draftStatusNode, enhancerPanel])
-    : h('div', { key: 'enhance-body', style: { display: 'grid', gridTemplateColumns: wide ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)', gap: '10px', alignItems: 'start', animation: 'pk-fade .2s ease' } }, [h('div', { key: 'config', style: { minWidth: 0 } }, [enhancerKindSection, draftStatusNode, requirementNode, contextLevelNode, contextNode, assetContextNode, strengthNode, autoEnhanceNode]), h('div', { key: 'preview', style: { minWidth: 0 } }, [enhancerPanel])])
+  const enhanceBody = h('div', { key: 'enhance-body', style: { display: 'grid', gridTemplateColumns: wide ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)', gap: '10px', alignItems: 'start', animation: 'pk-fade .2s ease' } }, [h('div', { key: 'config', style: { minWidth: 0 } }, [enhancerKindSection, draftStatusNode, requirementNode, contextLevelNode, contextNode, assetContextNode, strengthNode, autoEnhanceNode]), h('div', { key: 'preview', style: { minWidth: 0 } }, [enhancerPanel])])
   // 方法收集进度（助推③）：本地计数的唯一真源为 methodUsage，此处仅派生展示数据，
   // 不额外写存储。usedIds 去重后用于「已用 N / 总数」进度，助长收集动量。
   const usageSum = Object.values(methodUsage || {}).reduce((sum, n) => sum + Number(n || 0), 0)
@@ -1229,7 +1219,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       void applyVaultItem(payload.item, payload.mode, payload.current, payload.slashInvocation, payload.values)
     },
   })
-  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setEnhancementKind('light'); setAdvancedEnhancement(legacyFullMode()); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
+  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setEnhancementKind('light'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
 }
 
 export { ConversationQuickAction as QuickEnhancer }

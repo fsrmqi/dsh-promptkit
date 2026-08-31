@@ -90,7 +90,7 @@ After installing, refresh the browser. You'll find **✦ Enhance** beside the co
 
 ## Interface
 
-The plugin keeps one stable interface: a light path by default (draft → enhance → result, with the decision summary card and the Apply button), plus a **"Refine…"** control at the top-right of the summary card that expands the full two-column configuration (mode toggles, conversation/memory context, strength, method switching). A toolbar centralizes draft saving, vault access, studio hand-off, and method-collection progress. ⌘K opens the panel; common methods are reachable from the launcher's fan-out menu. Users with a previously saved "full mode" preference open the panel expanded; the setting itself no longer exists.
+The plugin uses one stable, full configuration interface: mode selection, conversation/memory context, strength, method switching, and the optional five-dimension diagnosis are always available. A toolbar centralizes draft saving, vault access, studio hand-off, and method-collection progress. ⌘K opens the panel; common methods are reachable from the launcher's fan-out menu.
 
 ## Using it as an npm library
 

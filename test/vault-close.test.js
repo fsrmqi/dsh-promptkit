@@ -33,7 +33,6 @@ function setupDom() {
 
 // 预置完整模式：灵感库入口等深度功能只在完整模式渲染，回归测试聚焦完整路径。
 function presetFullMode(W, prefix) {
-  try { W.localStorage.setItem(`${prefix}quick-action.display-mode.v1`, 'full') } catch {}
 }
 
 function loadEmbed(W) {
