@@ -16,7 +16,7 @@ npm test         # 源码/产物交互、协议、真实 HTTP 与宿主槽位回
 
 构建产物 `ui/client.js`、`ui/client-lite.js` 和 `ui/embed.js` 已提交到 Git。修改源码后需重新 `npm run build`；CI 校验重建后没有产物差异。
 
-QuickEnhancer 的增强事务、文件补全、浮层关闭分别由 `src/ui/quick-enhancer/use-enhancement-flow.js`、`use-file-completion.js`、`use-panel-dismiss.js` 管理。新模块必须加入 `scripts/build-client.mjs` 的共享模块清单；源码入口和拼接产物都要通过交互测试，不能依赖拼接后偶然可见的全局符号。
+QuickEnhancer 的增强事务、浮层关闭分别由 `src/ui/quick-enhancer/use-enhancement-flow.js`、`use-panel-dismiss.js` 管理（原 `use-file-completion.js` 已随 `@` 文件补全功能移除，`file-menu.js` 现仅承载模板变量补值面板）。新模块必须加入 `scripts/build-client.mjs` 的共享模块清单；源码入口和拼接产物都要通过交互测试，不能依赖拼接后偶然可见的全局符号。
 
 宿主回归流程见 [DSH 验证清单](docs/DSH-QA.md)。普通 `npm test` 不调用外部模型，真实 HTTP 测试使用本地模型桩，不能代替真机模型验证。
 
@@ -44,7 +44,7 @@ QuickEnhancer 的增强事务、文件补全、浮层关闭分别由 `src/ui/qui
    ```
    ````
 3. 如果新方法需要 `mode: guided`（逐步追问而非一次性分析）或自定义 `outcome`，编辑 `scripts/build-methods.mjs` 中的 `OVERRIDES` 表
-4. 运行 `npm run build` 重新生成 `builtin.json` + `client.js` + `embed.js`
+4. 运行 `npm run build` 重新生成 `builtin.json` + `client.js` + `client-lite.js` + `embed.js`
 
 ## 代码结构
 
@@ -81,7 +81,6 @@ QuickEnhancer 的增强事务、文件补全、浮层关闭分别由 `src/ui/qui
 - Commit message 前缀：`feat:`（新功能）/ `fix:`（修复）/ `docs:`（文档）/ `refactor:`（重构）/ `chore:`（杂项）
 - 如果修改了 Embed Protocol 契约面（`PromptKit` 命名空间导出符号），在 commit message 中标注 `BREAKING CHANGE`
 - 构建产物（`ui/client.js`、`ui/client-lite.js`、`ui/embed.js`、`methods/builtin.json`）必须随源码一起提交，保证 Git 安装无需构建即可使用
-
 ## Issue 与 PR
 
 - Bug 报告请使用 Bug report 模板，附上 DSH 版本和复现步骤

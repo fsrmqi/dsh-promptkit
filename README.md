@@ -25,7 +25,7 @@ Write a draft, hit **✦ Enhance**, and receive a structured prompt in the previ
 
 **✦ One-click enhancement with diagnosis.** Before rewriting, the plugin examines your draft on five dimensions (clarity · hidden premises · falsifiability · actionability · context fit) and shows the verdict. The rewrite is driven by the diagnosis — undefined terms get defined, assumptions get flagged, vague requirements become testable ones.
 
-**🎯 21 thinking methods, matched automatically.** A built-in library of complete Markdown methods (Socratic questioning, first principles, steel-man, minimal experiments…). The enhancer picks one based on your draft's signal words — or browse the full library in the Method Studio.
+**🎯 21 thinking methods, applied on signal match.** A built-in library of complete Markdown methods (Socratic questioning, first principles, steel-man, minimal experiments…). Smart recommendation applies a method only when the draft hits clear task signals; otherwise the draft stays a light local cleanup rather than being forced into a template — or browse the full library in the Method Studio.
 
 **📚 A vault that closes the loop.** Diagnosis findings (hidden premises, unfalsifiable requirements) can be saved as "to-verify" assumption cards. Verify them later; checked-in cards feed future enhancements as context. Your prompt quality compounds.
 
@@ -38,11 +38,10 @@ Write a draft, hit **✦ Enhance**, and receive a structured prompt in the previ
 
 - **PromptStudio** — the advanced workspace: browse 21 methods, fill in facts/constraints, compose and preview a structured prompt before sending.
 - **PromptKit Vault** — local library for drafts and finished prompts: search, favorites, project grouping, derivation with version diff, JSON backup/restore.
-- **Streaming output** — enhancement results stream segment-by-segment into a preview panel with elapsed-time badge and cancel button.
+- **Streaming output** — enhancement results stream segment-by-segment into a preview panel with phase hints (waiting → diagnosing → writing), a live elapsed-time badge, and a cancel button.
 - **Strength levels** — low (polish) / mid (standard) / high (expand ~3x) length budgets.
 - **Auto-enhance before send** — available when a custom host provides `onSubmitDraft` and `composer.isInputTarget()`. Intercepts only the composer's plain Enter; enhancement failure may send the original once, but send failure is never retried. Cancellation or a changed draft prevents sending. The standalone DSH plugin does not wire this send hook by default.
 - **Skill-mention preservation** — lost `/tdd`-style tokens are restored automatically. Dismissing the notice does not rewrite the draft again.
-- **`@file` completion** — searches the current session's workspace by file name without reading content. Entry, depth, and time limits bound indexing; incomplete results are labeled.
 - **`/pk` quick insert** — type `/pk keywords` for a compact vault candidate menu (arrow keys + Enter), never touching DSH-native commands.
 - **Private methods** — paste Obsidian-style Markdown prompt cards; stored locally only, exportable as JSON.
 - **Template variables** — `{{name}}` placeholders in vault items prompt a fill-in panel before insertion.
@@ -87,11 +86,11 @@ dsh plugin --profile web add github:fsrmqi/dsh-promptkit#<commit-sha>
 npm pack && dsh plugin --profile web add ./dsh-promptkit-0.2.1.tgz
 ```
 
-After installing, refresh the browser. You'll find **✦ Enhance** beside the composer and **Advanced Method Studio** as a conversation tab. Node-side changes also require the host to reload the plugin or restart DSH; refreshing the page alone may keep cached server code. Registry installs select a published version; use a tarball to test this checkout. See the [upgrade steps](docs/UPGRADE-HISTORY.md#v021).
+After installing, refresh the browser. You'll find **✦ Enhance** beside the composer and **Advanced Method Studio** as a conversation tab. Node-side changes also require the host to reload the plugin or restart DSH; refreshing the page alone may keep cached server code. Registry installs select a published version; use a tarball to test this checkout. See the [upgrade steps](docs/UPGRADE-HISTORY.md#v021). In the standalone DSH plugin, "Studio →" from the enhancer prefills the draft into the studio and switches to that conversation tab automatically.
 
-## Interface modes
+## Interface
 
-The plugin defaults to **simple mode**, prioritizing draft → enhance → result. After 3 successful enhancements it expands the full interface (method library, vault, statistics, strength levels). You can lock either mode in **Settings → Interface mode**. Onboarding stores only progress from 0 to 3, independently of optional detailed statistics; failures and cancellations do not count.
+The plugin keeps one stable interface: a light path by default (draft → enhance → result, with the decision summary card and the Apply button), plus a **"Refine…"** control at the top-right of the summary card that expands the full two-column configuration (mode toggles, conversation/memory context, strength, method switching). A toolbar centralizes draft saving, vault access, studio hand-off, and method-collection progress. ⌘K opens the panel; common methods are reachable from the launcher's fan-out menu. Users with a previously saved "full mode" preference open the panel expanded; the setting itself no longer exists.
 
 ## Using it as an npm library
 
@@ -124,9 +123,9 @@ Any React host can compose PromptKit's components via the standard artifact `ui/
 
 | Access | Purpose | Can disable |
 | --- | --- | --- |
-| `localStorage` | Vault, diagnosis inbox, favorites, history, preferences, onboarding progress, optional detailed statistics | Detailed statistics default off; back up assets before clearing browser data |
+| `localStorage` | Vault, diagnosis inbox, favorites, history, preferences, onboarding progress (still recorded but no longer drives interface switching), optional detailed statistics | Detailed statistics default off; back up assets before clearing browser data |
 | Target input box | Buttons or shortcuts apply results; custom hosts can explicitly wire automatic sending | Without a send hook, only the draft is changed; asynchronous writes check for newer edits |
-| Local plugin requests | Semantic bridge, file-name completion, optional project-memory search | Triggered by the corresponding feature; file search does not read content |
+| Local plugin requests | Semantic bridge, optional project-memory search | Triggered by the corresponding feature |
 | Configured model endpoint | Processes semantic drafts and selected context | Use lightweight mode to avoid model calls |
 
 **Zero telemetry.** Usage statistics are not uploaded. Semantic enhancement is not offline: the configured model service may be external, so review drafts and selected context for sensitive information. Project-memory and custom-adapter data handling depends on the host implementation.
