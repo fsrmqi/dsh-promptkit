@@ -4,6 +4,13 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 移除
+
+- 移除宿主输入框上的 `@` 文件引用补全（`FileMenuNode`、`useFileCompletion`、`workspaceFilesRoute` 与 `/dsh-promptkit/workspace-files` 路由）。原因：经拆解 DSH `0.1.2-alpha.2` 的 `dsh-file-reference` 与 `dsh-client-ui-reference` 确认，原生 `@` 提及与插件补全是同一件事且为严格超集（文件 + 会话候选、目录下钻、引号路径、原子行内引用）；插件菜单与原生菜单同时弹出互相遮挡，window 捕获阶段吞键使原生菜单无法键盘操作，整段重写草稿尾段还会破坏原子引用。该功能本是为无原生 `@` 的旧 Web profile 补位，原生覆盖后仅剩冲突价值。
+- 嵌入参数 `searchFiles` 一并移除；自定义宿主保留注入不报错但无效果。增强流程对草稿中已有 `@path` 引用的保留保护（`fileMentions`）不受影响。详见 [升级记录](docs/UPGRADE-HISTORY.md#unreleased)。
+
 ## [0.2.1] - 2026-08-30
 
 状态：待发布；本次仅完成本地版本收口。面向使用者的功能说明与升级操作见 [升级记录](docs/UPGRADE-HISTORY.md#v021)。

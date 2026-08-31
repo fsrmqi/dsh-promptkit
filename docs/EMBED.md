@@ -37,11 +37,9 @@ const PromptKit = (React => {
 
 `enhanceStream()` 为可选能力。只有明确抛出 `fallback=true` 且尚未输出时才调用 `enhance()`，普通网络/模型错误或取消直接终止。组件在写回前校验原草稿是否变化，避免迟到响应覆盖用户的新编辑。
 
-DSH 文件索引采用异步目录读取，默认缓存 5 秒，扫描上限 20,000 个目录条目、深度 24、耗时预算 250ms（在条目边界检查，无法中断已发出的系统 IO）。不跟随符号链接；无权限或达到预算时返回 `truncated=true`。排序覆盖全部已索引候选，不保证未扫描部分的全局最优。索引限额可通过 `workspaceFilesRoute()` 的参数调整。
-
 知识区只暂存隐含前提/可证伪性中的实际缺口。新模型指令在这两项描述前使用 `[OK]` 或 `[GAP]`，UI 隐藏标记；旧输出仅过滤明确的无问题陈述，不靠宽泛关键词删除可能的缺口。新去重键包含完整草稿，旧截断记录保留供审阅，不与不同长稿强行合并。首次体验单独保存 0~3 次成功进度，详细使用统计仍遵守用户开关。
 
-独立 DSH 的文件补全请求必须携带 `session_id`；Node 半区通过声明注入的 `sessions` 服务读取 `session.header.cwd`。缺失或无工作区的会话返回错误，不扫描启动目录。每个目录共享索引，最多保留 8 个目录缓存。
+`@` 文件引用补全已移除：DSH 原生 `@` 提及（文件 + 会话候选、目录下钻、原子行内引用）是同类能力的超集，插件在宿主输入框上重复提供会导致双菜单重叠与键盘冲突。完整缘由与迁移注意见 [升级记录](UPGRADE-HISTORY.md#unreleased)。草稿中已有的 `@path` 引用在增强时仍受「保留 @ 文件引用」保护，发送后由 DSH 原生机制读取文件。
 
 接入 `onSubmitDraft` 的宿主须实现 `composer.isInputTarget(target)`，明确识别消息框节点；`TextareaComposer` 已提供。自动增强仅拦截该节点的 Enter，其他输入框、IME 和带修饰键的操作不受影响。增强失败可发送原文一次，发送失败只报告结果未确认，绝不自动重发。选区适配器可实现 `onSelectionChange(callback)`，使片段预览随选区更新。
 
@@ -73,7 +71,6 @@ DSH 文件索引采用异步目录读取，默认缓存 5 秒，扫描上限 20,
 | `onSubmitDraft` | QuickEnhancer 可选 | `(text) => void \| Promise` | 显式接入自动增强后的发送；Composer 须识别目标输入节点 |
 | `getRecentSessions` | PromptStudio 可选 | `() => Promise` | 追加最近会话摘要 |
 | `searchMemory` | 可选 | `(query) => Promise<string \| {text: string, sources?: object[]}>` | Studio 返回字符串；QuickEnhancer 也可消费摘要与来源对象 |
-| `searchFiles` | 可选 | `(query) => Promise<string[] \| {files: string[], truncated?: boolean} \| null>` | 文件补全；`null` 隐藏入口，`truncated` 提示索引不完整 |
 | `nudgeEnabled` | QuickEnhancer 可选 | boolean | 宿主级助推开关，默认开启，与用户本地开关共同决定是否展示 |
 | `storagePrefix` | 可选 | string | QuickEnhancer 本地状态前缀（默认 `'promptkit.'`） |
 

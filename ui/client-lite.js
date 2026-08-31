@@ -2161,58 +2161,6 @@ window.__ModuleLoader__.load({
         return { closeBtnRef }
       }
 
-      /* ================= QuickEnhancer 文件引用补全流程 ================= */
-      // 查询防抖、过期响应隔离、键盘导航与插入由同一 hook 管理。
-      function useFileCompletion({ draft, searchFiles, composer, setNotice }) {
-        const [fileMenu, setFileMenu] = React.useState(null)
-        const fileMenuRequestId = React.useRef(0)
-        // ── @ 文件引用补全：光标前的 @word 触发；检索经 searchFiles（宿主注入）──
-        const detectFileQuery = text => {
-          // 取最后一个非空白字符段：以 @ 开头则视为文件引用输入中（排除粘贴保护标记 \u2060）。
-          const tail = String(text || '').match(/(^|\s)@([^\s@]*)$/)
-          return tail && !tail[2].includes('\u2060') ? tail[2] : null
-        }
-        React.useEffect(() => {
-          if (!searchFiles) { setFileMenu(null); return undefined }
-          const query = detectFileQuery(draft)
-          if (query == null) { setFileMenu(null); return undefined }
-          const requestId = ++fileMenuRequestId.current
-          setFileMenu(prev => ({ query, files: prev?.query === query ? prev.files : [], status: 'loading', activeIndex: 0 }))
-          let alive = true
-          const timer = setTimeout(() => {
-            Promise.resolve().then(() => searchFiles(query)).then(result => {
-              const files = Array.isArray(result) ? result : result?.files
-              if (!alive || fileMenuRequestId.current !== requestId) return
-              if (!Array.isArray(files)) setFileMenu(null) // 宿主未提供文件服务
-              else setFileMenu({ query, files: list(files), status: files.length ? 'ready' : 'empty', activeIndex: 0, truncated: Boolean(result?.truncated) })
-            }).catch(() => { if (alive && fileMenuRequestId.current === requestId) setFileMenu(null) })
-          }, 140) // 防抖：避免逐键打 @ 时高频请求
-          return () => { alive = false; clearTimeout(timer) }
-        }, [draft, searchFiles])
-        const insertFileMention = path => {
-          const current = String(draft || '')
-          const next = current.replace(/(^|\s)@[^\s@]*$/, ((match, prefix) => `${prefix}@${path} `))
-          composer?.write(next)
-          setFileMenu(null)
-          setNotice(`已插入 @${path}；发送后由 DSH @file 读取该文件。`)
-        }
-        // @ 菜单键盘导航：window 捕获阶段吞键，防止 DSH 把 Enter 解释为发送。
-        React.useEffect(() => {
-          if (!fileMenu) return undefined
-          const onKeydown = event => {
-            if (event.isComposing || event.keyCode === 229) return
-            const consume = () => { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.() }
-            if (event.key === 'Escape') { consume(); setFileMenu(null); return }
-            if (event.key === 'ArrowDown') { consume(); setFileMenu(menu => menu ? { ...menu, activeIndex: Math.max(0, Math.min(menu.files.length - 1, menu.activeIndex + 1)) } : menu); return }
-            if (event.key === 'ArrowUp') { consume(); setFileMenu(menu => menu ? { ...menu, activeIndex: Math.max(0, menu.activeIndex - 1) } : menu); return }
-            if (event.key === 'Enter' && fileMenu.files[fileMenu.activeIndex]) { consume(); insertFileMention(fileMenu.files[fileMenu.activeIndex]) }
-          }
-          window.addEventListener('keydown', onKeydown, true)
-          return () => window.removeEventListener('keydown', onKeydown, true)
-        }, [fileMenu, composer, draft])
-        return { fileMenu, setFileMenu, insertFileMention }
-      }
-
       /* ================= QuickEnhancer 子组件: useKnowledgeInbox（知识区暂存 hook） ================= */
       // 知识区（诊断发现暂存）容量上限：超限时挤掉最旧的未处理项。
       const KNOWLEDGE_INBOX_MAX = 12
@@ -2357,33 +2305,12 @@ window.__ModuleLoader__.load({
         ])
       }
 
-      /* ================= QuickEnhancer 子组件: FileMenuNode / VariableFillNode（@菜单 + 变量补值） ================= */
-      // 两个草稿前置弹层：
-      //   FileMenuNode        @ 文件引用补全菜单（输入 @ 触发，↑↓ 导航，Enter/点击插入）
-      //   VariableFillNode    模板变量补值面板（Vault 条目含 {{var}} 时弹出，确认后才写入）
-      // 两者都是 fixed 定位的浮层，zIndex 与抽屉同层（20004/20005），由主组件挂到插件根。
-
-      function FileMenuNode({ fileMenu, onHoverIndex, onInsert }) {
-        if (!fileMenu) return null
-        return h('div', { key: 'file-menu', role: 'listbox', 'aria-label': '文件引用补全', style: { position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: '86px', width: 'min(400px, calc(100vw - 32px))', maxHeight: '260px', overflowY: 'auto', padding: '6px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20004 } }, [
-          h('div', { key: 'label', style: { padding: '3px 6px 7px', color: C.muted, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' } }, [
-            h(Icon, { key: 'ic', name: 'file', size: 12 }),
-            `文件引用 · @${fileMenu.query || '…'} · ↑↓ 选择，Enter 插入`,
-          ]),
-          fileMenu.status === 'loading' ? h('div', { key: 'loading', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '正在检索工作区文件…') : null,
-          fileMenu.truncated ? h('div', { key: 'partial', style: { padding: '6px 8px', color: C.amber, fontSize: '11px' } }, '工作区较大或部分目录不可读，当前仅显示已索引文件。') : null,
-          fileMenu.status === 'empty' ? h('div', { key: 'empty', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '未匹配到文件；继续输入路径关键词，或按 Esc 关闭。') : null,
-          // 等宽字体呈现路径；悬停与键盘导航共用 activeIndex，保证两者视觉一致。
-          ...fileMenu.files.map((path, index) => h('button', {
-            key: path,
-            role: 'option',
-            'aria-selected': index === fileMenu.activeIndex,
-            onMouseEnter: () => onHoverIndex(index),
-            onClick: () => onInsert(path),
-            style: { width: '100%', padding: '7px 8px', border: 0, borderRadius: '7px', background: index === fileMenu.activeIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer', fontSize: '11px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-          }, `@${path}`)),
-        ])
-      }
+      /* ================= QuickEnhancer 子组件: VariableFillNode（模板变量补值面板） ================= */
+      // 草稿前置弹层：VariableFillNode 模板变量补值面板（Vault 条目含 {{var}} 时弹出，确认后才写入）。
+      // fixed 定位浮层，zIndex 20005，由主组件挂到插件根。
+      // 历史注记：原 FileMenuNode（@ 文件引用补全菜单）已移除——DSH 原生 @ 提及
+      // 提供同类能力且为超集（文件+会话、目录下钻、原子行内引用），插件在宿主
+      // 输入框上重复实现只会产生双菜单重叠与吞键冲突。
 
       function VariableFillNode({ fill, onCancel, onConfirm }) {
         if (!fill) return null
@@ -2654,10 +2581,9 @@ window.__ModuleLoader__.load({
       //   messages       (可选) [{ id, role:'user'|'assistant', text }]：当前对话，供「加对话」参考
       //   searchMemory   (可选) (query) => Promise<string>：项目记忆检索，供「加项目记忆」档位
       //   nudgeEnabled   (可选) boolean：宿主级行为助推总开关，默认 true；与 localStorage 开关为「与」关系
-      //   searchFiles    (可选) (query) => Promise<string[] | { files:string[], truncated?:boolean } | null>：文件引用补全；
-      //                  返回 null 表示宿主未提供文件服务，@ 菜单入口自动隐藏
       //   onSubmitDraft  (可选) (text) => void | Promise：宿主「发送当前草稿」钩子；注入后启用「发送前自动增强」
-      function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, searchFiles, onSubmitDraft, storagePrefix = 'promptkit.', nudgeEnabled = true }) {
+      // @ 文件引用补全不在此组件实现：DSH 原生 @ 提及已是超集，插件不得在宿主输入框上重复提供。
+      function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, onSubmitDraft, storagePrefix = 'promptkit.', nudgeEnabled = true }) {
         const storageKey = name => `${storagePrefix}quick-action.${name}`
         const msgs = list(messages)
         const [draft, setDraft] = React.useState(() => composer?.getDraft?.() || '')
@@ -2817,7 +2743,6 @@ window.__ModuleLoader__.load({
           if (!assetProvider || !match) { setSlashOpen(false); return }
           setVaultSearch(String(match[1] ?? match[2] ?? '').trim()); setSlashActiveIndex(0); setSlashOpen(true)
         }, [draft, assetProvider])
-        const { fileMenu, setFileMenu, insertFileMention } = useFileCompletion({ draft, searchFiles, composer, setNotice })
         React.useEffect(() => {
           if (!open || methods.length) return
           setLoading(true)
@@ -3818,11 +3743,6 @@ window.__ModuleLoader__.load({
               vaultOpen ? vaultPanel : null,
             ]) : null
         const slashMenu = slashOpen ? h('div', { key: 'slash-menu', role: 'listbox', style: { position: 'fixed', right: '76px', bottom: '86px', width: 'min(360px, calc(100vw - 32px))', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20004 } }, [h('div', { key: 'label', style: { padding: '4px 6px 7px', color: C.muted, fontSize: '11px' } }, `灵感库 · /pk ${vaultSearch} · ↑↓ 选择，Enter 插入`), ...(slashMatches.length ? slashMatches.map((item, index) => h('button', { key: item.id, role: 'option', 'aria-selected': index === slashActiveIndex, onClick: () => useVaultItem(item, 'replace'), style: { width: '100%', padding: '8px', border: 0, borderRadius: '7px', background: index === slashActiveIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer' } }, [h('strong', { key: 'title', style: { fontSize: '12px' } }, item.title), h('div', { key: 'meta', style: { marginTop: '2px', color: C.muted, fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, item.tags?.length ? `#${item.tags.join(' #')}` : item.type)])) : [h('div', { key: 'empty', style: { padding: '10px 6px', color: C.muted, fontSize: '11px' } }, '未找到匹配灵感；继续输入关键词或按 Esc。')])]) : null
-        const fileMenuNode = FileMenuNode({
-          fileMenu,
-          onHoverIndex: index => setFileMenu(menu => menu ? { ...menu, activeIndex: index } : menu),
-          onInsert: insertFileMention,
-        })
         const variableFillNode = VariableFillNode({
           fill: variableFill ? {
             ...variableFill,
@@ -3835,7 +3755,7 @@ window.__ModuleLoader__.load({
             void applyVaultItem(payload.item, payload.mode, payload.current, payload.slashInvocation, payload.values)
           },
         })
-        return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, fileMenuNode, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
+        return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
       }
 
 
@@ -3870,19 +3790,6 @@ window.__ModuleLoader__.load({
         }
       }
 
-      // @ 文件引用补全：经 node 半区的 workspace-files 路由检索工作区文件。
-      // 返回 null 表示服务不可用（旧 host 未注册路由），UI 据此隐藏文件菜单入口。
-      async function promptkitSearchFiles(sessionId, query) {
-        const url = new URL('/dsh-promptkit/workspace-files', window.location.origin)
-        url.searchParams.set('q', query)
-        url.searchParams.set('session_id', sessionId)
-        url.searchParams.set('limit', '20')
-        const response = await fetch(url).catch(() => null)
-        if (!response || !response.ok) return null
-        const body = await response.json().catch(() => ({}))
-        return { files: Array.isArray(body.files) ? body.files : [], truncated: Boolean(body.truncated) }
-      }
-
       // 桥接 DSH 输入框：inputActions 由槽位体系注入（InputActions.setDraft / submit）。
       // getDraft 读构造时传入的 draft 快照（新契约）或 useInput 订阅值（旧契约）。
       class DshDraftComposer {
@@ -3910,9 +3817,8 @@ window.__ModuleLoader__.load({
         composer.input = { draft }
         const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
         const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
-        const searchFiles = React.useCallback(query => promptkitSearchFiles(sessionId, query), [sessionId])
         React.useEffect(() => { composer.notify(draft ?? '') }, [draft, composer])
-        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory, searchFiles })
+        return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory })
       }
 
       // 方法工坊宿主：写入新版输入机后交由 inputActions.submit() 发送。

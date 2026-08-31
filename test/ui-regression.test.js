@@ -118,15 +118,12 @@ test('语义增强：部分诊断逐步展示但不进入正文，完成后保�
   assert.match(document.body.textContent, /未返回此项诊断/)
 })
 
-test('文件补全：只替换当前 @ 片段，并显示有界索引提示', async t => {
+test('宿主输入框不再弹 @ 补全菜单：文件引用交给 DSH 原生 @ 提及', async t => {
   const { composer } = await mount(t, { searchFiles: async () => ({ files: ['src/app.js'], truncated: true }) })
   await act(async () => composer.write('请检查 @sr'))
   await act(async () => new Promise(resolve => setTimeout(resolve, 170)))
-  assert.match(document.body.textContent, /仅显示已索引文件/)
-  const option = document.querySelector('[role="option"]')
-  assert.ok(option)
-  await act(async () => option.click())
-  assert.equal(composer.getDraft(), '请检查 @src/app.js ')
+  assert.ok(!document.querySelector('[aria-label="文件引用补全"]'), '插件不得在宿主输入框上提供 @ 补全（与原生菜单重叠）')
+  assert.equal(composer.getDraft(), '请检查 @sr', '草稿必须原样保留')
 })
 
 test('快捷键：使用最新草稿、语义档和显式选择的方法', async t => {

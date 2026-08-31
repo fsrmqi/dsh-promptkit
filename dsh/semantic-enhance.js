@@ -1,6 +1,5 @@
 export const SEMANTIC_ENHANCE_PATH = '/dsh-promptkit/semantic-enhance'
 export const SEMANTIC_ENHANCE_STREAM_PATH = '/dsh-promptkit/semantic-enhance/stream'
-export const WORKSPACE_FILES_PATH = '/dsh-promptkit/workspace-files'
 
 // 增强强度档位：控制输出篇幅与展开深度（借鉴社区头部插件的三档设计）。
 //   low  ≈ 原文 1 倍：只做措辞与结构润色，不带文件引用节
@@ -366,35 +365,6 @@ export function semanticEnhanceStreamRoute({ llm, routes }) {
           res.end()
         }
       })
-    },
-  }
-}
-
-// 工作区文件检索复用有界索引；仅返回相对路径，不读取文件正文。
-import { createWorkspaceFileIndex } from './workspace-files.js'
-
-export function workspaceFilesRoute(options = {}) {
-  const indexes = new Map()
-  return {
-    kind: 'exact',
-    path: WORKSPACE_FILES_PATH,
-    async handler(req, res) {
-      if (req.method !== 'GET') { res.writeHead(405, { allow: 'GET' }); res.end(); return }
-      const url = new URL(req.url || WORKSPACE_FILES_PATH, 'http://localhost')
-      try {
-        const sessionId = url.searchParams.get('session_id') || ''
-        if (options.resolveWorkspaceRoots && !sessionId) { reply(res, 400, { files: [], error: 'session_id_required' }); return }
-        const roots = options.resolveWorkspaceRoots ? await options.resolveWorkspaceRoots(sessionId) : options.workspaceRoots || []
-        if (options.resolveWorkspaceRoots && !roots.length) { reply(res, 404, { files: [], error: 'session_workspace_unavailable' }); return }
-        const key = JSON.stringify(roots)
-        const index = indexes.get(key) || createWorkspaceFileIndex({ ...options, workspaceRoots: roots })
-        indexes.delete(key)
-        indexes.set(key, index)
-        if (indexes.size > 8) indexes.delete(indexes.keys().next().value)
-        reply(res, 200, await index.search(url.searchParams.get('q') || '', url.searchParams.get('limit') || 20))
-      } catch (error) {
-        reply(res, 503, { files: [], error: String(error?.message || error) })
-      }
     },
   }
 }

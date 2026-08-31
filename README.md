@@ -29,7 +29,7 @@ Write a draft, hit **✦ Enhance**, and receive a structured prompt in the previ
 
 **📚 A vault that closes the loop.** Diagnosis findings (hidden premises, unfalsifiable requirements) can be saved as "to-verify" assumption cards. Verify them later; checked-in cards feed future enhancements as context. Your prompt quality compounds.
 
-**🔌 Zero telemetry, with a zero-token option.** Local lightweight enhancement works offline. Semantic enhancement sends the draft and selected context to the host's configured model service. File completion and optional project-memory searches make requests when those features are used.
+**🔌 Zero telemetry, with a zero-token option.** Local lightweight enhancement works offline. Semantic enhancement sends the draft and selected context to the host's configured model service. Optional project-memory searches make requests when that feature is used; `@` file references come from the native DSH mention menu and are not reimplemented by the plugin.
 
 **Compatibility:** verified by a real DSH `0.1.2-alpha.2` profile boot after installing the local bundle; CI runs the same alpha-channel smoke test. Running the DSH plugin requires Node `>=22.6`. The older `0.1.0-rc` slot adapter is covered by simulated contract tests; this does not establish real-instance compatibility for every older release.
 

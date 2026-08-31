@@ -12,10 +12,9 @@ import { useDraftGuard } from './quick-enhancer/use-draft-guard.js'
 import { useAutoEnhance } from './quick-enhancer/use-auto-enhance.js'
 import { useOnboardingProgress } from './quick-enhancer/use-onboarding-progress.js'
 import { useEnhancementFlow } from './quick-enhancer/use-enhancement-flow.js'
-import { useFileCompletion } from './quick-enhancer/use-file-completion.js'
 import { useKnowledgeInbox } from './quick-enhancer/use-knowledge-inbox.js'
 import { KnowledgeTab } from './quick-enhancer/knowledge-tab.js'
-import { FileMenuNode, VariableFillNode } from './quick-enhancer/file-menu.js'
+import { VariableFillNode } from './quick-enhancer/file-menu.js'
 import { ContextOverlay } from './quick-enhancer/context-overlay.js'
 import { EnhancerPanel, StrengthSelector, AutoEnhanceToggle } from './quick-enhancer/enhance-panel.js'
 import { VaultAssetCard, linkBtnStyle } from './quick-enhancer/vault-asset-card.js'
@@ -29,10 +28,9 @@ import { VaultAssetCard, linkBtnStyle } from './quick-enhancer/vault-asset-card.
 //   messages       (可选) [{ id, role:'user'|'assistant', text }]：当前对话，供「加对话」参考
 //   searchMemory   (可选) (query) => Promise<string>：项目记忆检索，供「加项目记忆」档位
 //   nudgeEnabled   (可选) boolean：宿主级行为助推总开关，默认 true；与 localStorage 开关为「与」关系
-//   searchFiles    (可选) (query) => Promise<string[] | { files:string[], truncated?:boolean } | null>：文件引用补全；
-//                  返回 null 表示宿主未提供文件服务，@ 菜单入口自动隐藏
 //   onSubmitDraft  (可选) (text) => void | Promise：宿主「发送当前草稿」钩子；注入后启用「发送前自动增强」
-function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, searchFiles, onSubmitDraft, storagePrefix = 'promptkit.', nudgeEnabled = true }) {
+// @ 文件引用补全不在此组件实现：DSH 原生 @ 提及已是超集，插件不得在宿主输入框上重复提供。
+function ConversationQuickAction({ methodProvider, assetProvider, composer, enhancer, messages, searchMemory, onSubmitDraft, storagePrefix = 'promptkit.', nudgeEnabled = true }) {
   const storageKey = name => `${storagePrefix}quick-action.${name}`
   const msgs = list(messages)
   const [draft, setDraft] = React.useState(() => composer?.getDraft?.() || '')
@@ -192,7 +190,6 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
     if (!assetProvider || !match) { setSlashOpen(false); return }
     setVaultSearch(String(match[1] ?? match[2] ?? '').trim()); setSlashActiveIndex(0); setSlashOpen(true)
   }, [draft, assetProvider])
-  const { fileMenu, setFileMenu, insertFileMention } = useFileCompletion({ draft, searchFiles, composer, setNotice })
   React.useEffect(() => {
     if (!open || methods.length) return
     setLoading(true)
@@ -1193,11 +1190,6 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
         vaultOpen ? vaultPanel : null,
       ]) : null
   const slashMenu = slashOpen ? h('div', { key: 'slash-menu', role: 'listbox', style: { position: 'fixed', right: '76px', bottom: '86px', width: 'min(360px, calc(100vw - 32px))', padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20004 } }, [h('div', { key: 'label', style: { padding: '4px 6px 7px', color: C.muted, fontSize: '11px' } }, `灵感库 · /pk ${vaultSearch} · ↑↓ 选择，Enter 插入`), ...(slashMatches.length ? slashMatches.map((item, index) => h('button', { key: item.id, role: 'option', 'aria-selected': index === slashActiveIndex, onClick: () => useVaultItem(item, 'replace'), style: { width: '100%', padding: '8px', border: 0, borderRadius: '7px', background: index === slashActiveIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer' } }, [h('strong', { key: 'title', style: { fontSize: '12px' } }, item.title), h('div', { key: 'meta', style: { marginTop: '2px', color: C.muted, fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, item.tags?.length ? `#${item.tags.join(' #')}` : item.type)])) : [h('div', { key: 'empty', style: { padding: '10px 6px', color: C.muted, fontSize: '11px' } }, '未找到匹配灵感；继续输入关键词或按 Esc。')])]) : null
-  const fileMenuNode = FileMenuNode({
-    fileMenu,
-    onHoverIndex: index => setFileMenu(menu => menu ? { ...menu, activeIndex: index } : menu),
-    onInsert: insertFileMention,
-  })
   const variableFillNode = VariableFillNode({
     fill: variableFill ? {
       ...variableFill,
@@ -1210,7 +1202,7 @@ function ConversationQuickAction({ methodProvider, assetProvider, composer, enha
       void applyVaultItem(payload.item, payload.mode, payload.current, payload.slashInvocation, payload.values)
     },
   })
-  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, fileMenuNode, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
+  return h('div', { ref: rootRef, style: { position: 'fixed', left: `${position.x}px`, top: `${position.y}px`, zIndex: 20001 } }, [h(GlobalStyle, { key: 'gcss' }), slashMenu, variableFillNode, reviewPanel, h('button', { key: 'launcher', type: 'button', className: 'pk-fab', onPointerDown: beginDrag, onClick: () => { if (consumeSuppressedClick()) return; setMode('enhance'); setLibraryOpen(false); setOpen(true) }, style: buttonStyle, title: '智能增强（⌘K）', 'aria-label': '打开智能增强', onMouseEnter: event => { event.currentTarget.style.transform = 'scale(1.06)' }, onMouseLeave: event => { event.currentTarget.style.transform = 'scale(1)' } }, h(Icon, { key: 'ic', name: 'sparkles', size: 18 })), panel])
 }
 
 export { ConversationQuickAction as QuickEnhancer }

@@ -8,9 +8,9 @@
  * 除了让 Loader 发现浏览器模块，也复用当前会话的模型路由提供语义增强：
  *   - 非流式 JSON 路由（兼容旧客户端）
  *   - SSE 流式路由（逐段上屏 + 五维诊断）
- *   - 工作区文件检索路由（@ 文件引用补全的数据源）
+ * @ 文件引用检索路由已移除：DSH 原生 @ 提及是同类能力的超集。
  */
-import { semanticEnhanceRoute, semanticEnhanceStreamRoute, workspaceFilesRoute } from '../dsh/semantic-enhance.js'
+import { semanticEnhanceRoute, semanticEnhanceStreamRoute } from '../dsh/semantic-enhance.js'
 
 export const inject = ['webServer', 'llm', 'sessions']
 
@@ -23,12 +23,6 @@ export function apply(ctx) {
     ctx.on('agent/disposed', ({ agent }) => routes.delete(String(agent.session.id)))
     return () => routes.clear()
   }, 'dsh-promptkit session model routes')
-  // 会话 header 是宿主创建/恢复的可信元数据；浏览器只能传 session_id，不能指定目录。
-  const resolveWorkspaceRoots = sessionId => {
-    const cwd = ctx.sessions?.get(sessionId)?.header?.cwd
-    return typeof cwd === 'string' && cwd ? [cwd] : []
-  }
   ctx.effect(() => ctx.webServer.register(semanticEnhanceRoute({ llm: ctx.llm, routes })), 'dsh-promptkit semantic enhancement')
   ctx.effect(() => ctx.webServer.register(semanticEnhanceStreamRoute({ llm: ctx.llm, routes })), 'dsh-promptkit semantic enhancement (stream)')
-  ctx.effect(() => ctx.webServer.register(workspaceFilesRoute({ resolveWorkspaceRoots })), 'dsh-promptkit workspace files')
 }

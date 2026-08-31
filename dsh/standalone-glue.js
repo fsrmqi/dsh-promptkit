@@ -29,20 +29,6 @@ async function promptkitSearchMemory(sessionId, query) {
   }
 }
 
-// @ 文件引用补全：经 node 半区的 workspace-files 路由检索工作区文件。
-// 返回 null 表示服务不可用（旧 host 未注册路由），UI 据此隐藏文件菜单入口。
-async function promptkitSearchFiles(sessionId, query) {
-  const url = new URL('/dsh-promptkit/workspace-files', window.location.origin)
-  url.searchParams.set('q', query)
-  url.searchParams.set('session_id', sessionId)
-  url.searchParams.set('limit', '20')
-  const response = await fetch(url).catch(() => null)
-  if (!response || !response.ok) return null
-  const body = await response.json().catch(() => ({}))
-  return { files: Array.isArray(body.files) ? body.files : [], truncated: Boolean(body.truncated) }
-}
-
-
 // 桥接 DSH 输入框：inputActions 由槽位体系注入（InputActions.setDraft / submit）。
 // getDraft 读构造时传入的 draft 快照（新契约）或 useInput 订阅值（旧契约）。
 class DshDraftComposer {
@@ -70,9 +56,8 @@ function PromptkitQuickActionHost(props) {
   composer.input = { draft }
   const enhancer = React.useMemo(() => new DshSessionEnhancer(() => sessionId), [sessionId])
   const searchMemory = React.useCallback(query => promptkitSearchMemory(sessionId, query), [sessionId])
-  const searchFiles = React.useCallback(query => promptkitSearchFiles(sessionId, query), [sessionId])
   React.useEffect(() => { composer.notify(draft ?? '') }, [draft, composer])
-  return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory, searchFiles })
+  return h(ConversationQuickAction, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, composer, enhancer, messages, searchMemory })
 }
 
 // 方法工坊宿主：写入新版输入机后交由 inputActions.submit() 发送。

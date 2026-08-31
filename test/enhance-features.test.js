@@ -8,7 +8,7 @@ import {
   templateVariables, fillTemplateVariables, skillMentions, restoreLostSkillMentions,
   splitOutputSegments, shouldInterceptSend, parseEnhanceOutput, DIAGNOSIS_DIMENSIONS,
 } from '../src/lib/utils.js'
-import { workspaceFilesRoute, streamEnhanceWithCurrentSessionModel, DIAGNOSIS_LABELS } from '../dsh/semantic-enhance.js'
+import { streamEnhanceWithCurrentSessionModel, DIAGNOSIS_LABELS } from '../dsh/semantic-enhance.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -124,38 +124,6 @@ test('方法感知诊断：苏格拉底式提问时指令带方法侧重，未�
   })
   assert.doesNotMatch(capturedSystem, /方法侧重：/, '未命中量表的方法回退通用侧重')
   assert.match(capturedSystem, /concept_clarity/, '通用侧重仍保留五维诊断本体')
-})
-
-// ── workspace-files：忽略目录、关键词过滤、短路径优先 ──
-test('workspace-files：忽略 node_modules/.git，短路径优先并截断 limit', async () => {
-  const memFs = {
-    readdirSync: dir => {
-      if (dir === '/w') return [
-        { name: 'node_modules', isDirectory: () => true, isFile: () => false },
-        { name: '.git', isDirectory: () => true, isFile: () => false },
-        { name: 'src', isDirectory: () => true, isFile: () => false },
-        { name: 'bb.md', isDirectory: () => false, isFile: () => true },
-        { name: 'a.md', isDirectory: () => false, isFile: () => true },
-      ]
-      if (dir === '/w/src') return [
-        { name: 'deep', isDirectory: () => true, isFile: () => false },
-        { name: 'index.js', isDirectory: () => false, isFile: () => true },
-      ]
-      return [{ name: 'x.js', isDirectory: () => false, isFile: () => true }]
-    },
-    statSync: () => ({}),
-  }
-  const route = workspaceFilesRoute({ workspaceRoots: ['/w'], fs: memFs })
-  const response = { status: 0, body: '', writeHead(s) { this.status = s }, end(v) { this.body = v } }
-  await route.handler({ method: 'GET', url: '/dsh-promptkit/workspace-files?q=&limit=3' }, response)
-  const { files } = JSON.parse(response.body)
-  assert.deepEqual(files, ['a.md', 'bb.md', 'src/index.js'], '忽略隐藏/依赖目录且短路径优先')
-  // 关键词过滤
-  await route.handler({ method: 'GET', url: '/dsh-promptkit/workspace-files?q=index&limit=20' }, response)
-  assert.deepEqual(JSON.parse(response.body).files, ['src/index.js'])
-  // 非 GET 拒绝
-  await route.handler({ method: 'POST', url: '/dsh-promptkit/workspace-files' }, response)
-  assert.equal(response.status, 405)
 })
 
 // ── 构建产物契约：新工具函数必须暴露到 PromptKit.utils ──

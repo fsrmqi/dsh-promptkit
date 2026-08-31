@@ -2,19 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { apply } from '../ui/plugin.js'
 
-test('DSH 文件路由：从宿主会话 header 解析目录，不读取浏览器指定路径', async () => {
+test('DSH 文件路由：@ 文件检索路由已移除，只注册语义增强路由', async () => {
   const registered = []
-  const lookups = []
   apply({ effect: fn => fn(), on: () => () => {}, llm: {},
-    sessions: { get(id) { lookups.push(id); return undefined } },
+    sessions: { get() { return undefined } },
     webServer: { register(route) { registered.push(route); return () => {} } },
   })
-  const route = registered.find(value => value.path.endsWith('workspace-files'))
-  const res = { writeHead(status) { this.status = status }, end(text) { this.body = JSON.parse(text) } }
-  await route.handler({ method: 'GET', url: '/dsh-promptkit/workspace-files?session_id=missing&root=/etc' }, res)
-  assert.deepEqual(lookups, ['missing'])
-  assert.equal(res.status, 404)
-  assert.deepEqual(res.body.files, [])
+  assert.deepEqual(registered.map(r => r.path), ['/dsh-promptkit/semantic-enhance', '/dsh-promptkit/semantic-enhance/stream'])
 })
 
 test('DSH node half：会话模型路由可驱动语义增强桥接', async () => {
@@ -29,7 +23,7 @@ test('DSH node half：会话模型路由可驱动语义增强桥接', async () =
   }
   apply(ctx)
   listeners.get('agent/created')({ agent: { session: { id: 's1' }, options: { provider: 'test', model: 'test-model' } } })
-  // apply 注册三条路由（非流式/流式/workspace-files），按路径找到被测路由
+  // apply 注册两条路由（非流式/流式），按路径找到被测路由
   route = registered.find(r => r.path === '/dsh-promptkit/semantic-enhance')
   assert.ok(route, '应注册非流式语义增强路由')
   const response = { status: 0, body: '', writeHead(status) { this.status = status }, end(value) { this.body = value } }
@@ -78,36 +72,4 @@ test('DSH node half：SSE 流式路由逐段推送并给出最终结果', async 
   assert.equal(payload.prompt, '改写后的提示词')
   assert.equal(payload.diagnosis.concept_clarity, '足够')
   assert.equal(payload.model, 'test-model')
-})
-
-test('DSH node half：workspace-files 路由按关键词过滤并忽略忽略目录', async () => {
-  const registered = []
-  const ctx = {
-    effect: callback => callback(),
-    on: () => () => {},
-    webServer: { register: value => { registered.push(value); return () => {} } },
-    llm: {},
-  }
-  apply(ctx)
-  const route = registered.find(r => r.path === '/dsh-promptkit/workspace-files')
-  assert.ok(route, '应注册文件检索路由')
-  // 用内存 fs 验证检索逻辑：直接构造带注入的路由
-  const { workspaceFilesRoute } = await import('../dsh/semantic-enhance.js')
-  const memFs = {
-    readdirSync: (dir) => dir.endsWith('root')
-      ? [
-          { name: 'src', isDirectory: () => true, isFile: () => false },
-          { name: 'node_modules', isDirectory: () => true, isFile: () => false },
-          { name: 'README.md', isDirectory: () => false, isFile: () => true },
-        ]
-      : [{ name: 'app.js', isDirectory: () => false, isFile: () => true }],
-    statSync: () => ({}),
-  }
-  const filesRoute = workspaceFilesRoute({ workspaceRoots: ['/root'], fs: memFs })
-  // 直接调内部 handler 模拟 GET /?q=app
-  const response = { status: 0, body: '', writeHead(status) { this.status = status }, end(value) { this.body = value } }
-  const request = { method: 'GET', url: '/dsh-promptkit/workspace-files?q=app&limit=20' }
-  await filesRoute.handler(request, response)
-  assert.equal(response.status, 200)
-  assert.deepEqual(JSON.parse(response.body).files, ['src/app.js'])
 })

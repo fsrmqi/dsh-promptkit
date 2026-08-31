@@ -1,31 +1,10 @@
-// 两个草稿前置弹层：
-//   FileMenuNode        @ 文件引用补全菜单（输入 @ 触发，↑↓ 导航，Enter/点击插入）
-//   VariableFillNode    模板变量补值面板（Vault 条目含 {{var}} 时弹出，确认后才写入）
-// 两者都是 fixed 定位的浮层，zIndex 与抽屉同层（20004/20005），由主组件挂到插件根。
-import { h, C, Icon, workbenchStyle } from '../foundation.js'
+// 草稿前置弹层：VariableFillNode 模板变量补值面板（Vault 条目含 {{var}} 时弹出，确认后才写入）。
+// fixed 定位浮层，zIndex 20005，由主组件挂到插件根。
+// 历史注记：原 FileMenuNode（@ 文件引用补全菜单）已移除——DSH 原生 @ 提及
+// 提供同类能力且为超集（文件+会话、目录下钻、原子行内引用），插件在宿主
+// 输入框上重复实现只会产生双菜单重叠与吞键冲突。
+import { h, C, workbenchStyle } from '../foundation.js'
 import { templateVariables } from '../../lib/utils.js'
-
-export function FileMenuNode({ fileMenu, onHoverIndex, onInsert }) {
-  if (!fileMenu) return null
-  return h('div', { key: 'file-menu', role: 'listbox', 'aria-label': '文件引用补全', style: { position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: '86px', width: 'min(400px, calc(100vw - 32px))', maxHeight: '260px', overflowY: 'auto', padding: '6px', border: `1px solid ${C.tealLine}`, borderRadius: '12px', background: C.surface, boxShadow: C.shadowLg, zIndex: 20004 } }, [
-    h('div', { key: 'label', style: { padding: '3px 6px 7px', color: C.muted, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' } }, [
-      h(Icon, { key: 'ic', name: 'file', size: 12 }),
-      `文件引用 · @${fileMenu.query || '…'} · ↑↓ 选择，Enter 插入`,
-    ]),
-    fileMenu.status === 'loading' ? h('div', { key: 'loading', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '正在检索工作区文件…') : null,
-    fileMenu.truncated ? h('div', { key: 'partial', style: { padding: '6px 8px', color: C.amber, fontSize: '11px' } }, '工作区较大或部分目录不可读，当前仅显示已索引文件。') : null,
-    fileMenu.status === 'empty' ? h('div', { key: 'empty', style: { padding: '9px 8px', color: C.muted, fontSize: '11px' } }, '未匹配到文件；继续输入路径关键词，或按 Esc 关闭。') : null,
-    // 等宽字体呈现路径；悬停与键盘导航共用 activeIndex，保证两者视觉一致。
-    ...fileMenu.files.map((path, index) => h('button', {
-      key: path,
-      role: 'option',
-      'aria-selected': index === fileMenu.activeIndex,
-      onMouseEnter: () => onHoverIndex(index),
-      onClick: () => onInsert(path),
-      style: { width: '100%', padding: '7px 8px', border: 0, borderRadius: '7px', background: index === fileMenu.activeIndex ? C.tealTint : 'transparent', color: C.ink, textAlign: 'left', cursor: 'pointer', fontSize: '11px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-    }, `@${path}`)),
-  ])
-}
 
 export function VariableFillNode({ fill, onCancel, onConfirm }) {
   if (!fill) return null
