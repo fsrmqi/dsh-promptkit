@@ -34,20 +34,22 @@ export function AutoEnhanceToggle({ enabled, onChange }) {
   ])
 }
 
-// 流式增强预览：阶段提示（等待 → 输出中 → 完成用时）+ 诊断/正文分段上屏。
+// 流式增强预览：阶段提示（等待 → 诊断中 → 输出中 → 完成用时）+ 实时计时 + 诊断/正文分段上屏。
 // segments 已经过 [DIAG]/===PROMPT=== 过滤，只含真正的改写内容。
 export function StreamPanel({ streamState, loading, onCancel }) {
   if (!streamState) return null
   const phaseText = streamState.phase === 'waiting'
     ? '等待模型响应…'
-    : streamState.phase === 'streaming'
-      ? '正在输出优化稿…'
-      : streamState.phase === 'cancelled' ? '已取消，草稿未改动'
-        : streamState.phase === 'error' ? '增强失败，草稿未改动'
-          : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`
+    : streamState.phase === 'diagnosing'
+      ? '模型正在做五维诊断…（输出开始后自动进入改写）'
+      : streamState.phase === 'streaming'
+        ? '正在输出优化稿…'
+        : streamState.phase === 'cancelled' ? '已取消，草稿未改动'
+          : streamState.phase === 'error' ? '增强失败，草稿未改动'
+            : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`
   return h('div', { key: 'stream-panel', role: 'status', 'aria-live': 'polite', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, fontSize: '11px', lineHeight: 1.5 } }, [
     h('div', { key: 'phase', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: C.teal, fontWeight: 800 } }, [
-      h('span', { key: 'text' }, phaseText),
+      h('span', { key: 'text' }, loading && (streamState.phase === 'waiting' || streamState.phase === 'diagnosing' || streamState.phase === 'streaming') ? `${phaseText} ${(streamState.elapsedMs / 1000).toFixed(0)}s` : phaseText),
       loading ? h('button', { key: 'cancel', onClick: onCancel, style: { border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '取消') : null,
     ]),
     streamState.segments.length ? h('div', { key: 'segments', style: { marginTop: '6px', display: 'grid', gap: '6px', maxHeight: '180px', overflowY: 'auto' } }, streamState.segments.map((segment, index) => h('div', { key: index, style: { padding: '6px 8px', borderRadius: '6px', background: C.surfaceAlt, color: C.slate, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, segment))) : null,

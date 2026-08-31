@@ -174,16 +174,23 @@ function requestText({ draft, extra, method, lang }) {
 
 // 统一的流式调用：逐段回调 onDelta（诊断行 + 提示词正文都会经过这里），
 // 最终 resolve { diagnosis, prompt, model }。enhanceWithCurrentSessionModel 退化为它的非流式包装。
-export async function streamEnhanceWithCurrentSessionModel({ llm, route, sessionId, draft, extra, lang, method, strength, hasContext = false, diagnose = false, signal, onDelta }) {
+// onEvent 回调（可选）汇报过程节点：start / first-token / diagnosis / prompt / finish，
+// 供路由层打印日志或推送阶段帧；不传时零开销。
+export async function streamEnhanceWithCurrentSessionModel({ llm, route, sessionId, draft, extra, lang, method, strength, hasContext = false, diagnose = false, signal, onDelta, onEvent }) {
   if (!route?.provider || !route?.model) throw new Error('当前会话尚未建立模型路由，请先正常发送一次消息。')
   const source = String(draft || '').trim()
   if (!source) throw new Error('消息框为空，无法进行语义增强。')
+  const emit = (type, payload) => { try { onEvent?.(type, payload) } catch {} }
   const normalizedStrength = normalizeStrength(strength)
   const text = requestText({ draft: source, extra: String(extra || ''), method, lang })
   // 方法感知诊断：匹配到旗舰方法时，诊断按该方法的检查侧重执行。
   const system = [instructionFor(lang, { strength: normalizedStrength, hasContext }), diagnose ? diagnosisInstruction(lang, method?.title) : ''].filter(Boolean).join('\n\n')
   let output = ''
   let finished = false
+  let promptPhase = false
+  const startedAt = Date.now()
+  let firstTokenAt = 0
+  emit('start', { model: route.model, draftChars: source.length })
   for await (const chunk of llm.stream({
     provider: route.provider,
     model: route.model,
@@ -209,8 +216,17 @@ export async function streamEnhanceWithCurrentSessionModel({ llm, route, session
       break
     }
     if (chunk.type === 'text-delta') {
+      if (!firstTokenAt) {
+        firstTokenAt = Date.now()
+        emit('first-token', { latencyMs: firstTokenAt - startedAt })
+      }
       output += chunk.text
       onDelta?.(chunk.text)
+      // 诊断阶段切换：===PROMPT=== 分隔符出现前都是诊断输出，出现后进入正文改写。
+      if (!promptPhase && output.includes('===PROMPT===')) {
+        promptPhase = true
+        emit('prompt-start', {})
+      }
     }
     if (chunk.type === 'block-end' && chunk.block?.type === 'text' && !output) {
       output = chunk.block.text
@@ -224,6 +240,7 @@ export async function streamEnhanceWithCurrentSessionModel({ llm, route, session
   }
   const parsed = parseEnhanceOutput(output)
   if (!parsed.prompt) throw new Error('模型仅返回了诊断，未返回改写正文；草稿未改动，请重试。')
+  emit('finish', { totalMs: Date.now() - startedAt, firstTokenMs: firstTokenAt ? firstTokenAt - startedAt : 0, promptChars: parsed.prompt.length, diagnosisKeys: parsed.diagnosis ? Object.keys(parsed.diagnosis).length : 0 })
   return { ...parsed, model: route.model }
 }
 
@@ -295,12 +312,32 @@ function withRequestGuards(req, res, handler) {
 
 // 诊断标签的展示顺序固定，客户端渲染与模型输出顺序解耦（定义见文件顶部 DIAGNOSIS_LABELS）。
 
-export function semanticEnhanceRoute({ llm, routes }) {
+// 过程日志：增强默认复用会话模型（可能是思考型），首字 30s+ 属正常；
+// 打点 start/first-token/阶段切换/finish，让「慢」可归因（排队？思考？输出量？）。
+// logger 为 cordis 命名 logger（ctx.logger('dsh-promptkit')），未注入时退回 console。
+function makeEnhanceLogger(sessionId, logger) {
+  const write = message => {
+    try { logger?.info(`enhance session=${sessionId} ${message}`) } catch { console.log(`[dsh-promptkit] enhance session=${sessionId} ${message}`) }
+  }
+  return {
+    startedAt: Date.now(),
+    log(type, payload = {}) {
+      if (type === 'start') write(`start model=${payload.model} draftChars=${payload.draftChars}`)
+      else if (type === 'first-token') write(`first-token latency=${payload.latencyMs}ms（含排队与思考；思考型模型此值常 >10s）`)
+      else if (type === 'prompt-start') write(`prompt-start（诊断结束，开始输出改写正文）elapsed=${Date.now() - this.startedAt}ms`)
+      else if (type === 'finish') write(`finish total=${payload.totalMs}ms firstToken=${payload.firstTokenMs}ms promptChars=${payload.promptChars} diagnosis=${payload.diagnosisKeys}/5`)
+    },
+    fail(message) { write(`error ${message} elapsed=${Date.now() - this.startedAt}ms`) },
+  }
+}
+
+export function semanticEnhanceRoute({ llm, routes, logger }) {
   return {
     kind: 'exact',
     path: SEMANTIC_ENHANCE_PATH,
     async handler(req, res) {
       await withRequestGuards(req, res, async (sessionId, controller) => {
+        const events = makeEnhanceLogger(sessionId, logger)
         try {
           const body = await readJson(req)
           // diagnose !== false：诊断默认开启（非流式也返回 diagnosis），旧客户端忽略该字段不受影响。
@@ -316,10 +353,12 @@ export function semanticEnhanceRoute({ llm, routes }) {
             hasContext: Boolean(body.hasContext),
             diagnose: body.diagnose !== false,
             signal: controller.signal,
+            onEvent: (type, payload) => events.log(type, payload),
           })
           reply(res, 200, result)
         } catch (error) {
           const timeoutMessage = controller.signal.aborted ? '模型响应超时，请稍后重试。' : String(error?.message || error)
+          events.fail(timeoutMessage)
           reply(res, controller.signal.aborted ? 504 : 503, { error: 'semantic_enhance_failed', next_action: timeoutMessage })
         }
       })
@@ -327,13 +366,15 @@ export function semanticEnhanceRoute({ llm, routes }) {
   }
 }
 
-// 流式路由：SSE 逐段推送，阶段提示由前端根据首包时间自行推断（等待模型响应 → 输出中）。
-export function semanticEnhanceStreamRoute({ llm, routes }) {
+// 流式路由：SSE 逐段推送，阶段帧（open/diagnosing/writing）由服务端显式下发，
+// 前端据此精确切换阶段文案，不再靠首包猜测。
+export function semanticEnhanceStreamRoute({ llm, routes, logger }) {
   return {
     kind: 'exact',
     path: SEMANTIC_ENHANCE_STREAM_PATH,
     async handler(req, res) {
       await withRequestGuards(req, res, async (sessionId, controller) => {
+        const events = makeEnhanceLogger(sessionId, logger)
         try {
           const body = await readJson(req)
           sseReply(res, 200)
@@ -353,10 +394,17 @@ export function semanticEnhanceStreamRoute({ llm, routes }) {
             signal: controller.signal,
             // 每个增量立即推一帧 delta：诊断行与正文行都原样流过，客户端统一解析。
             onDelta: delta => sseSend(res, 'delta', { text: delta }),
+            // 阶段帧：诊断结束切 writing；前端据此把「五维诊断中」换成「输出改写稿」。
+            onEvent: (type, payload) => {
+              events.log(type, payload)
+              if (type === 'start') sseSend(res, 'stage', { phase: 'diagnosing', model: payload.model })
+              if (type === 'prompt-start') sseSend(res, 'stage', { phase: 'writing' })
+            },
           })
           sseSend(res, 'done', result)
         } catch (error) {
           const message = controller.signal.aborted ? '模型响应超时，请稍后重试。' : String(error?.message || error)
+          events.fail(message)
           // 头已发出（SSE）只能走事件通道报错；否则退回 JSON 错误响应。
           if (res.destroyed || res.writableEnded) return
           if (res.headersSent) sseSend(res, 'error', { error: 'semantic_enhance_failed', message, timeout: controller.signal.aborted })

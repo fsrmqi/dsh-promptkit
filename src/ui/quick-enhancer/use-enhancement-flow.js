@@ -66,6 +66,8 @@ export function useEnhancementFlow({ composer, enhancer, draft, draftGuard, conf
     setSkillRestore(null)
     setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
     streamStartRef.current = Date.now()
+    // 实时计时：等待阶段逐秒跳数（-webkit 不支持时退回静态文案），让「模型在干活」可感知。
+    const tick = window.setInterval(() => setStreamState(prev => prev ? { ...prev, elapsedMs: Date.now() - streamStartRef.current } : prev), 500)
     let phase = 'done'
     try {
       const contextAssets = vaultItems.filter(item => assetContextIds.includes(item.id))
@@ -104,6 +106,10 @@ export function useEnhancementFlow({ composer, enhancer, draft, draftGuard, conf
             const partial = parseEnhanceOutput(rawText, { streaming: true })
             setEnhanceDiagnosis(partial.diagnosis)
             setStreamState(prev => prev ? { ...prev, phase: 'streaming', segments: splitOutputSegments(partial.prompt) } : prev)
+          }, onStage: stage => {
+            // 服务端阶段帧：waiting → diagnosing（模型开始输出诊断）→ writing（开始改写正文）。
+            if (request.signal.aborted || active.current !== request) return
+            setStreamState(prev => prev ? { ...prev, phase: stage === 'writing' ? 'streaming' : 'diagnosing' } : prev)
           } })
         } catch (error) {
           // 仅协议明确不支持流式且尚未输出时降级；超时、模型错误、断流不得重复调用。
@@ -130,6 +136,7 @@ export function useEnhancementFlow({ composer, enhancer, draft, draftGuard, conf
       if (phase === 'cancelled') setNotice('已取消语义增强，草稿未改动。')
       else setError(String(error?.message || error))
     } finally {
+      window.clearInterval(tick)
       if (active.current === request) {
         active.current = null
         setLoading(false)

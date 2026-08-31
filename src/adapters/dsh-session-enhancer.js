@@ -20,9 +20,9 @@ export class DshSessionEnhancer {
       return body
     } finally { if (this.controller === controller) this.controller = null }
   }
-  // SSE 流式增强：onDelta 逐段回调（含诊断行）；resolve 值与 enhance() 一致。
-  // 404/501（旧 host 未注册流式路由）时抛 fallback 错误，调用方退回非流式。
-  async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = true, onDelta }) {
+  // SSE 流式增强：onDelta 逐段回调（含诊断行）；onStage 收到阶段切换（diagnosing/writing）；
+  // resolve 值与 enhance() 一致。404/501（旧 host 未注册流式路由）时抛 fallback 错误，调用方退回非流式。
+  async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = true, onDelta, onStage }) {
     this.controller?.abort()
     const controller = new AbortController()
     this.controller = controller
@@ -55,6 +55,7 @@ export class DshSessionEnhancer {
           if (!event || !dataLine) return
           const data = JSON.parse(dataLine)
           if (event === 'delta') onDelta?.(data.text)
+          if (event === 'stage') onStage?.(data.phase, data.model)
           if (event === 'done') final = data
           if (event === 'error') throw Object.assign(new Error(data.message || data.error || '流式增强失败'), { timeout: Boolean(data.timeout) })
       }

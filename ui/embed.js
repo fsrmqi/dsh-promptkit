@@ -1200,9 +1200,9 @@ class DshSessionEnhancer {
       return body
     } finally { if (this.controller === controller) this.controller = null }
   }
-  // SSE 流式增强：onDelta 逐段回调（含诊断行）；resolve 值与 enhance() 一致。
-  // 404/501（旧 host 未注册流式路由）时抛 fallback 错误，调用方退回非流式。
-  async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = true, onDelta }) {
+  // SSE 流式增强：onDelta 逐段回调（含诊断行）；onStage 收到阶段切换（diagnosing/writing）；
+  // resolve 值与 enhance() 一致。404/501（旧 host 未注册流式路由）时抛 fallback 错误，调用方退回非流式。
+  async enhanceStream({ draft, extra, lang, method, strength, hasContext, diagnose = true, onDelta, onStage }) {
     this.controller?.abort()
     const controller = new AbortController()
     this.controller = controller
@@ -1235,6 +1235,7 @@ class DshSessionEnhancer {
           if (!event || !dataLine) return
           const data = JSON.parse(dataLine)
           if (event === 'delta') onDelta?.(data.text)
+          if (event === 'stage') onStage?.(data.phase, data.model)
           if (event === 'done') final = data
           if (event === 'error') throw Object.assign(new Error(data.message || data.error || '流式增强失败'), { timeout: Boolean(data.timeout) })
       }
@@ -1900,7 +1901,10 @@ function useAutoEnhance({ enabled, composer, enhancer, onSubmitDraft, strength, 
       inFlight.current = true
       state.setLoading(true)
       const snapshot = state.draftGuard.capture()
+      const startedAt = Date.now()
       state.setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
+      // 实时计时：非流式增强没有增量反馈，逐秒跳数避免「像卡死」。
+      const tick = window.setInterval(() => state.setStreamState(prev => prev ? { ...prev, elapsedMs: Date.now() - startedAt } : prev), 500)
       void (async () => {
         let text = draft
         let enhancementError = null
@@ -1926,6 +1930,7 @@ function useAutoEnhance({ enabled, composer, enhancer, onSubmitDraft, strength, 
           if (error?.name === 'AbortError') state.setNotice('自动增强已取消，原文未发送。')
           else state.setError(String(error?.message || error))
         } finally {
+          window.clearInterval(tick)
           inFlight.current = false
           state.setLoading(false)
           state.setStreamState(null)
@@ -2003,6 +2008,8 @@ function useEnhancementFlow({ composer, enhancer, draft, draftGuard, config, con
     setSkillRestore(null)
     setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
     streamStartRef.current = Date.now()
+    // 实时计时：等待阶段逐秒跳数（-webkit 不支持时退回静态文案），让「模型在干活」可感知。
+    const tick = window.setInterval(() => setStreamState(prev => prev ? { ...prev, elapsedMs: Date.now() - streamStartRef.current } : prev), 500)
     let phase = 'done'
     try {
       const contextAssets = vaultItems.filter(item => assetContextIds.includes(item.id))
@@ -2041,6 +2048,10 @@ function useEnhancementFlow({ composer, enhancer, draft, draftGuard, config, con
             const partial = parseEnhanceOutput(rawText, { streaming: true })
             setEnhanceDiagnosis(partial.diagnosis)
             setStreamState(prev => prev ? { ...prev, phase: 'streaming', segments: splitOutputSegments(partial.prompt) } : prev)
+          }, onStage: stage => {
+            // 服务端阶段帧：waiting → diagnosing（模型开始输出诊断）→ writing（开始改写正文）。
+            if (request.signal.aborted || active.current !== request) return
+            setStreamState(prev => prev ? { ...prev, phase: stage === 'writing' ? 'streaming' : 'diagnosing' } : prev)
           } })
         } catch (error) {
           // 仅协议明确不支持流式且尚未输出时降级；超时、模型错误、断流不得重复调用。
@@ -2067,6 +2078,7 @@ function useEnhancementFlow({ composer, enhancer, draft, draftGuard, config, con
       if (phase === 'cancelled') setNotice('已取消语义增强，草稿未改动。')
       else setError(String(error?.message || error))
     } finally {
+      window.clearInterval(tick)
       if (active.current === request) {
         active.current = null
         setLoading(false)
@@ -2499,20 +2511,22 @@ function AutoEnhanceToggle({ enabled, onChange }) {
   ])
 }
 
-// 流式增强预览：阶段提示（等待 → 输出中 → 完成用时）+ 诊断/正文分段上屏。
+// 流式增强预览：阶段提示（等待 → 诊断中 → 输出中 → 完成用时）+ 实时计时 + 诊断/正文分段上屏。
 // segments 已经过 [DIAG]/===PROMPT=== 过滤，只含真正的改写内容。
 function StreamPanel({ streamState, loading, onCancel }) {
   if (!streamState) return null
   const phaseText = streamState.phase === 'waiting'
     ? '等待模型响应…'
-    : streamState.phase === 'streaming'
-      ? '正在输出优化稿…'
-      : streamState.phase === 'cancelled' ? '已取消，草稿未改动'
-        : streamState.phase === 'error' ? '增强失败，草稿未改动'
-          : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`
+    : streamState.phase === 'diagnosing'
+      ? '模型正在做五维诊断…（输出开始后自动进入改写）'
+      : streamState.phase === 'streaming'
+        ? '正在输出优化稿…'
+        : streamState.phase === 'cancelled' ? '已取消，草稿未改动'
+          : streamState.phase === 'error' ? '增强失败，草稿未改动'
+            : `完成 · 用时 ${(streamState.elapsedMs / 1000).toFixed(1)}s`
   return h('div', { key: 'stream-panel', role: 'status', 'aria-live': 'polite', style: { marginTop: '9px', padding: '9px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, fontSize: '11px', lineHeight: 1.5 } }, [
     h('div', { key: 'phase', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: C.teal, fontWeight: 800 } }, [
-      h('span', { key: 'text' }, phaseText),
+      h('span', { key: 'text' }, loading && (streamState.phase === 'waiting' || streamState.phase === 'diagnosing' || streamState.phase === 'streaming') ? `${phaseText} ${(streamState.elapsedMs / 1000).toFixed(0)}s` : phaseText),
       loading ? h('button', { key: 'cancel', onClick: onCancel, style: { border: 0, background: 'transparent', color: C.red, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '取消') : null,
     ]),
     streamState.segments.length ? h('div', { key: 'segments', style: { marginTop: '6px', display: 'grid', gap: '6px', maxHeight: '180px', overflowY: 'auto' } }, streamState.segments.map((segment, index) => h('div', { key: index, style: { padding: '6px 8px', borderRadius: '6px', background: C.surfaceAlt, color: C.slate, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, segment))) : null,

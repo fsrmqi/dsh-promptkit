@@ -18,7 +18,10 @@ export function useAutoEnhance({ enabled, composer, enhancer, onSubmitDraft, str
       inFlight.current = true
       state.setLoading(true)
       const snapshot = state.draftGuard.capture()
+      const startedAt = Date.now()
       state.setStreamState({ phase: 'waiting', segments: [], elapsedMs: 0 })
+      // 实时计时：非流式增强没有增量反馈，逐秒跳数避免「像卡死」。
+      const tick = window.setInterval(() => state.setStreamState(prev => prev ? { ...prev, elapsedMs: Date.now() - startedAt } : prev), 500)
       void (async () => {
         let text = draft
         let enhancementError = null
@@ -44,6 +47,7 @@ export function useAutoEnhance({ enabled, composer, enhancer, onSubmitDraft, str
           if (error?.name === 'AbortError') state.setNotice('自动增强已取消，原文未发送。')
           else state.setError(String(error?.message || error))
         } finally {
+          window.clearInterval(tick)
           inFlight.current = false
           state.setLoading(false)
           state.setStreamState(null)

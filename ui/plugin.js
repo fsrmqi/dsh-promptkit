@@ -16,6 +16,8 @@ export const inject = ['webServer', 'llm', 'sessions']
 
 export function apply(ctx) {
   const routes = new Map()
+  // 命名 logger：日志直接进 DSH 宿主日志体系（cordis logger 服务），控制台/日志文件可见。
+  const logger = ctx.logger?.('dsh-promptkit')
   ctx.effect(() => {
     ctx.on('agent/created', ({ agent }) => {
       routes.set(String(agent.session.id), { provider: agent.options.provider, model: agent.options.model })
@@ -23,6 +25,6 @@ export function apply(ctx) {
     ctx.on('agent/disposed', ({ agent }) => routes.delete(String(agent.session.id)))
     return () => routes.clear()
   }, 'dsh-promptkit session model routes')
-  ctx.effect(() => ctx.webServer.register(semanticEnhanceRoute({ llm: ctx.llm, routes })), 'dsh-promptkit semantic enhancement')
-  ctx.effect(() => ctx.webServer.register(semanticEnhanceStreamRoute({ llm: ctx.llm, routes })), 'dsh-promptkit semantic enhancement (stream)')
+  ctx.effect(() => ctx.webServer.register(semanticEnhanceRoute({ llm: ctx.llm, routes, logger })), 'dsh-promptkit semantic enhancement')
+  ctx.effect(() => ctx.webServer.register(semanticEnhanceStreamRoute({ llm: ctx.llm, routes, logger })), 'dsh-promptkit semantic enhancement (stream)')
 }
