@@ -66,14 +66,16 @@ function PromptStudio({ methodProvider, assetProvider, messages, onSend, compose
     }
     const consumePending = () => {
       try {
-        const stored = window.sessionStorage.getItem(bridgeKey)
+        const stored = window.sessionStorage.getItem(bridgeKey) || window.__promptkitStudioPendingDraft
         if (stored == null) return
         window.sessionStorage.removeItem(bridgeKey)
+        try { delete window.__promptkitStudioPendingDraft } catch { window.__promptkitStudioPendingDraft = undefined }
         takeDraft(stored)
       } catch {}
     }
     const onOpen = event => {
       try { window.sessionStorage.removeItem(bridgeKey) } catch {}
+      try { delete window.__promptkitStudioPendingDraft } catch { window.__promptkitStudioPendingDraft = undefined }
       takeDraft(event?.detail)
     }
     window.addEventListener(bridgeEvent, onOpen)

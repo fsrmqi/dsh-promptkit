@@ -61,7 +61,14 @@ function PromptkitQuickActionHost(props) {
 }
 
 // 方法工坊宿主：写入新版输入机后交由 inputActions.submit() 发送。
-function PromptkitStudioHost({ inputActions }) {
+function PromptkitStudioHost({ inputActions, openView }) {
+  // 快捷增强器发出草稿桥事件时，除预填数据外还请求切到对应 conversation.view。
+  // 旧宿主没有 openView 时仍保留预填行为，不让导航能力成为使用门槛。
+  React.useEffect(() => {
+    const openStudio = () => openView?.('dsh-promptkit-studio', 'promptkit-studio')
+    window.addEventListener(studioBridgeEventName(), openStudio)
+    return () => window.removeEventListener(studioBridgeEventName(), openStudio)
+  }, [openView])
   const onSend = async text => { inputActions.setDraft(String(text ?? '')); inputActions.submit() }
   return h(PromptStudio, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, onSend })
 }

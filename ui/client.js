@@ -1329,14 +1329,16 @@ window.__ModuleLoader__.load({
           }
           const consumePending = () => {
             try {
-              const stored = window.sessionStorage.getItem(bridgeKey)
+              const stored = window.sessionStorage.getItem(bridgeKey) || window.__promptkitStudioPendingDraft
               if (stored == null) return
               window.sessionStorage.removeItem(bridgeKey)
+              try { delete window.__promptkitStudioPendingDraft } catch { window.__promptkitStudioPendingDraft = undefined }
               takeDraft(stored)
             } catch {}
           }
           const onOpen = event => {
             try { window.sessionStorage.removeItem(bridgeKey) } catch {}
+            try { delete window.__promptkitStudioPendingDraft } catch { window.__promptkitStudioPendingDraft = undefined }
             takeDraft(event?.detail)
           }
           window.addEventListener(bridgeEvent, onOpen)
@@ -2554,7 +2556,7 @@ window.__ModuleLoader__.load({
         mode, draft, enhancementKind, enhancementPlan, strategyNode,
         useMemoryContext, memoryPreview, onLoadMemory, memorySourceLabels, memoryReceipt,
         methodSummaryNode, diffPreview, costNode, signalsNode,
-        actionNode, showAdvanced, onRefine,
+        showAdvanced, onRefine,
         methodOptions, selectedMethodId, suggestedMethod, onMethodChange,
         streamState, loading, onCancelEnhance,
         diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge,
@@ -2562,8 +2564,7 @@ window.__ModuleLoader__.load({
       }) {
         const semantic = enhancementKind === 'semantic'
         return h('details', { key: 'enhancer', open: true, style: { position: 'relative', marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [
-          h('summary', { key: 'title', style: { paddingRight: '70px', fontSize: '13px', color: C.ink, cursor: 'pointer', fontWeight: 800 } }, '决策摘要'),
-          h('div', { key: 'apply', style: { position: 'absolute', top: '8px', right: '10px' } }, actionNode),
+          h('summary', { key: 'title', style: { fontSize: '13px', color: C.ink, cursor: 'pointer', fontWeight: 800 } }, '增强预览'),
           h('div', { key: 'apply-hint', style: { marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, [
             h('label', { key: 'method', style: { display: 'inline-flex', alignItems: 'center', gap: '5px', minWidth: 0 } }, [
               h('span', { key: 'label', style: { flexShrink: 0 } }, '处理方式：'),
@@ -3194,10 +3195,30 @@ window.__ModuleLoader__.load({
         // sessionStorage 兜底 Studio 尚未挂载（视图未打开）的场景，挂载时再取。
         const bridgeKey = studioBridgeStorageKey(storagePrefix)
         const openStudioWithDraft = (methodId = '') => {
-          const payload = { draft, methodId: methodId || '' }
+          // 以 Composer 为准，避免 React 草稿状态尚未同步时把空字符串带进工坊。
+          const currentDraft = composer?.getDraft?.() || draft
+          const payload = { draft: currentDraft, methodId: methodId || '' }
           try { window.sessionStorage.setItem(bridgeKey, JSON.stringify(payload)) } catch {}
+          // 某些 DSH 视图切换会重建 sessionStorage 监听时机；同页临时载荷作为兜底，
+          // 仅由 PromptStudio 消费一次，不做持久化。
+          try { window.__promptkitStudioPendingDraft = JSON.stringify(payload) } catch {}
           try { window.dispatchEvent(new CustomEvent(studioBridgeEventName(storagePrefix), { detail: { ...payload, ts: Date.now() } })) } catch {}
-          setNotice('草稿已带到方法工坊：切换到「高级方法工坊」即可看到已预填的问题，无需重写。')
+          // 工坊视图未被选中时不会挂载，无法依赖它自己监听事件；直接激活宿主标签，
+          // 随后由 PromptStudio 的 sessionStorage 兜底逻辑消费并预填草稿。
+          const studioTab = [...document.querySelectorAll('[role="tab"], button')].find(node => String(node.textContent || '').trim() === '高级方法工坊')
+          if (studioTab && typeof studioTab.click === 'function') {
+            // 工坊成为主页面后，快捷增强器不应继续悬浮遮挡编辑区域。
+            setOpen(false)
+            studioTab.click()
+            // 第一次切换时 PromptStudio 此刻才会挂载；下一帧补发事件，让已挂载的
+            // 监听器直接接到同一份载荷，避免必须点第二次才完成预填。
+            window.setTimeout(() => {
+              try { window.dispatchEvent(new CustomEvent(studioBridgeEventName(storagePrefix), { detail: { ...payload, ts: Date.now() } })) } catch {}
+            }, 0)
+            setNotice('已打开高级方法工坊，草稿已预填，可继续补充事实与约束。')
+          } else {
+            setNotice('草稿已带到方法工坊；请切换到「高级方法工坊」查看已预填的问题。')
+          }
         }
         // 用户级开关：写入 localStorage（宿主级持久关闭同一把钥匙），关闭时清空队列与当前卡。
         const toggleNudgeKit = () => {
@@ -3612,7 +3633,6 @@ window.__ModuleLoader__.load({
           diffPreview,
           costNode,
           signalsNode,
-          actionNode: enhanceActionNode,
           showAdvanced: advancedEnhancement,
           onRefine: () => setAdvancedEnhancement(true),
           methodOptions: methods,
@@ -3737,7 +3757,13 @@ window.__ModuleLoader__.load({
               ]
         ) : null
         const panel = open ? h('section', { key: 'panel', className: 'pk-scroll', role: 'dialog', 'aria-label': '对话增强器', style: { position: 'absolute', left: `${panelOffset}px`, transform: 'none', ...(panelAbove ? { bottom: '66px' } : { top: '66px' }), width: `${panelW}px`, boxSizing: 'border-box', maxHeight: `${panelMaxHeight}px`, overflowY: 'auto', overscrollBehavior: 'contain', padding: vw < 480 ? '10px' : '14px', border: `1px solid ${C.tealLine}`, borderRadius: '15px', background: C.surface, boxShadow: '0 20px 50px var(--pk-shadow-lg)', color: C.ink, zIndex: 30, animation: 'pk-pop .2s ease' } }, [
-              h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'start' } }, [h('div', { key: 'copy' }, [h('strong', { key: 'title', style: { fontSize: '14px' } }, '对话增强器'), h('div', { key: 'sub', style: { marginTop: '3px', color: C.muted, fontSize: '12px', lineHeight: 1.45 } }, libraryOpen ? '从提示词库选择模板：可直接填入消息框，或基于当前草稿调用模型按该方法改造。' : mode === 'enhance' ? '把当前输入框提示词做增强或改写，只填入消息框，不会自动发送。' : '写问题即可直接处理；也可选择对话消息作为额外参考。生成内容只填入消息框，不会自动发送。')]), h('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 } }, [h('button', { key: 'gear', 'data-gear-button': 'true', onClick: () => { setSettingsOpen(value => !value); if (settingsOpen) setActiveSettingsPanel(null) }, style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: settingsOpen ? C.tealTint : 'transparent', color: C.teal, cursor: 'pointer' }, 'aria-label': '设置' }, h(Icon, { key: 'ic', name: 'settings', size: 16 })), h('button', { key: 'close', onClick: () => setOpen(false), style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: 'transparent', color: C.muted, cursor: 'pointer' }, 'aria-label': '关闭' }, h(Icon, { key: 'ic', name: 'close', size: 16 }))])]),
+              h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'start' } }, [h('div', { key: 'copy' }, [h('strong', { key: 'title', style: { fontSize: '14px' } }, '对话增强器'), h('div', { key: 'sub', style: { marginTop: '3px', color: C.muted, fontSize: '12px', lineHeight: 1.45 } }, '用方法增强当前草稿，结果只填入消息框，不会自动发送；需要精修时可在高级工坊补充事实与约束。')]), h('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', gap: '7px', flexShrink: 0 } }, [
+                mode === 'enhance' ? enhanceActionNode : null,
+                assetProvider ? h('button', { key: 'save', disabled: !draft.trim(), onClick: () => saveToVault(draft, { kind: 'quick-capture' }), style: { padding: '7px 9px', border: `1px solid ${C.tealLine}`, borderRadius: '7px', background: C.surface, color: draft.trim() ? C.slate : C.muted, cursor: draft.trim() ? 'pointer' : 'not-allowed', fontSize: '11px', fontWeight: 800 } }, '收藏草稿') : null,
+                assetProvider ? h('button', { key: 'vault', onClick: () => { setVaultOpen(true); setLibraryOpen(false) }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', padding: '4px 0', fontSize: '11px', fontWeight: 800 } }, '打开灵感库 →') : null,
+                h('button', { key: 'studio', disabled: !draft.trim(), onClick: openStudioWithDraft, title: '把当前草稿带入高级方法工坊继续调整', style: { border: 0, background: 'transparent', color: draft.trim() ? C.teal : C.muted, cursor: draft.trim() ? 'pointer' : 'not-allowed', padding: '4px 0', fontSize: '11px', fontWeight: 800 } }, '高级工坊 →'),
+                h('span', { key: 'divider', 'aria-hidden': 'true', style: { width: '1px', height: '20px', background: C.divide, margin: '0 1px' } }),
+                h('button', { key: 'gear', 'data-gear-button': 'true', onClick: () => { setSettingsOpen(value => !value); if (settingsOpen) setActiveSettingsPanel(null) }, style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', padding: '4px 2px', border: 0, borderRadius: '8px', background: settingsOpen ? C.tealTint : 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 }, 'aria-label': '设置' }, [h(Icon, { key: 'ic', name: 'settings', size: 15 }), '设置']), h('button', { key: 'close', onClick: () => setOpen(false), style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, border: 0, borderRadius: '8px', background: 'transparent', color: C.muted, cursor: 'pointer' }, 'aria-label': '关闭' }, h(Icon, { key: 'ic', name: 'close', size: 16 }))])]),
               libraryOpen || vaultOpen || mode === 'enhance' ? null : h('div', { key: 'summary', style: { margin: '12px 0 5px', padding: '10px 11px', borderRadius: '10px', background: selectedChars > 1600 ? C.amberTint : C.tealTint, color: selectedChars > 1600 ? C.amber : C.teal, fontSize: '12px', fontWeight: 700 } }, activeMessages.length ? `已选 ${activeMessages.length} 条 · 约 ${selectedChars} 字符${selectedChars > 1600 ? ' · 建议精简' : ''}` : '当前草稿将作为问题；需要时可在下方添加参考上下文。'),
               undoDraft ? h('div', { key: 'undo-area', style: { marginTop: '5px' } }, [h('button', { key: 'undo', onClick: () => { if (draft !== undoDraft.after) { setUndoDraft(null); setNotice('消息框内容已变化，无法撤销到之前状态。'); return } clearOutcomeAt('undo'); composer?.write(undoDraft.before); setUndoDraft(null); setNotice('已撤销上一次填入。') }, style: { border: 0, background: 'transparent', color: C.teal, cursor: 'pointer', fontSize: '11px', fontWeight: 800 } }, '撤销上一次填入'), h('details', { key: 'orig', style: { marginTop: '4px' } }, [h('summary', { key: 'summary-0', style: { color: C.muted, fontSize: '11px', cursor: 'pointer', fontWeight: 700 } }, '查看原稿'), h('div', { key: 'div-1', style: { marginTop: '4px', padding: '8px', border: `1px solid ${C.line}`, borderRadius: '7px', background: C.surfaceAlt, color: C.slate, fontSize: '11px', lineHeight: 1.5, whiteSpace: 'pre-wrap', maxHeight: '120px', overflow: 'auto' } }, undoDraft.before || '（原稿为空）')])]) : null,
               activeNudge ? h('div', { key: 'nudge', role: 'status', 'aria-live': 'polite', style: { marginTop: '8px', padding: '10px 11px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: activeNudge.type === 'awaken' ? C.tealTint : C.amberTint, color: C.ink, fontSize: '12px', lineHeight: 1.5, animation: 'pk-fade .2s ease' } }, activeNudge.type === 'awaken' ? [
@@ -3760,11 +3786,6 @@ window.__ModuleLoader__.load({
               // 保留 nudge 卡（它是主动引导，不算噪音）与 notice（操作反馈必须可见）。
               simpleMode ? h('button', { key: 'expand-full', onClick: () => setDisplayMode('full'), style: { marginTop: '10px', width: '100%', padding: '7px', border: `1px dashed ${C.tealLine}`, borderRadius: '8px', background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: '11px' } }, '展开全部功能（方法库 · 灵感库 · 统计）') : null,
               !simpleMode && advancedEnhancement && methods.length ? usageNode : null,
-      !simpleMode && advancedEnhancement && assetProvider ? h('div', { key: 'vault-quick', style: { display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px', marginTop: '10px' } }, [h('button', { key: 'save', disabled: !draft.trim(), onClick: () => saveToVault(draft, { kind: 'quick-capture' }), style: { padding: '8px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: draft.trim() ? C.tealTint : C.surface, color: draft.trim() ? C.teal : C.muted, cursor: draft.trim() ? 'pointer' : 'not-allowed', fontSize: '12px', fontWeight: 800 } }, '收藏当前草稿'), h('button', { key: 'manage', onClick: () => { setVaultOpen(true); setLibraryOpen(false) }, style: { padding: '8px 10px', border: `1px solid ${C.tealLine}`, borderRadius: '8px', background: C.surface, color: C.teal, cursor: 'pointer', fontSize: '12px', fontWeight: 800 } }, '打开灵感库 →')]) : null,
-              !simpleMode && advancedEnhancement && !vaultOpen ? h('div', { key: 'studio-bridge', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '9px', padding: '9px 11px', border: `1px dashed ${C.tealLine}`, borderRadius: '9px', background: C.tealTint, fontSize: '11px', color: C.slate } }, [
-                h('span', { key: 'tip', style: { lineHeight: 1.4 } }, draft.trim() ? '需要精修？草稿会预填到顶部「高级方法工坊」。' : '写完草稿后，可带进顶部「高级方法工坊」慢慢精修'),
-                h('button', { key: 'go', disabled: !draft.trim(), onClick: openStudioWithDraft, title: '预填草稿后，请打开顶部「高级方法工坊」标签', style: { flexShrink: 0, border: 0, borderRadius: '7px', background: draft.trim() ? C.teal : C.surfaceAlt, color: draft.trim() ? '#fff' : C.muted, padding: '6px 10px', cursor: draft.trim() ? 'pointer' : 'not-allowed', fontSize: '11px', fontWeight: 800 } }, '预填到顶部工坊')
-              ]) : null,
 
               mode === 'enhance' && !libraryOpen && (requirement.trim() || useConversationContext || useMemoryContext) ? stepperNode : null,
               settingsOpen ? settingsSection : null,
@@ -3861,7 +3882,14 @@ window.__ModuleLoader__.load({
       }
 
       // 方法工坊宿主：写入新版输入机后交由 inputActions.submit() 发送。
-      function PromptkitStudioHost({ inputActions }) {
+      function PromptkitStudioHost({ inputActions, openView }) {
+        // 快捷增强器发出草稿桥事件时，除预填数据外还请求切到对应 conversation.view。
+        // 旧宿主没有 openView 时仍保留预填行为，不让导航能力成为使用门槛。
+        React.useEffect(() => {
+          const openStudio = () => openView?.('dsh-promptkit-studio', 'promptkit-studio')
+          window.addEventListener(studioBridgeEventName(), openStudio)
+          return () => window.removeEventListener(studioBridgeEventName(), openStudio)
+        }, [openView])
         const onSend = async text => { inputActions.setDraft(String(text ?? '')); inputActions.submit() }
         return h(PromptStudio, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, onSend })
       }

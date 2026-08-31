@@ -72,7 +72,7 @@ export function EnhancerPanel({
   mode, draft, enhancementKind, enhancementPlan, strategyNode,
   useMemoryContext, memoryPreview, onLoadMemory, memorySourceLabels, memoryReceipt,
   methodSummaryNode, diffPreview, costNode, signalsNode,
-  actionNode, showAdvanced, onRefine,
+  showAdvanced, onRefine,
   methodOptions, selectedMethodId, suggestedMethod, onMethodChange,
   streamState, loading, onCancelEnhance,
   diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge,
@@ -80,8 +80,7 @@ export function EnhancerPanel({
 }) {
   const semantic = enhancementKind === 'semantic'
   return h('details', { key: 'enhancer', open: true, style: { position: 'relative', marginTop: '12px', padding: '12px', border: `1px solid ${C.tealLine}`, borderRadius: '10px', background: C.tealTint } }, [
-    h('summary', { key: 'title', style: { paddingRight: '70px', fontSize: '13px', color: C.ink, cursor: 'pointer', fontWeight: 800 } }, '决策摘要'),
-    h('div', { key: 'apply', style: { position: 'absolute', top: '8px', right: '10px' } }, actionNode),
+    h('summary', { key: 'title', style: { fontSize: '13px', color: C.ink, cursor: 'pointer', fontWeight: 800 } }, '增强预览'),
     h('div', { key: 'apply-hint', style: { marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', color: C.muted, fontSize: '11px', lineHeight: 1.45 } }, [
       h('label', { key: 'method', style: { display: 'inline-flex', alignItems: 'center', gap: '5px', minWidth: 0 } }, [
         h('span', { key: 'label', style: { flexShrink: 0 } }, '处理方式：'),
