@@ -33,15 +33,15 @@ const PromptKit = (React => {
 
 ## 3. 契约
 
-语义增强返回 `{ prompt, model?, diagnosis?, diagnosisMeta? }`。`diagnosis` 可以只有部分维度；`diagnosisMeta` 包含 `status`（`complete/partial/missing`）、`missingDimensions` 和 `warnings`，不包含草稿或原始输出。空正文禁止应用；旧输出没有诊断时仍可使用。解析器支持中英文维度标签、外层协议围栏和缺分隔符，流式预览不显示未完整传输的协议标记。
+语义增强返回 `{ prompt, model?, diagnosis?, diagnosisMeta? }`。诊断默认关闭；宿主显式传入 `diagnose: true` 时，`diagnosis` 可以返回部分维度。它仅作本次审阅，不应被宿主自动持久化为知识或记忆。`diagnosisMeta` 包含 `status`（`complete/partial/missing`）、`missingDimensions` 和 `warnings`，不包含草稿或原始输出。空正文禁止应用；旧输出没有诊断时仍可使用。解析器支持中英文维度标签、外层协议围栏和缺分隔符，流式预览不显示未完整传输的协议标记。
 
-`enhanceStream()` 为可选能力，支持可选 `onStage(phase, model)` 回调接收流式阶段切换（等待 → 诊断中 → 输出中）。只有明确抛出 `fallback=true` 且尚未输出时才调用 `enhance()`，普通网络/模型错误或取消直接终止。组件在写回前校验原草稿是否变化，避免迟到响应覆盖用户的新编辑。
+`enhanceStream()` 为可选能力，支持可选 `onStage(phase, model)` 回调接收流式阶段切换（启用诊断时为等待 → 诊断中 → 输出中，否则为等待 → 输出中）。只有明确抛出 `fallback=true` 且尚未输出时才调用 `enhance()`，普通网络/模型错误或取消直接终止。组件在写回前校验原草稿是否变化，避免迟到响应覆盖用户的新编辑。
 
-知识区只暂存隐含前提/可证伪性中的实际缺口。新模型指令在这两项描述前使用 `[OK]` 或 `[GAP]`，UI 隐藏标记；旧输出仅过滤明确的无问题陈述，不靠宽泛关键词删除可能的缺口。新去重键包含完整草稿，旧截断记录保留供审阅，不与不同长稿强行合并。首次体验仍单独保存 0~3 次成功进度，但不再驱动界面模式切换——界面固定为轻路径 +「再细化…」展开，详细使用统计仍遵守用户开关。
+诊断中的隐含前提/可证伪性仍使用 `[OK]` 或 `[GAP]` 标记，UI 会隐藏这些协议标记；旧输出仅过滤明确的无问题陈述，不靠宽泛关键词删除可能的缺口。QuickEnhancer 不再自动把诊断发现写入知识区或本地持久化；需要长期保留的内容必须由用户主动存入灵感库。界面固定为单一完整配置界面，详细使用统计仍遵守用户开关。
 
 `@` 文件引用补全已移除：DSH 原生 `@` 提及（文件 + 会话候选、目录下钻、原子行内引用）是同类能力的超集，插件在宿主输入框上重复提供会导致双菜单重叠与键盘冲突。完整缘由与迁移注意见 [升级记录](UPGRADE-HISTORY.md#unreleased)。草稿中已有的 `@path` 引用在增强时仍受「保留 @ 文件引用」保护，发送后由 DSH 原生机制读取文件。
 
-接入 `onSubmitDraft` 的宿主须实现 `composer.isInputTarget(target)`，明确识别消息框节点；`TextareaComposer` 已提供。自动增强仅拦截该节点的 Enter，其他输入框、IME 和带修饰键的操作不受影响。增强失败可发送原文一次，发送失败只报告结果未确认，绝不自动重发。选区适配器可实现 `onSelectionChange(callback)`，使片段预览随选区更新。
+接入 `onSubmitDraft` 的宿主须实现 `composer.isInputTarget(target)`，明确识别消息框节点；`TextareaComposer` 已提供。自动发送仅拦截该节点的 Enter，固定使用低强度保守润色；其他输入框、IME 和带修饰键的操作不受影响。润色失败可发送原文一次，发送失败只报告结果未确认，绝不自动重发。选区适配器可实现 `onSelectionChange(callback)`，使片段预览随选区更新。
 
 ### 3.1 `PromptKit` 命名空间（v1 冻结面）
 

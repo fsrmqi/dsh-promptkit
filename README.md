@@ -19,13 +19,13 @@ Repository version: **0.2.1** (local release preparation; publishing has not bee
 dsh plugin --profile web add dsh-promptkit
 ```
 
-Write a draft, hit **✦ Enhance**, and receive a structured prompt in the preview panel, then in the composer without sending it. PromptKit needs no separate API key: semantic enhancement reuses a model already configured in DSH. If the session has no model route, it reports that requirement. Local lightweight enhancement needs no model.
+Write a draft, hit **✦ Enhance**, and receive a clearer prompt that preserves the original intent and scope in the preview panel, then in the composer without sending it. PromptKit needs no separate API key: semantic enhancement reuses a model already configured in DSH. If the session has no model route, it reports that requirement. Local lightweight enhancement needs no model.
 
 ## Why PromptKit
 
-**✦ One-click enhancement with diagnosis.** Before rewriting, the plugin examines your draft on five dimensions (clarity · hidden premises · falsifiability · actionability · context fit) and shows the verdict. The rewrite is driven by the diagnosis — undefined terms get defined, assumptions get flagged, vague requirements become testable ones.
+**✦ One-click enhancement that preserves task size.** The default path makes only necessary wording improvements; it does not invent plans, acceptance criteria, or delivery phases. Five-dimension diagnosis (clarity · hidden premises · falsifiability · actionability · context fit) is an optional review tool in the current interface.
 
-**🎯 21 thinking methods, applied on signal match.** A built-in library of complete Markdown methods (Socratic questioning, first principles, steel-man, minimal experiments…). Smart recommendation applies a method only when the draft hits clear task signals; otherwise the draft stays a light local cleanup rather than being forced into a template — or browse the full library in the Method Studio.
+**🎯 21 thinking methods, recommended rather than imposed.** A built-in library of complete Markdown methods (Socratic questioning, first principles, steel-man, minimal experiments…). Smart matching only suggests a method; it is applied only after the user explicitly selects it.
 
 **📚 A vault that closes the loop.** Diagnosis findings (hidden premises, unfalsifiable requirements) can be saved as "to-verify" assumption cards. Verify them later; checked-in cards feed future enhancements as context. Your prompt quality compounds.
 
@@ -38,9 +38,9 @@ Write a draft, hit **✦ Enhance**, and receive a structured prompt in the previ
 
 - **PromptStudio** — the advanced workspace: browse 21 methods, fill in facts/constraints, compose and preview a structured prompt before sending.
 - **PromptKit Vault** — local library for drafts and finished prompts: search, favorites, project grouping, derivation with version diff, JSON backup/restore.
-- **Streaming output** — enhancement results stream segment-by-segment into a preview panel with phase hints (waiting → diagnosing → writing), a live elapsed-time badge, and a cancel button.
-- **Strength levels** — low (polish) / mid (standard) / high (expand ~3x) length budgets.
-- **Auto-enhance before send** — available when a custom host provides `onSubmitDraft` and `composer.isInputTarget()`. Intercepts only the composer's plain Enter; enhancement failure may send the original once, but send failure is never retried. Cancellation or a changed draft prevents sending. The standalone DSH plugin does not wire this send hook by default.
+- **Streaming output** — results stream into a preview panel; diagnosis appears only when enabled, with a live elapsed-time badge and a cancel button.
+- **Strength levels** — low (polish) / mid (refine) / high (detail); they control wording detail only, never task scope.
+- **Auto-polish before send** — available when a custom host provides `onSubmitDraft` and `composer.isInputTarget()`. It always uses conservative polish, intercepts only the composer's plain Enter, and may send the original once if polishing fails. Send failure is never retried. Cancellation or a changed draft prevents sending. The standalone DSH plugin does not wire this send hook by default.
 - **Skill-mention preservation** — lost `/tdd`-style tokens are restored automatically. Dismissing the notice does not rewrite the draft again.
 - **`/pk` quick insert** — type `/pk keywords` for a compact vault candidate menu (arrow keys + Enter), never touching DSH-native commands.
 - **Private methods** — paste Obsidian-style Markdown prompt cards; stored locally only, exportable as JSON.
@@ -54,14 +54,11 @@ Write a draft, hit **✦ Enhance**, and receive a structured prompt in the previ
 write a rough draft
       │
       ▼
-✦ Enhance ──► five-dimension diagnosis ──► model rewrite (streaming)
-      │                                            │
-      │                                            ▼
-      │                            findings auto-staged in the Knowledge tab
-      │                                            │
-      │                              you decide: save as assumption card
-      │                                            │
-      └──────────────► verified cards feed future enhancements ◄┘
+✦ Enhance ──► scope-preserving model rewrite (streaming)
+      │
+      ├────► optional: five-dimension diagnosis (viewed for this run only)
+      │
+      └────► only user-saved and verified cards may feed later enhancements
 ```
 
 ## Installation
