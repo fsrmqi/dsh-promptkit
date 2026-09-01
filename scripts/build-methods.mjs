@@ -38,6 +38,7 @@ const OVERRIDES = {
   技术方案设计: { mode: 'structured', outcome: '可评审的技术方案（目标/边界/模块/关键设计/风险/步骤）' },
   代码评审: { mode: 'structured', outcome: '按严重程度分档的代码评审报告' },
   接口文档生成: { mode: 'structured', outcome: '含请求/响应/示例/边界的标准接口文档' },
+  项目文档同步: { mode: 'structured', outcome: '与近期代码改动对应的文档更新与简要对照' },
   论文深度拆解: { mode: 'structured', outcome: '论文拆解档案（贡献/方法/证据强度/局限/可复现性）' },
   数据分析: { mode: 'structured', outcome: '四段式分析报告（体检/探索/结论/行动）' },
   需求理解: { mode: 'guided', outcome: '《需求理解档案》：真实诉求/已确认前提/待验证假设/冲突点/最可能改变方向的未知项' },

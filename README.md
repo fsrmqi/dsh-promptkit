@@ -25,18 +25,18 @@ Write a draft, hit **✦ Enhance**, and receive a clearer prompt that preserves 
 
 **✦ One-click enhancement that preserves task size.** The default path makes only necessary wording improvements; it does not invent plans, acceptance criteria, or delivery phases. Five-dimension diagnosis (clarity · hidden premises · falsifiability · actionability · context fit) is an optional review tool in the current interface.
 
-**🎯 21 thinking methods, recommended rather than imposed.** A built-in library of complete Markdown methods (Socratic questioning, first principles, steel-man, minimal experiments…). Smart matching only suggests a method; it is applied only after the user explicitly selects it.
+**🎯 22 thinking methods, recommended rather than imposed.** A built-in library of complete Markdown methods (Socratic questioning, first principles, steel-man, minimal experiments, project-documentation sync…). Smart matching only suggests a method; it is applied only after the user explicitly selects it.
 
-**📚 A vault that closes the loop.** Diagnosis findings (hidden premises, unfalsifiable requirements) can be saved as "to-verify" assumption cards. Verify them later; checked-in cards feed future enhancements as context. Your prompt quality compounds.
+**📚 A vault that closes the loop.** A diagnosis finding becomes a "to-verify" assumption-card candidate only after the user explicitly chooses **Save to Knowledge**. Verify it later; checked-in cards can feed future enhancements as context.
 
-**🔌 Zero telemetry, with a zero-token option.** Local lightweight enhancement works offline. Semantic enhancement sends the draft and selected context to the host's configured model service. Optional project-memory searches make requests when that feature is used; `@` file references come from the native DSH mention menu and are not reimplemented by the plugin.
+**🔌 Zero telemetry, with a zero-token option.** Local lightweight enhancement works offline. Semantic enhancement sends the draft and selected context to the host's configured model service. Project memory must be searched and previewed before it is injected; `@` file references come from the native DSH mention menu and are not reimplemented by the plugin.
 
 **Compatibility:** verified by a real DSH `0.1.2-alpha.2` profile boot after installing the local bundle; CI runs the same alpha-channel smoke test. Running the DSH plugin requires Node `>=22.6`. The older `0.1.0-rc` slot adapter is covered by simulated contract tests; this does not establish real-instance compatibility for every older release.
 
 <details>
 <summary><strong>More capabilities</strong> (click to expand)</summary>
 
-- **PromptStudio** — the advanced workspace: browse 21 methods, fill in facts/constraints, compose and preview a structured prompt before sending.
+- **PromptStudio** — the advanced workspace: browse 22 methods, fill in facts/constraints, compose and preview a structured prompt before sending.
 - **PromptKit Vault** — local library for drafts and finished prompts: search, favorites, project grouping, derivation with version diff, JSON backup/restore.
 - **Streaming output** — results stream into a preview panel; diagnosis appears only when enabled, with a live elapsed-time badge and a cancel button.
 - **Strength levels** — low (polish) / mid (refine) / high (detail); they control wording detail only, never task scope.

@@ -1,4 +1,4 @@
-// 完整方法库：从 methods/ 目录解析的 21 个 Markdown 方法（带 frontmatter 元数据 + 完整 prompt 正文）。
+// 完整方法库：从 methods/ 目录解析的 22 个 Markdown 方法（带 frontmatter 元数据 + 完整 prompt 正文）。
 // 在 DSH 插件形态中，build-client.mjs 会把 builtin.json 内联为常量注入（stripBuiltinJs），
 // 此时本文件的运行时加载分支不会执行。
 

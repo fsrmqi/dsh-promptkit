@@ -75,7 +75,7 @@ export function EnhancerPanel({
   methodOptions, selectedMethodId, suggestedMethod, onMethodChange,
   diagnose, onDiagnoseChange,
   streamState, loading, onCancelEnhance,
-  diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge,
+  diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge, onSaveDiagnosis,
   skillRestore, onDismissSkills,
 }) {
   const semantic = enhancementKind === 'semantic'
@@ -85,7 +85,7 @@ export function EnhancerPanel({
       h('label', { key: 'method', style: { display: 'inline-flex', alignItems: 'center', gap: '5px', minWidth: 0 } }, [
         h('span', { key: 'label', style: { flexShrink: 0 } }, '处理方式：'),
         h('select', { key: 'select', value: selectedMethodId || '', onChange: event => onMethodChange(event.target.value), 'aria-label': '选择增强方法', style: { maxWidth: '150px', border: `1px solid ${C.tealLineActive}`, borderRadius: '999px', background: C.surface, color: C.teal, padding: '3px 22px 3px 7px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' } }, [
-          h('option', { key: 'auto', value: '' }, suggestedMethod ? `智能推荐：${suggestedMethod.title}` : '智能推荐：轻量整理'),
+          h('option', { key: 'auto', value: '' }, suggestedMethod ? `自动选择：建议 ${suggestedMethod.title}` : '自动选择：轻量整理'),
           ...methodOptions.map(method => h('option', { key: method.id, value: method.id }, method.title))
         ])
       ])
@@ -114,7 +114,7 @@ export function EnhancerPanel({
       h('input', { key: 'input', type: 'checkbox', checked: diagnose, onChange: event => onDiagnoseChange(event.target.checked), style: { accentColor: C.teal, cursor: 'pointer', flexShrink: 0 } }),
     ]) : null,
     semantic ? h(StreamPanel, { key: 'stream', streamState, loading, onCancel: onCancelEnhance }) : null,
-    h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge }),
+    h(DiagnosisSection, { key: 'diagnosis', diagnosis, matchedMethod, knowledgeCount, hasAssetProvider, onOpenKnowledge, onSaveDiagnosis }),
     h(SkillRestoreNode, { key: 'skills', skillRestore, onDismiss: onDismissSkills }),
   ])
 }

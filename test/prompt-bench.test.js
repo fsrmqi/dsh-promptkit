@@ -21,6 +21,7 @@ const CASES = [
   { name: '代码评审', draft: '帮我做一次代码评审，重点看有没有安全问题', expect: '代码评审', note: '代码评审为强信号（纯中文，避免触发中英混合分支）' },
   { name: '英文代码评审', draft: 'Please do a code review for this authentication change', expect: '代码评审', note: '英文触发词也应参与方法匹配' },
   { name: '接口文档生成', draft: '帮我写 API 文档，列出参数说明和错误码', expect: '接口文档生成', note: 'API 文档为强信号' },
+  { name: '项目文档同步', draft: '了解下我这个项目，我最近改了好多东西，相应的文档同步更新下', expect: '项目文档同步', note: '文档同步为强信号，不应落入泛开发或轻量整理' },
   { name: '故障排查', draft: '接口一直报错，帮我排查一下原因', expect: '苏格拉底式提问', note: '报错/排查为强信号' },
   { name: '数据分析', draft: '数据分析一下这个转化率表的趋势', expect: '数据分析', note: '数据分析为强信号' },
   { name: '方案选型', draft: '两个方案哪个好，帮我对比一下选哪个', expect: '双向钢人论证', note: '哪个好/对比为强信号' },

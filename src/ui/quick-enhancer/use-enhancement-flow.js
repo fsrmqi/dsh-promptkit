@@ -43,6 +43,10 @@ export function useEnhancementFlow({ composer, enhancer, draft, draftGuard, conf
     const selection = snapshot.selection
     const original = selection?.text || snapshot.before
     if (original.trim().length > 3000) { setWarn(`草稿过长（${original.trim().length} 字符），建议精简到 3000 字符以内再增强。`); return }
+    if (enhancementKind === 'semantic' && useMemoryContext && searchMemory && !(memoryPreview.status === 'ready' && memoryPreview.query === original)) {
+      setWarn('已开启项目记忆，请先检索并预览命中的内容，再应用增强。')
+      return
+    }
     const applyEnhanced = text => draftGuard.commit(snapshot, text)
     if (enhancementKind !== 'semantic') {
       const plan = getPlan(original, matchedMethod)
@@ -87,7 +91,7 @@ export function useEnhancementFlow({ composer, enhancer, draft, draftGuard, conf
       ].filter(Boolean).join('\n\n')
       let remembered = ''
       if (useMemoryContext && searchMemory) {
-        remembered = memoryPreview.status === 'ready' && memoryPreview.query === original ? memoryPreview.text : await loadMemory(original)
+        remembered = memoryPreview.text
         if (remembered) extra = [extra, `项目记忆：${remembered}`].filter(Boolean).join('\n\n')
       }
       assertActive()

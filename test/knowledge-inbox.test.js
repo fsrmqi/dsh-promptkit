@@ -14,7 +14,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  * 诊断闭环（知识区）端到端测试：真 React 19 createRoot + jsdom 驱动真实构建产物。
  *
  * 闭环语义（用户主动决定，插件不代劳）：
- *   语义增强诊断出认识缺口 → 自动入「知识区」暂存（localStorage 持久化，非 Vault 资产）
+ *   语义增强诊断出认识缺口 → 用户点「保存到知识区」后暂存（localStorage，非 Vault 资产）
  *   → 用户逐条审阅：存为假设卡（写 Vault，assumption + to_verify，进收件箱待验证队列）
  *                或 忽略（仅从知识区移除，Vault 无痕迹）
  *   同一草稿同一维度不重复入区；「已存过卡」的指纹不重复建卡。
@@ -106,8 +106,14 @@ async function mountKit(W, PromptKit, providers, enhancer) {
 
 const vaultVisible = container => !!container.querySelector('aside[aria-label="灵感库"]')
 const findBtn = (container, pattern, scope) => [...(scope || container).querySelectorAll('button')].find(b => pattern.test(b.textContent) || pattern.test(b.getAttribute('aria-label') || ''))
+const saveDiagnosis = async (container, W) => {
+  const button = findBtn(container, /保存到知识区/)
+  assert.ok(button, '诊断卡应提供显式的「保存到知识区」按钮')
+  button.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
+  await tick()
+}
 
-test.skip('知识区：语义增强后认识缺口自动入区，Vault 无写入（暂存≠存卡）', async () => {
+test('知识区：用户保存诊断后进入知识区，Vault 无写入', async () => {
   const dom = setupDom()
   const W = dom.window
   const PromptKit = loadEmbed(W)
@@ -128,6 +134,7 @@ test.skip('知识区：语义增强后认识缺口自动入区，Vault 无写入
   assert.ok(applyBtn, '应出现增强主按钮')
   applyBtn.dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
+  await saveDiagnosis(container, W)
   // 入区：诊断卡显示知识区入口；Vault 未被写入
   assert.equal(providers.assetProvider._items.length, 0, '暂存阶段不得写入 Vault')
   assert.ok(findBtn(container, /查看知识区/), '诊断卡下应有「查看知识区」入口')
@@ -137,7 +144,7 @@ test.skip('知识区：语义增强后认识缺口自动入区，Vault 无写入
   dom.window.close()
 })
 
-test.skip('知识区：用户主动「存为假设卡」写 Vault（assumption+to_verify）并从暂存移除', async () => {
+test('知识区：用户主动「存为假设卡」写 Vault（assumption+to_verify）并从暂存移除', async () => {
   const dom = setupDom()
   const W = dom.window
   const PromptKit = loadEmbed(W)
@@ -154,6 +161,7 @@ test.skip('知识区：用户主动「存为假设卡」写 Vault（assumption+t
   await tick()
   findBtn(container, /应用增强到消息框/).dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
+  await saveDiagnosis(container, W)
   // 打开知识区 tab
   findBtn(container, /查看知识区/).dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
@@ -177,7 +185,7 @@ test.skip('知识区：用户主动「存为假设卡」写 Vault（assumption+t
   dom.window.close()
 })
 
-test.skip('知识区：「忽略」仅从暂存移除，Vault 无痕迹', async () => {
+test('知识区：「忽略」仅从暂存移除，Vault 无痕迹', async () => {
   const dom = setupDom()
   const W = dom.window
   const PromptKit = loadEmbed(W)
@@ -194,6 +202,7 @@ test.skip('知识区：「忽略」仅从暂存移除，Vault 无痕迹', async 
   await tick()
   findBtn(container, /应用增强到消息框/).dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
+  await saveDiagnosis(container, W)
   findBtn(container, /查看知识区/).dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
   const dismissBtn = findBtn(container, /^忽略$/)
@@ -207,7 +216,7 @@ test.skip('知识区：「忽略」仅从暂存移除，Vault 无痕迹', async 
   dom.window.close()
 })
 
-test.skip('知识区：同一草稿重复增强不重复入区（指纹查重）', async () => {
+test('知识区：用户重复保存同一诊断不重复入区（指纹查重）', async () => {
   const dom = setupDom()
   const W = dom.window
   const PromptKit = loadEmbed(W)
@@ -224,11 +233,13 @@ test.skip('知识区：同一草稿重复增强不重复入区（指纹查重）
   await tick()
   findBtn(container, /应用增强到消息框/).dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
+  await saveDiagnosis(container, W)
   // 第一次增强后草稿已被改写稿替换；写回同一原稿再增强，才是「同一草稿重复增强」
   providers.composer.write('帮我优化登录，用户总忘记密码')
   await tick()
   findBtn(container, /应用增强到消息框/).dispatchEvent(new W.MouseEvent('click', { bubbles: true }))
   await tick()
+  await saveDiagnosis(container, W)
   const stored = JSON.parse(W.localStorage.getItem('knowledge-test.quick-action.knowledge-inbox.v1') || '[]')
   assert.equal(stored.length, 2, '同一草稿第二次增强不得再入区（仍是 2 条）')
   root.unmount()

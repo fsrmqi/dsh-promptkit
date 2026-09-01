@@ -61,12 +61,12 @@ test('Embed Protocol v1：命名空间与版本', () => {
   assert.equal(typeof PromptKit.OpenAIEnhancer, 'function')
 })
 
-test('内置方法库：21 个方法完整可查', async () => {
+test('内置方法库：22 个方法完整可查', async () => {
   const PromptKit = loadEmbed(minimalHost())
-  assert.equal(PromptKit.builtinMethods.length, 21)
+  assert.equal(PromptKit.builtinMethods.length, 22)
   const provider = new PromptKit.StaticMethodProvider()
   const methods = await provider.list()
-  assert.equal(methods.length, 21)
+  assert.equal(methods.length, 22)
   const steelman = await provider.getById('双向钢人论证')
   assert.ok(steelman, '双向钢人论证应存在')
   assert.equal(steelman.mode, 'guided')

@@ -37,7 +37,7 @@ const PromptKit = (React => {
 
 `enhanceStream()` 为可选能力，支持可选 `onStage(phase, model)` 回调接收流式阶段切换（启用诊断时为等待 → 诊断中 → 输出中，否则为等待 → 输出中）。只有明确抛出 `fallback=true` 且尚未输出时才调用 `enhance()`，普通网络/模型错误或取消直接终止。组件在写回前校验原草稿是否变化，避免迟到响应覆盖用户的新编辑。
 
-诊断中的隐含前提/可证伪性仍使用 `[OK]` 或 `[GAP]` 标记，UI 会隐藏这些协议标记；旧输出仅过滤明确的无问题陈述，不靠宽泛关键词删除可能的缺口。QuickEnhancer 不再自动把诊断发现写入知识区或本地持久化；需要长期保留的内容必须由用户主动存入灵感库。界面固定为单一完整配置界面，详细使用统计仍遵守用户开关。
+诊断中的隐含前提/可证伪性仍使用 `[OK]` 或 `[GAP]` 标记，UI 会隐藏这些协议标记；旧输出仅过滤明确的无问题陈述，不靠宽泛关键词删除可能的缺口。QuickEnhancer 不会自动写入知识区；用户必须在诊断卡上点「保存到知识区」，再从知识区决定是否存为假设卡。项目记忆同样必须先检索并预览，未预览时组件拒绝应用增强。界面固定为单一完整配置界面，详细使用统计仍遵守用户开关。
 
 `@` 文件引用补全已移除：DSH 原生 `@` 提及（文件 + 会话候选、目录下钻、原子行内引用）是同类能力的超集，插件在宿主输入框上重复提供会导致双菜单重叠与键盘冲突。完整缘由与迁移注意见 [升级记录](UPGRADE-HISTORY.md#unreleased)。草稿中已有的 `@path` 引用在增强时仍受「保留 @ 文件引用」保护，发送后由 DSH 原生机制读取文件。
 
@@ -54,7 +54,7 @@ const PromptKit = (React => {
 | `MethodProvider` / `AssetProvider` / `Composer` / `Enhancer` | class | 宿主 adapter 基类 |
 | `TextareaComposer` / `OpenAIEnhancer` | class | 通用 adapter（任意 `<textarea>` / OpenAI 兼容端点） |
 | `utils` | object | 纯函数集（`conversationMessages`、`fileMentions`、`planPromptEnhancement`、`recommendMethods` 等），宿主 glue 可复用 |
-| `builtinMethods` | Method[] | 21 个方法原始数据（宿主自建 provider 时直接消费） |
+| `builtinMethods` | Method[] | 22 个方法原始数据（宿主自建 provider 时直接消费） |
 
 ### 3.2 组件 props
 
