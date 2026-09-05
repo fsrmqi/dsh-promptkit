@@ -4,7 +4,7 @@
 
 | 版本 | 记录日期 | 本次主要变化 |
 | --- | --- | --- |
-| [未发布](#unreleased) | 2026-08-31 | 移除 `@` 文件补全与界面模式设置；增强器与工坊打通、流式阶段计时 |
+| [未发布](#unreleased) | 2026-09-05 | 移除 `@` 文件补全与界面模式设置；增强器与工坊打通、流式阶段计时；适配 DSH 0.1.3-alpha.1 输入槽位契约 |
 | [0.2.1](#v021) | 2026-08-30 | 草稿写回与发送保护、工作区隔离、诊断降噪、安装兼容性收尾；待发布 |
 | [0.2.0](#v020) | 2026-08-29 | 五维诊断、流式增强、知识区、文件补全、模板变量与极简模式 |
 | [0.1.0](#v010) | 2026-08-26 | 方法工坊、快捷增强器与可嵌入的初始工具包；依据已有变更日志整理 |
@@ -12,7 +12,7 @@
 <a id="unreleased"></a>
 ## 未发布：移除 `@` 文件补全与界面模式设置；增强器与工坊打通
 
-记录日期：2026-08-31。尚未收口为正式版本。
+记录日期：2026-08-31（DSH `0.1.3-alpha.1` 适配复查补记于 2026-09-05）。尚未收口为正式版本。
 
 ### 移除
 
@@ -46,6 +46,17 @@
 - `npm run build && npm test` 通过（99 项），含「向 QuickEnhancer 传入 `searchFiles` 并写入 `@sr` 不出现补全菜单」的负向回归与界面模式移除后的回归清理。
 - ui/client.js、ui/client-lite.js、ui/embed.js 三份产物已随源码重建。
 - 未做真机验证；按惯例待下次真机清单执行时一并确认原生菜单独占、无双重弹出。
+
+### DSH 0.1.3-alpha.1 适配复查（2026-09-05）
+
+对齐宿主基线 `0.1.2-alpha.2` → `0.1.3-alpha.1`（约 330 提交，含 `0.1.2-rc.1`）逐项复查插件注入点契约。结论：**无需用户操作，功能行为不变**；仅注释与文档收口。
+
+- **唯一实质契约变更**：`conversation.input.right` 槽位不再向注册条目下发 `InputZone { session, input }` owner props（ownerProps 清空；该组输入槽位同时改由 `conversation.composer.bar` 声明渲染，对注册方透明）。此变更已在 `0.1.2-rc.1` 落地。快捷增强器的草稿真源自动回落到 `useInput` 订阅通道——`useInput`/`inputActions` 属 `SessionStandardProps` 标准包，对 session 作用域槽位条目在三代宿主（`0.1.0-rc` / `0.1.2-alpha` / `0.1.3-alpha.1+`）均下发；InputZone 点时快照在仍下发的宿主上继续优先。三代契约对照已写入 `dsh/standalone-glue.js` 注释。
+- **复核未受影响**：`InputActions.setDraft/submit`；`conversation.view` 的 `viewRequest`/`openView`/`completeViewRequest`（方法工坊标签与「高级工坊 →」桥）；`useChat` 的 `legacy.nodes` 消息投影（`LegacyConversationSlice` 逐字节相同）；node 半区 `ctx.webServer.register`、`ctx.llm.stream` 签名、`agent/created`/`agent/disposed` 事件；bundle patch loader 行与 `dsh.client.inject` 约定。
+- **宿主新增能力备查（PromptKit 暂不消费）**：通用文件上传（`dsh-client-file-upload`，附件体系重命名 `imageIds`→`attachmentIds`、`addImages/removeImage`→`addAttachments/removeAttachment`、`ComposerAttachment` 拆分 image/file、`CommandClaim.images`→`attachments`）；chat keyed hooks（`UseChatNode`/`UseChatNodeProcess`）；`ISession.loadThrough` 分页回看。
+- **升级注意**：无。自定义宿主如自行实现槽位宿主层，需注意 0.1.2-rc.1 起输入槽位 owner props 已移除，草稿读取应改走 `useInput` 标准包。
+- **本节验证范围**：`npm run check` 与 `npm test` 通过（100 项）；ui/client.js、ui/client-lite.js 已随源码重建。真机冒烟：`npm pack` 产物装入空 profile 后，用 deepseek-harness 仓库 HEAD（`0.1.3-alpha.1` release 合并点，`d347e70390`）全新构建的 CLI 执行启动验证——Web 启动、登录 Cookie HTTP 探测与正常退出均通过（宿主侧 lib 为同日 HEAD 全量重建，消除陈旧中间产物后执行）。浏览器内交互（增强器草稿读写、按钮挂载时机）仍按惯例留待真机清单确认；npm 通道当前最新发布为 `0.1.2-rc.1`（已含上述 ownerProps 移除），`0.1.3-alpha.1` 尚未发布。
+
 
 <a id="v021"></a>
 ## 0.2.1：增强结果更可靠，升级安装更明确

@@ -31,7 +31,7 @@ Write a draft, hit **✦ Enhance**, and receive a clearer prompt that preserves 
 
 **🔌 Zero telemetry, with a zero-token option.** Local lightweight enhancement works offline. Semantic enhancement sends the draft and selected context to the host's configured model service. Project memory must be searched and previewed before it is injected; `@` file references come from the native DSH mention menu and are not reimplemented by the plugin.
 
-**Compatibility:** verified by a real DSH `0.1.2-alpha.2` profile boot after installing the local bundle; CI runs the same alpha-channel smoke test. Running the DSH plugin requires Node `>=22.6`. The older `0.1.0-rc` slot adapter is covered by simulated contract tests; this does not establish real-instance compatibility for every older release.
+**Compatibility:** verified by a real DSH `0.1.3-alpha.1` profile boot (host repository HEAD build) after installing the local bundle — web boot, cookie HTTP probe, and clean exit; `0.1.2-alpha.2` passed the same smoke earlier. Running the DSH plugin requires Node `>=22.6`. The older `0.1.0-rc` slot adapter is covered by simulated contract tests; this does not establish real-instance compatibility for every older release.
 
 <details>
 <summary><strong>More capabilities</strong> (click to expand)</summary>

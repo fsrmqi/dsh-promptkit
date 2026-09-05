@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260905T144638415Z-42371-b519aafb0a5a",
+  "runId": "20260905T144638415Z-42371-b519aafb0a5a",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "f6338528bb5a327134ffd830c359a978b0c3ad74",
+  "diffHash": "28f459af871bb54b9dd97940598d2010e7f47dac6e8bb7639ad4baba75e08264",
+  "rulesVersion": "unavailable",
+  "sessionHash": "f27b0cbdf7c05c921ae14f5d38ec3a88075cbc47baea60d3669aea4147d5219f",
+  "reportRef": ".mimosa/reports/task-review-sess_5efa2465-c1d5-4bd4-8ac0-7cd9fb0fedb7-20260905T144638415Z-42371-b519aafb0a5a.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-3f8071f2d148474363ad6ec7",
+    "mimosa-714e089ae1663752a873f921",
+    "mimosa-d09497815c41b993538deac6",
+    "mimosa-40c2425c7ffe5b637d7db2fb",
+    "mimosa-b775cf15f69e7faef102f1c1",
+    "mimosa-d78ea6d498440b06306a6170",
+    "mimosa-3a2dfbcf18151ae525bf69f7",
+    "mimosa-7cebb934f5749a7dbb2dd330",
+    "mimosa-735f0c455a1f5ea0292ada02",
+    "mimosa-7cc6c18e4bb8b7ef7fa3eabf"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "dsh/standalone-glue.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "ui/client-lite.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "ui/client.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-05T14:46:38.611Z"
+}

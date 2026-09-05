@@ -31,7 +31,7 @@ dsh plugin --profile web add dsh-promptkit
 
 **🔌 零遥测，支持零 Token 模式。** 本地轻量模式离线可用；语义增强会把草稿和选定上下文交给宿主配置的模型服务。项目记忆必须先检索并预览，确认后才会注入；`@` 文件引用由 DSH 原生提及提供，插件不重复实现。
 
-**兼容性：** DSH `0.1.2-alpha.2` 已完成真实 profile 启动验证（安装本地 bundle 后启动 Web）；CI 使用同一 alpha 通道执行该烟测。运行 DSH 插件需要 Node `>=22.6`。保留旧版 `0.1.0-rc` 槽位适配，其覆盖来自模拟契约测试，不代表所有旧版本均已完成真机验证。
+**兼容性：** DSH `0.1.3-alpha.1`（宿主仓库 HEAD 构建）已完成真实 profile 启动验证（安装本地 bundle 后启动 Web、Cookie HTTP 探测、正常退出）；此前 `0.1.2-alpha.2` 已用同一烟测验证。运行 DSH 插件需要 Node `>=22.6`。保留旧版 `0.1.0-rc` 槽位适配，其覆盖来自模拟契约测试，不代表所有旧版本均已完成真机验证。
 
 <details>
 <summary><strong>更多能力</strong>（点击展开）</summary>

@@ -3840,7 +3840,7 @@ window.__ModuleLoader__.load({
       }
 
       // 桥接 DSH 输入框：inputActions 由槽位体系注入（InputActions.setDraft / submit）。
-      // getDraft 读构造时传入的 draft 快照（新契约）或 useInput 订阅值（旧契约）。
+      // getDraft 读宿主每次渲染同步进来的 draft（来源随 DSH 版本：InputZone 点时快照或 useInput 订阅）。
       class DshDraftComposer {
         constructor(input, inputActions) { this.input = input; this.inputActions = inputActions; this.listeners = new Set() }
         getDraft() { return this.input?.draft ?? '' }
@@ -3849,13 +3849,16 @@ window.__ModuleLoader__.load({
         notify(draft) { for (const cb of this.listeners) cb(draft) }
       }
 
-      // 快捷助手宿主：适配两代 DSH 槽位契约。
-      //   0.1.2-alpha：InputZone.session 仅包含会话状态，消息由 useChat 订阅。
-      //     input 是含 draft 的点时快照；Chat.legacy.nodes 是消息兼容投影。
+      // 快捷助手宿主：适配三代 DSH 槽位契约。
+      //   0.1.3-alpha.1+：input.right 不再下发 InputZone { session, input } owner props
+      //     （槽位改由 conversation.composer.bar 声明），草稿真源回落到 useInput 订阅；
+      //     消息仍由 useChat 的 legacy.nodes 兼容投影读取（该投影未变）。
+      //   0.1.2-alpha：InputZone.session 仅包含会话状态；input 是含 draft 的点时快照，
+      //     与 useInput 订阅值应一致，快照优先。
       //   0.1.0-rc（旧）：props = { sessionId, useInput, useChat, inputActions }，经 hooks 订阅。
       function PromptkitQuickActionHost(props) {
         const { sessionId, input, useInput, useChat, inputActions } = props
-        // 草稿真源：新契约直接读 zone.input.draft；旧契约用 useInput hook 订阅。
+        // 草稿真源：InputZone 点时快照（0.1.2 下发）优先；0.1.3+ 与旧契约走 useInput 订阅。
         const zonedDraft = input?.draft
         const hookedInput = useInput ? useInput(value => value) : undefined
         const draft = zonedDraft !== undefined ? zonedDraft : hookedInput?.draft

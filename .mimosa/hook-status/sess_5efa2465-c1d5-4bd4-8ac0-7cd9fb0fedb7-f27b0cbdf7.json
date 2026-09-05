@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-09-05T14:45:50.494Z",
+  "sessionId": "sess_5efa2465-c1d5-4bd4-8ac0-7cd9fb0fedb7",
+  "event": "PostToolUse",
+  "toolName": "Write",
+  "file": "/Users/cuijiaqi/.zcode/cli/memories/projects/dsh-promptkit-eee85024fb56049d/memory/MEMORY.md",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 2,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

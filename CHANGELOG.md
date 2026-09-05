@@ -27,6 +27,13 @@
 - 嵌入参数 `searchFiles` 一并移除；自定义宿主保留注入不报错但无效果。增强流程对草稿中已有 `@path` 引用的保留保护（`fileMentions`）不受影响。详见 [升级记录](docs/UPGRADE-HISTORY.md#unreleased)。
 - 移除极简/完整「界面模式」、首次体验自动展开逻辑及 `display-mode.v1` 兼容读取；不再保留「再细化…」分支。
 
+### 兼容性（DSH 0.1.3-alpha.1 适配复查）
+
+- 对齐基线 `0.1.2-alpha.2` → `0.1.3-alpha.1`（约 330 提交，含 `0.1.2-rc.1`）复查宿主契约：`conversation.input.right` 槽位不再下发 `InputZone { session, input }` owner props（ownerProps 清空，槽位改由 `conversation.composer.bar` 声明渲染）。快捷增强器的草稿真源自动回落到 `useInput` 订阅通道——该通道属 `SessionStandardProps`，对 session 作用域条目在三代宿主（`0.1.0-rc` / `0.1.2-alpha` / `0.1.3-alpha.1+`）均下发，无需用户操作；InputZone 点时快照（0.1.2 下发时）仍优先。
+- 复核未受影响契约：`InputActions.setDraft/submit`、`conversation.view`（`viewRequest`/`openView`/`completeViewRequest`）、`useChat` 的 `legacy.nodes` 消息投影（`LegacyConversationSlice` 两版逐字节相同）、node 半区 `ctx.webServer.register` / `ctx.llm.stream` / `agent/created` / `agent/disposed`、bundle patch loader 行约定，均无变化。
+- 宿主新增/重命名备查（PromptKit 均未消费）：附件体系 `imageIds`→`attachmentIds`、`addImages/removeImage/pruneImages`→`addAttachments/removeAttachment/pruneAttachments`、`ComposerAttachment` 拆分 image/file 联合、`CommandClaim.images`→`attachments`、新增通用文件上传（`dsh-client-file-upload`）；chat 侧新增 keyed hooks（`UseChatNode`/`UseChatNodeProcess`）与 `loadThrough` 分页回看。
+- 三处槽位契约注释更新为三代宿主对照（`dsh/standalone-glue.js` 及重建产物 `ui/client.js`、`ui/client-lite.js`）。
+
 ## [0.2.1] - 2026-08-30
 
 状态：待发布；本次仅完成本地版本收口。面向使用者的功能说明与升级操作见 [升级记录](docs/UPGRADE-HISTORY.md#v021)。
