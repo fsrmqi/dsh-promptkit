@@ -36,11 +36,12 @@ export class TextareaComposer extends Composer {
   }
 
   replaceSelection(text, selection = this.getSelection()) {
-    if (!this.el || !selection) { this.write(text); return }
+    if (!this.el || !selection) { this.write(text); return true }
     const next = `${this.el.value.slice(0, selection.start)}${text}${this.el.value.slice(selection.end)}`
     this.write(next)
     const caret = selection.start + String(text).length
     this.el.setSelectionRange?.(caret, caret)
+    return true
   }
 
   onChange(cb) {

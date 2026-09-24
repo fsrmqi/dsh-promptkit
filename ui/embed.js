@@ -713,7 +713,7 @@ class Composer {
   onSelectionChange(cb) { return () => {} }
 
   /** 用 text 替换给定选区；不支持选区的宿主可不实现。 */
-  replaceSelection(text, selection = this.getSelection()) { this.write(text) }
+  replaceSelection(text, selection = this.getSelection()) { this.write(text); return true }
 
   /**
    * 订阅草稿变化（含用户手动输入与 write() 写入），组件据此同步本地状态。
@@ -1108,11 +1108,12 @@ class TextareaComposer extends Composer {
   }
 
   replaceSelection(text, selection = this.getSelection()) {
-    if (!this.el || !selection) { this.write(text); return }
+    if (!this.el || !selection) { this.write(text); return true }
     const next = `${this.el.value.slice(0, selection.start)}${text}${this.el.value.slice(selection.end)}`
     this.write(next)
     const caret = selection.start + String(text).length
     this.el.setSelectionRange?.(caret, caret)
+    return true
   }
 
   onChange(cb) {
@@ -1880,8 +1881,9 @@ function useDraftGuard(composer) {
     if (typeof text !== 'string' || (!allowEmpty && !text.trim())) throw new Error('未返回有效正文，草稿未改动。')
     const selected = snapshot.selection
     const after = selected ? `${snapshot.before.slice(0, selected.start)}${text}${snapshot.before.slice(selected.end)}` : text
-    if (selected && snapshot.composer.replaceSelection) snapshot.composer.replaceSelection(text, selected)
-    else snapshot.composer.write(after)
+    if (selected && snapshot.composer.replaceSelection) {
+      if (snapshot.composer.replaceSelection(text, selected) !== true) throw new Error('选区已变化或输入框已锁定，未覆盖草稿；请重新选择。')
+    } else snapshot.composer.write(after)
     return after
   }
   return { capture, assertCurrent, commit, invalidate }

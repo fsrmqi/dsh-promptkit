@@ -18,7 +18,7 @@ export class Composer {
   onSelectionChange(cb) { return () => {} }
 
   /** 用 text 替换给定选区；不支持选区的宿主可不实现。 */
-  replaceSelection(text, selection = this.getSelection()) { this.write(text) }
+  replaceSelection(text, selection = this.getSelection()) { this.write(text); return true }
 
   /**
    * 订阅草稿变化（含用户手动输入与 write() 写入），组件据此同步本地状态。

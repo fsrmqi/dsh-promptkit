@@ -52,10 +52,11 @@
     "react"
   ],
   "engines": {
-    "node": ">=22.6"
+    "node": ">=22.19"
   },
   "peerDependencies": {
-    "react": ">=17"
+    "react": ">=17",
+    "@deepseek-ai/dsh": ">=0.1.7-0 <0.1.8-0"
   },
   "scripts": {
     "check": "node scripts/check.mjs",

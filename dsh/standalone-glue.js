@@ -29,12 +29,31 @@ async function promptkitSearchMemory(sessionId, query) {
   }
 }
 
+// 整段写入仅用于模板/发送；选区改写走 DshDraftComposer.replaceSelection 的
+// revision-guarded TokenSpan，冲突时绝不回退整段覆盖。
+function safeWrite(inputActions, text) {
+  const value = String(text ?? '')
+  if (typeof inputActions?.setDraft !== 'function') return false
+  inputActions.setDraft(value)
+  return true
+}
+
 // 桥接 DSH 输入框：inputActions 由槽位体系注入（InputActions.setDraft / submit）。
 // getDraft 读宿主每次渲染同步进来的 draft（来源随 DSH 版本：InputZone 点时快照或 useInput 订阅）。
 class DshDraftComposer {
   constructor(input, inputActions) { this.input = input; this.inputActions = inputActions; this.listeners = new Set() }
   getDraft() { return this.input?.draft ?? '' }
-  write(text) { this.inputActions?.setDraft(String(text ?? '')) }
+  write(text) { return safeWrite(this.inputActions, text) }
+  getSelection() {
+    const span = this.inputActions?.captureInsertion?.()
+    const draft = this.getDraft()
+    if (!span || !Number.isInteger(span.start) || !Number.isInteger(span.end) || span.start < 0 || span.end < span.start || span.end > draft.length) return null
+    return { draft, start: span.start, end: span.end, text: draft.slice(span.start, span.end), span }
+  }
+  replaceSelection(text, selection = this.getSelection()) {
+    if (!selection?.span || typeof this.inputActions?.insertText !== 'function') return false
+    return this.inputActions.insertText(String(text ?? ''), selection.span) === true
+  }
   onChange(cb) { this.listeners.add(cb); return () => this.listeners.delete(cb) }
   notify(draft) { for (const cb of this.listeners) cb(draft) }
 }
@@ -72,7 +91,10 @@ function PromptkitStudioHost({ inputActions, openView }) {
     window.addEventListener(studioBridgeEventName(), openStudio)
     return () => window.removeEventListener(studioBridgeEventName(), openStudio)
   }, [openView])
-  const onSend = async text => { inputActions.setDraft(String(text ?? '')); inputActions.submit() }
+  const onSend = async text => {
+    if (!safeWrite(inputActions, text)) throw new Error('草稿已变化或当前宿主不支持写入；请复制后手动粘贴。')
+    await inputActions?.submit?.()
+  }
   return h(PromptStudio, { methodProvider: promptkitMethodProvider, assetProvider: promptkitAssetProvider, onSend })
 }
 

@@ -126,3 +126,19 @@ test('新版会话状态不得覆盖 Chat 消息投影，历史随 Chat 更新',
     assert.equal(element.props.composer.getDraft(), '当前草稿')
   }
 })
+
+test('DSH 0.1.7：选区增强使用 revision-guarded span，不覆盖整段草稿', () => {
+  const { plugin } = loadStandalone()
+  let Host
+  plugin.apply({ slots: { inject: (_, f) => f(), register: (entry, component) => { if (entry.name === 'conversation.input.right') Host = component; return () => {} } } })
+  const calls = []
+  const element = Host({ sessionId: 's', input: { draft: '前言：待增强片段；结尾。' }, useChat: selector => selector({ order: [], nodes: new Map() }), inputActions: {
+    captureInsertion: () => ({ start: 3, end: 8, draftRev: 7 }),
+    insertText: (text, span) => { calls.push({ text, span }); return true },
+    setDraft: () => { throw new Error('选区替换不得退回整段 setDraft') },
+  } })
+  const selection = element.props.composer.getSelection()
+  assert.equal(selection.text, '待增强片段')
+  assert.equal(element.props.composer.replaceSelection('改写结果', selection), true)
+  assert.deepEqual(calls, [{ text: '改写结果', span: { start: 3, end: 8, draftRev: 7 } }])
+})

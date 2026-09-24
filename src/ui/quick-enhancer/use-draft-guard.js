@@ -21,8 +21,9 @@ export function useDraftGuard(composer) {
     if (typeof text !== 'string' || (!allowEmpty && !text.trim())) throw new Error('未返回有效正文，草稿未改动。')
     const selected = snapshot.selection
     const after = selected ? `${snapshot.before.slice(0, selected.start)}${text}${snapshot.before.slice(selected.end)}` : text
-    if (selected && snapshot.composer.replaceSelection) snapshot.composer.replaceSelection(text, selected)
-    else snapshot.composer.write(after)
+    if (selected && snapshot.composer.replaceSelection) {
+      if (snapshot.composer.replaceSelection(text, selected) !== true) throw new Error('选区已变化或输入框已锁定，未覆盖草稿；请重新选择。')
+    } else snapshot.composer.write(after)
     return after
   }
   return { capture, assertCurrent, commit, invalidate }
